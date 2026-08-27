@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Ragnabot — Entrar</title>
+<style>
+  /* ─────────────────────────────────────────────────────────────
+     RAGNABOT · Tela de autenticação — proposta de tema
+     Autocontido: sem fonte externa, sem CDN, sem imagem externa.
+     Paleta e regras completas em identidade.md
+     ───────────────────────────────────────────────────────────── */
+  :root{
+    --verde-profundo:#055508;
+    --verde-medio:#449344;
+    --verde-vivo:#2CC54E;
+    --fundo-noite:#04150B;
+    --fundo-noite-2:#0A2415;
+    --texto-claro:#E9F6EE;      /* sobre fundo-noite: ~16:1 */
+    --texto-claro-2:#A9C4B2;    /* sobre fundo-noite: ~9:1  */
+    --vidro:rgba(255,255,255,0.055);
+    --vidro-borda:rgba(255,255,255,0.14);
+    --erro:#FFB4A8;
+    --raio-cartao:18px;
+    --raio-campo:12px;
+  }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  html,body{ height:100%; }
+  body{
+    font-family:-apple-system, "Segoe UI", Roboto, Ubuntu, "Helvetica Neue", Arial, sans-serif;
+    background:var(--fundo-noite);
+    color:var(--texto-claro);
+    display:flex; align-items:center; justify-content:center;
+    padding:24px;
+    overflow:hidden;
+    position:relative;
+  }
+
+  /* ── Fundo vivo: auroras verdes + teia de hexágonos ─────────── */
+  .aurora{ position:fixed; inset:0; z-index:0; pointer-events:none; }
+  .aurora span{
+    position:absolute; border-radius:50%; filter:blur(90px); opacity:.5;
+    will-change:transform;
+  }
+  .aurora .a1{
+    width:56vmax; height:56vmax; left:-18vmax; top:-22vmax;
+    background:radial-gradient(circle at 40% 40%, #0E6B2A 0%, transparent 65%);
+    animation:flutua1 26s ease-in-out infinite alternate;
+  }
+  .aurora .a2{
+    width:48vmax; height:48vmax; right:-16vmax; bottom:-20vmax;
+    background:radial-gradient(circle at 60% 60%, #063D18 0%, transparent 65%);
+    animation:flutua2 32s ease-in-out infinite alternate;
+  }
+  .aurora .a3{
+    width:30vmax; height:30vmax; right:8vmax; top:-10vmax;
+    background:radial-gradient(circle at 50% 50%, rgba(44,197,78,.35) 0%, transparent 70%);
+    animation:flutua3 22s ease-in-out infinite alternate;
+  }
+  @keyframes flutua1{ from{ transform:translate(0,0) scale(1);} to{ transform:translate(6vmax,4vmax) scale(1.08);} }
+  @keyframes flutua2{ from{ transform:translate(0,0) scale(1.05);} to{ transform:translate(-5vmax,-3vmax) scale(1);} }
+  @keyframes flutua3{ from{ transform:translate(0,0);} to{ transform:translate(-4vmax,5vmax);} }
+
+  .teia{ position:fixed; inset:0; z-index:0; pointer-events:none; opacity:.5; }
+
+  @media (prefers-reduced-motion: reduce){
+    .aurora span{ animation:none; }
+  }
+
+  /* ── Cartão de vidro ────────────────────────────────────────── */
+  .palco{ position:relative; z-index:1; width:100%; max-width:430px; }
+  .cartao{
+    background:var(--vidro);
+    border:1px solid var(--vidro-borda);
+    border-radius:var(--raio-cartao);
+    padding:44px 40px 36px;
+    backdrop-filter:blur(18px);
+    -webkit-backdrop-filter:blur(18px);
+    box-shadow:
+      0 30px 80px rgba(0,0,0,.55),
+      0 2px 0 rgba(255,255,255,.06) inset;
+  }
+  @media (max-width:480px){
+    body{ padding:16px; align-items:flex-start; padding-top:9vh; overflow:auto; }
+    .cartao{ padding:34px 24px 28px; }
+  }
+
+  /* ── Marca ──────────────────────────────────────────────────── */
+  .marca{ display:flex; flex-direction:column; align-items:center; gap:14px; margin-bottom:30px; text-align:center; }
+  .marca .simbolo{ width:76px; height:76px; }
+  .marca h1{
+    font-size:30px; font-weight:800; letter-spacing:-.5px; color:var(--texto-claro);
+  }
+  .marca h1 b{ color:var(--verde-vivo); font-weight:800; }
+  .marca .por{
+    font-size:12.5px; color:var(--texto-claro-2); letter-spacing:.14em; text-transform:uppercase;
+  }
+  .marca p.frase{
+    font-size:14.5px; color:var(--texto-claro-2); line-height:1.5; max-width:32ch;
+  }
+
+  /* ── Formulário ─────────────────────────────────────────────── */
+  form{ display:flex; flex-direction:column; gap:18px; }
+  .campo label{
+    display:block; font-size:13px; font-weight:600; letter-spacing:.02em;
+    color:var(--texto-claro-2); margin-bottom:7px;
+  }
+  .campo .caixa{ position:relative; }
+  .campo input{
+    width:100%; height:50px;
+    background:rgba(4,21,11,.55);
+    border:1px solid rgba(255,255,255,.16);
+    border-radius:var(--raio-campo);
+    color:var(--texto-claro);
+    font-size:15.5px; padding:0 16px;
+    transition:border-color .15s, box-shadow .15s;
+  }
+  .campo input::placeholder{ color:#7E988A; }
+  .campo input:focus{
+    outline:none;
+    border-color:var(--verde-vivo);
+    box-shadow:0 0 0 3px rgba(44,197,78,.22);
+  }
+  .campo.invalido input{
+    border-color:var(--erro);
+    box-shadow:0 0 0 3px rgba(255,180,168,.18);
+  }
+  .campo .dica-erro{
+    display:none; font-size:12.5px; color:var(--erro); margin-top:6px;
+  }
+  .campo.invalido .dica-erro{ display:block; }
+
+  .ver-senha{
+    position:absolute; right:6px; top:50%; transform:translateY(-50%);
+    background:none; border:none; cursor:pointer;
+    color:var(--texto-claro-2); font-size:12.5px; font-weight:600;
+    padding:10px 10px; border-radius:8px; min-height:44px;
+  }
+  .ver-senha:hover{ color:var(--texto-claro); }
+  .ver-senha:focus-visible{ outline:2px solid var(--verde-vivo); outline-offset:2px; }
+
+  .aviso{
+    display:none; align-items:flex-start; gap:10px;
+    background:rgba(255,180,168,.10);
+    border:1px solid rgba(255,180,168,.35);
+    border-radius:var(--raio-campo);
+    padding:12px 14px; font-size:13.5px; color:var(--erro); line-height:1.45;
+  }
+  .aviso.visivel{ display:flex; }
+
+  .entrar{
+    height:52px; border:none; border-radius:var(--raio-campo);
+    background:linear-gradient(180deg, #35D95A 0%, var(--verde-vivo) 55%, #23AC42 100%);
+    color:#04150B;                       /* sobre o verde vivo: ~8,3:1 */
+    font-size:16px; font-weight:800; letter-spacing:.02em;
+    cursor:pointer; margin-top:4px;
+    box-shadow:0 10px 26px rgba(44,197,78,.28);
+    transition:transform .12s, box-shadow .12s, filter .12s;
+  }
+  .entrar:hover{ filter:brightness(1.05); box-shadow:0 14px 32px rgba(44,197,78,.36); }
+  .entrar:active{ transform:translateY(1px); }
+  .entrar:focus-visible{ outline:2px solid #fff; outline-offset:3px; }
+
+  .esqueci{ text-align:center; margin-top:2px; }
+  .esqueci a{
+    color:var(--texto-claro-2); font-size:14px; text-decoration:none;
+    border-bottom:1px solid rgba(169,196,178,.35); padding-bottom:1px;
+  }
+  .esqueci a:hover{ color:var(--verde-vivo); border-color:var(--verde-vivo); }
+  .esqueci a:focus-visible{ outline:2px solid var(--verde-vivo); outline-offset:3px; border-radius:4px; }
+
+  /* ── Rodapé ─────────────────────────────────────────────────── */
+  .rodape{
+    position:relative; z-index:1;
+    text-align:center; margin-top:26px;
+    font-size:12.5px; color:#7E988A; line-height:1.7;
+  }
+  .rodape b{ color:var(--texto-claro-2); font-weight:600; }
+</style>
+</head>
+<body>
+
+  <!-- fundo: auroras -->
+  <div class="aurora" aria-hidden="true"><span class="a1"></span><span class="a2"></span><span class="a3"></span></div>
+
+  <!-- fundo: teia de hexágonos (motivo da marca) -->
+  <svg class="teia" aria-hidden="true" width="100%" height="100%">
+    <defs>
+      <pattern id="hex" width="56" height="97" patternUnits="userSpaceOnUse" patternTransform="scale(1.15)">
+        <path d="M28 0 L56 16.2 L56 48.5 L28 64.7 L0 48.5 L0 16.2 Z"
+              fill="none" stroke="rgba(68,147,68,0.13)" stroke-width="1"/>
+        <path d="M28 64.7 L56 80.9 L56 97 M28 64.7 L0 80.9 L0 97"
+              fill="none" stroke="rgba(68,147,68,0.13)" stroke-width="1"/>
+      </pattern>
+    </defs>
+    <rect width="100%" height="100%" fill="url(#hex)"/>
+  </svg>
+
+  <div class="palco">
+    <main class="cartao">
+      <header class="marca">
+        <!-- ESPAÇO DA LOGOMARCA: em produção, substituir este símbolo provisório
+             pela marca oficial (marca/web/logo-branco-600.webp ou logo-vetor.svg
+             na versão branca). O desenho abaixo é um marcador de posição no motivo
+             hexágono + conversa, apenas para a proposta. -->
+        <svg class="simbolo" viewBox="0 0 96 96" role="img" aria-label="Símbolo do Ragnabot">
+          <path d="M48 6 L84 27 L84 69 L48 90 L12 69 L12 27 Z"
+                fill="rgba(44,197,78,0.07)" stroke="#2CC54E" stroke-width="3" stroke-linejoin="round"/>
+          <path d="M31 36 h34 a6 6 0 0 1 6 6 v14 a6 6 0 0 1 -6 6 h-18 l-10 9 v-9 h-6 a6 6 0 0 1 -6 -6 v-14 a6 6 0 0 1 6 -6 z"
+                fill="none" stroke="#E9F6EE" stroke-width="3" stroke-linejoin="round"/>
+          <circle cx="40" cy="49" r="2.6" fill="#2CC54E"/>
+          <circle cx="49" cy="49" r="2.6" fill="#2CC54E"/>
+          <circle cx="58" cy="49" r="2.6" fill="#2CC54E"/>
+        </svg>
+        <h1>Ragna<b>bot</b></h1>
+        <span class="por">by Ragnatela</span>
+        <p class="frase">Todas as conversas da sua empresa, num só lugar.</p>
+      </header>
+
+      <form novalidate>
+        <div class="aviso" role="alert" id="aviso">
+          <span aria-hidden="true">⚠</span>
+          <span>Confira o e-mail e a senha informados.</span>
+        </div>
+
+        <div class="campo" id="campo-email">
+          <label for="email">E-mail</label>
+          <div class="caixa">
+            <input type="email" id="email" name="email" inputmode="email" autocomplete="username"
+                   placeholder="voce@suaempresa.com.br" required>
+          </div>
+          <span class="dica-erro">Informe um e-mail válido.</span>
+        </div>
+
+        <div class="campo" id="campo-senha">
+          <label for="senha">Senha</label>
+          <div class="caixa">
+            <input type="password" id="senha" name="senha" autocomplete="current-password"
+                   placeholder="Sua senha" required>
+            <button type="button" class="ver-senha" id="ver-senha" aria-pressed="false">mostrar</button>
+          </div>
+          <span class="dica-erro">Informe a sua senha.</span>
+        </div>
+
+        <button type="submit" class="entrar">Entrar</button>
+
+        <p class="esqueci"><a href="#">Esqueci a senha</a></p>
+      </form>
+    </main>
+
+    <footer class="rodape">
+      <b>Ragnabot</b> · plataforma de atendimento omnichannel<br>
+      RAGNATELA IOT SOLUTIONS
+    </footer>
+  </div>
+
+<script>
+  // Demonstração dos estados — sem autenticação real nesta proposta.
+  const form = document.querySelector('form');
+  const aviso = document.getElementById('aviso');
+  const email = document.getElementById('email');
+  const senha = document.getElementById('senha');
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    let ok = true;
+    for (const [input, campo] of [[email, 'campo-email'], [senha, 'campo-senha']]) {
+      const invalido = !input.value.trim() || !input.checkValidity();
+      document.getElementById(campo).classList.toggle('invalido', invalido);
+      if (invalido) ok = false;
+    }
+    aviso.classList.toggle('visivel', !ok);
+    if (ok) aviso.classList.remove('visivel');
+  });
+
+  const botaoVer = document.getElementById('ver-senha');
+  botaoVer.addEventListener('click', () => {
+    const mostrando = senha.type === 'text';
+    senha.type = mostrando ? 'password' : 'text';
+    botaoVer.textContent = mostrando ? 'mostrar' : 'ocultar';
+    botaoVer.setAttribute('aria-pressed', String(!mostrando));
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,137 @@
+# =============================================================================
+# RAGNABOT — Plataforma de Atendimento Omnichannel (Ragnatela IoT Solutions)
+# Manifesto Kubernetes — versao SANITIZADA para o git.
+# ⛔ LEI: credencial JAMAIS no git. Os valores reais do Secret vivem apenas:
+#   1. aplicados no cluster (kubectl -n ragnabot get secret ragnabot-env)
+#   2. no cofre local /root/.chat002-credenciais das VMs de banco (10603/10604)
+# Para instalar: preencha os <PLACEHOLDER> e aplique com kubectl apply -f.
+# =============================================================================
+apiVersion: v1
+kind: Namespace
+metadata: { name: ragnabot }
+---
+apiVersion: v1
+kind: Secret
+metadata: { name: ragnabot-env, namespace: ragnabot }
+type: Opaque
+stringData:
+  SECRET_KEY_BASE: "<GERE COM: openssl rand -hex 64>"
+  POSTGRES_PASSWORD: "<SENHA DO USUARIO chatwoot NO POSTGRES>"
+  REDIS_URL: "redis://:<SENHA-REDIS>@172.17.20.132:6379"
+  REDIS_PASSWORD: "<SENHA-REDIS>"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: ragnabot-config, namespace: ragnabot }
+data:
+  FRONTEND_URL: "https://chat002.ragnatela.com.br"
+  INSTALLATION_ENV: "kubernetes-ragnatela"
+  RAILS_ENV: "production"
+  NODE_ENV: "production"
+  RAILS_LOG_TO_STDOUT: "true"
+  LOG_LEVEL: "info"
+  DEFAULT_LOCALE: "pt_BR"
+  POSTGRES_HOST: "172.17.20.132"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DATABASE: "chatwoot"
+  POSTGRES_USERNAME: "chatwoot"
+  ENABLE_ACCOUNT_SIGNUP: "false"   # fechado apos criar a conta 1 (SaaS: tenants criados pelo NOC)
+  ACTIVE_STORAGE_SERVICE: "local"
+  TRUSTED_PROXIES: "10.244.0.0/16,172.17.20.0/24,172.20.11.2"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: ragnabot-storage, namespace: ragnabot }
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources: { requests: { storage: 20Gi } }
+---
+# Migracao/preparacao do banco. Rode UMA vez a cada atualizacao de imagem:
+#   kubectl -n ragnabot delete job ragnabot-migracao; kubectl apply -f (este arquivo, so o Job)
+apiVersion: batch/v1
+kind: Job
+metadata: { name: ragnabot-migracao, namespace: ragnabot }
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      nodeSelector: { kubernetes.io/hostname: rgtk8s001 }
+      containers:
+      - name: migracao
+        image: chatwoot/chatwoot:latest
+        command: ["bundle","exec","rails","db:chatwoot_prepare"]
+        envFrom: [{ configMapRef: { name: ragnabot-config } }, { secretRef: { name: ragnabot-env } }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: ragnabot-web, namespace: ragnabot }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: ragnabot-web } }
+  template:
+    metadata: { labels: { app: ragnabot-web } }
+    spec:
+      # web e worker DIVIDEM o PVC local (RWO) -> presos ao mesmo no por enquanto.
+      # HA de aplicacao virá com storage S3 (Fase 8); o BANCO ja e replicado (VM standby).
+      nodeSelector: { kubernetes.io/hostname: rgtk8s001 }
+      containers:
+      - name: web
+        image: chatwoot/chatwoot:latest
+        command: ["bundle","exec","rails","s","-p","3000","-b","0.0.0.0"]
+        ports: [{ containerPort: 3000 }]
+        envFrom: [{ configMapRef: { name: ragnabot-config } }, { secretRef: { name: ragnabot-env } }]
+        volumeMounts: [{ name: storage, mountPath: /app/storage }]
+        readinessProbe: { httpGet: { path: /api, port: 3000 }, initialDelaySeconds: 20, periodSeconds: 10, failureThreshold: 12 }
+        resources: { requests: { cpu: 250m, memory: 1Gi }, limits: { memory: 2500Mi } }
+      volumes:
+      - name: storage
+        persistentVolumeClaim: { claimName: ragnabot-storage }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: ragnabot-worker, namespace: ragnabot }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: ragnabot-worker } }
+  template:
+    metadata: { labels: { app: ragnabot-worker } }
+    spec:
+      nodeSelector: { kubernetes.io/hostname: rgtk8s001 }
+      containers:
+      - name: worker
+        image: chatwoot/chatwoot:latest
+        command: ["bundle","exec","sidekiq","-C","config/sidekiq.yml"]
+        envFrom: [{ configMapRef: { name: ragnabot-config } }, { secretRef: { name: ragnabot-env } }]
+        volumeMounts: [{ name: storage, mountPath: /app/storage }]
+        resources: { requests: { cpu: 250m, memory: 1Gi }, limits: { memory: 2500Mi } }
+      volumes:
+      - name: storage
+        persistentVolumeClaim: { claimName: ragnabot-storage }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: ragnabot-web, namespace: ragnabot }
+spec:
+  selector: { app: ragnabot-web }
+  ports: [{ port: 3000, targetPort: 3000 }]
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ragnabot
+  namespace: ragnabot
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "86400"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "86400"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: chat002.ragnatela.com.br
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend: { service: { name: ragnabot-web, port: { number: 3000 } } }

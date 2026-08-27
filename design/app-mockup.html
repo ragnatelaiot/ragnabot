@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Ragnabot — Caixa de entrada (mockup)</title>
+<style>
+  /* ─────────────────────────────────────────────────────────────
+     RAGNABOT · Mockup das telas de uso — guia visual para o tema
+     Autocontido. Nomes e mensagens são FICTÍCIOS.
+     Paleta, contrastes medidos e mapeamento em identidade.md
+     ───────────────────────────────────────────────────────────── */
+  :root{
+    --verde-profundo:#055508;
+    --verde-medio:#449344;
+    --verde-vivo:#2CC54E;
+    --fundo-noite:#04150B;
+    --fundo-noite-2:#0A2415;
+    --tinta:#12211C;
+    --tinta-2:#5D7169;
+    --borda:#D7E5DE;
+    --fundo-suave:#F2F8F5;
+    --texto-claro:#E9F6EE;
+    --texto-claro-2:#A9C4B2;
+    --nota-fundo:#FFF6DC;
+    --nota-borda:#E8D9A0;
+    --nota-tinta:#4A3B12;
+    --ch-whatsapp:#1E9E52;
+    --ch-instagram:#C13584;
+    --ch-messenger:#0078E7;
+    --ch-email:#5A6B78;
+    --ch-telegram:#1E96D1;
+    --ch-webchat:#055508;
+    --raio:12px;
+    --sombra-1:0 1px 2px rgba(18,33,28,.06), 0 4px 14px rgba(18,33,28,.05);
+  }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  html,body{ height:100%; }
+  body{
+    font-family:-apple-system, "Segoe UI", Roboto, Ubuntu, "Helvetica Neue", Arial, sans-serif;
+    color:var(--tinta);
+    background:var(--fundo-suave);
+    overflow:hidden;
+  }
+  button{ font-family:inherit; cursor:pointer; }
+  .app{
+    display:grid;
+    grid-template-columns:264px 360px minmax(0,1fr);
+    height:100dvh;
+  }
+
+  /* ══ 1. BARRA LATERAL (filas, times, canais, etiquetas) ══════ */
+  .lateral{
+    background:linear-gradient(180deg, var(--fundo-noite-2) 0%, var(--fundo-noite) 70%);
+    color:var(--texto-claro);
+    display:flex; flex-direction:column;
+    overflow-y:auto; min-height:0;
+  }
+  .lateral .topo{
+    display:flex; align-items:center; gap:11px;
+    padding:20px 18px 16px;
+  }
+  .lateral .topo svg{ width:34px; height:34px; flex:none; }
+  .lateral .topo .nome{ font-size:18px; font-weight:800; letter-spacing:-.3px; }
+  .lateral .topo .nome b{ color:var(--verde-vivo); }
+  .lateral .topo .por{ display:block; font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--texto-claro-2); margin-top:1px; }
+
+  .lateral nav{ padding:4px 12px 16px; display:flex; flex-direction:column; gap:22px; }
+  .grupo .titulo{
+    font-size:11px; font-weight:700; letter-spacing:.12em; text-transform:uppercase;
+    color:var(--texto-claro-2); padding:0 8px 8px;
+  }
+  .grupo a{
+    display:flex; align-items:center; gap:10px;
+    color:var(--texto-claro); text-decoration:none;
+    font-size:14px; padding:9px 10px; border-radius:10px;
+    line-height:1;
+  }
+  .grupo a:hover{ background:rgba(255,255,255,.06); }
+  .grupo a.ativo{
+    background:rgba(44,197,78,.14);
+    color:#fff; font-weight:600;
+    box-shadow:inset 3px 0 0 var(--verde-vivo);
+  }
+  .grupo a .cont{
+    margin-left:auto; font-size:11.5px; font-weight:700;
+    background:rgba(255,255,255,.10); color:var(--texto-claro);
+    border-radius:999px; padding:2px 8px;
+  }
+  .grupo a.ativo .cont{ background:var(--verde-vivo); color:var(--fundo-noite); }
+  .grupo a svg{ width:17px; height:17px; flex:none; opacity:.85; }
+
+  .etiqueta-ponto{ width:9px; height:9px; border-radius:50%; flex:none; }
+
+  .lateral .usuario{
+    margin-top:auto; padding:14px 18px;
+    border-top:1px solid rgba(255,255,255,.08);
+    display:flex; align-items:center; gap:10px; font-size:13px;
+  }
+  .lateral .usuario .avatar{ background:var(--verde-medio); color:#fff; }
+  .lateral .usuario .papel{ color:var(--texto-claro-2); font-size:11.5px; }
+
+  /* ══ 2. LISTA DE CONVERSAS ═══════════════════════════════════ */
+  .lista{
+    background:#fff;
+    border-right:1px solid var(--borda);
+    display:flex; flex-direction:column; min-height:0; min-width:0;
+  }
+  .lista .cabeca{
+    padding:16px 18px 12px;
+    border-bottom:1px solid var(--borda);
+  }
+  .lista .cabeca .linha1{ display:flex; align-items:center; gap:10px; }
+  .botao-menu{
+    display:none; border:1px solid var(--borda); background:#fff;
+    border-radius:10px; width:40px; height:40px; font-size:18px; color:var(--tinta);
+  }
+  .lista h1{ font-size:19px; font-weight:800; letter-spacing:-.3px; }
+  .lista .busca{
+    margin-top:12px; position:relative;
+  }
+  .lista .busca input{
+    width:100%; height:40px; border:1px solid var(--borda); border-radius:10px;
+    background:var(--fundo-suave); font-size:14px; padding:0 14px; color:var(--tinta);
+  }
+  .lista .busca input::placeholder{ color:var(--tinta-2); }
+  .lista .busca input:focus{ outline:none; border-color:var(--verde-medio); box-shadow:0 0 0 3px rgba(68,147,68,.18); }
+  .filtros{ display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
+  .filtros button{
+    border:1px solid var(--borda); background:#fff; color:var(--tinta-2);
+    font-size:12.5px; font-weight:600; border-radius:999px; padding:6px 12px;
+  }
+  .filtros button.ativo{
+    background:var(--verde-profundo); border-color:var(--verde-profundo); color:#fff;
+  }
+
+  .conversas{ overflow-y:auto; min-height:0; flex:1; }
+  .conversa-item{
+    display:flex; gap:12px; width:100%; text-align:left;
+    padding:14px 16px; background:#fff; border:none;
+    border-bottom:1px solid #EAF2ED; cursor:pointer;
+  }
+  .conversa-item:hover{ background:var(--fundo-suave); }
+  .conversa-item.aberta{ background:#EAF6EE; box-shadow:inset 3px 0 0 var(--verde-profundo); }
+  .avatar{
+    width:42px; height:42px; border-radius:50%; flex:none;
+    display:flex; align-items:center; justify-content:center;
+    font-size:15px; font-weight:700; color:#fff;
+    position:relative;
+  }
+  .avatar.c1{ background:#0B6B4F; } .avatar.c2{ background:#7C4DAB; }
+  .avatar.c3{ background:#B3541E; } .avatar.c4{ background:#31589C; }
+  .avatar.c5{ background:#8C2F4F; } .avatar.c6{ background:#3D6B12; }
+  .canal-selo{
+    position:absolute; right:-4px; bottom:-4px;
+    width:20px; height:20px; border-radius:50%;
+    border:2px solid #fff;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .canal-selo svg{ width:11px; height:11px; fill:#fff; }
+  .conversa-item .meio{ flex:1; min-width:0; }
+  .conversa-item .linha{ display:flex; align-items:baseline; gap:8px; }
+  .conversa-item .quem{ font-size:14.5px; font-weight:700; color:var(--tinta); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .conversa-item .hora{ margin-left:auto; flex:none; font-size:11.5px; color:var(--tinta-2); }
+  .conversa-item .previa{
+    margin-top:3px; font-size:13px; color:var(--tinta-2); line-height:1.35;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+  }
+  .conversa-item .rodape-item{ display:flex; align-items:center; gap:6px; margin-top:7px; }
+  .selo{
+    font-size:10.5px; font-weight:700; letter-spacing:.03em;
+    border-radius:999px; padding:2.5px 9px;
+  }
+  .selo.aberta-s{ background:#E3F4E8; color:var(--verde-profundo); }
+  .selo.pendente{ background:#FFF3CD; color:#7A5A00; }
+  .selo.resolvida{ background:#E8F0EB; color:#305A3E; }
+  .selo.etq{ background:#F2F8F5; color:var(--tinta-2); border:1px solid var(--borda); }
+  .nao-lidas{
+    margin-left:auto; background:var(--verde-vivo); color:var(--fundo-noite);
+    font-size:11px; font-weight:800; border-radius:999px; min-width:20px; height:20px;
+    display:flex; align-items:center; justify-content:center; padding:0 6px;
+  }
+
+  /* ══ 3. PAINEL DA CONVERSA ═══════════════════════════════════ */
+  .veu{ display:none; }
+  .painel{ display:flex; flex-direction:column; min-width:0; min-height:0; }
+  .painel .cabeca{
+    background:#fff; border-bottom:1px solid var(--borda);
+    padding:12px 20px; display:flex; align-items:center; gap:12px;
+  }
+  .botao-voltar{
+    display:none; border:1px solid var(--borda); background:#fff;
+    border-radius:10px; width:40px; height:40px; font-size:18px; color:var(--tinta); flex:none;
+  }
+  .painel .cabeca .avatar{ width:38px; height:38px; font-size:13.5px; }
+  .painel .cabeca .quem{ min-width:0; }
+  .painel .cabeca .quem .nome{ font-size:15.5px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .painel .cabeca .quem .via{ font-size:12px; color:var(--tinta-2); margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .painel .cabeca .acoes{ margin-left:auto; display:flex; gap:8px; flex:none; }
+  .botao{
+    border-radius:10px; font-size:13.5px; font-weight:700; padding:9px 14px;
+    border:1px solid var(--borda); background:#fff; color:var(--tinta);
+  }
+  .botao:hover{ background:var(--fundo-suave); }
+  .botao.primario{
+    background:var(--verde-profundo); border-color:var(--verde-profundo); color:#fff;
+  }
+  .botao.primario:hover{ background:#0A6B10; }
+  .botao:focus-visible{ outline:2px solid var(--verde-vivo); outline-offset:2px; }
+
+  .fluxo{
+    flex:1; overflow-y:auto; min-height:0;
+    padding:22px 22px 10px;
+    display:flex; flex-direction:column; gap:14px;
+    background:
+      radial-gradient(circle at 85% 10%, rgba(44,197,78,.05), transparent 40%),
+      var(--fundo-suave);
+  }
+  .dia{
+    align-self:center; font-size:11.5px; font-weight:700; letter-spacing:.06em;
+    color:var(--tinta-2); background:#fff; border:1px solid var(--borda);
+    border-radius:999px; padding:4px 14px;
+  }
+  .msg{ max-width:min(72%, 560px); display:flex; flex-direction:column; gap:4px; }
+  .msg .balao{
+    padding:11px 15px; font-size:14.5px; line-height:1.5;
+    border-radius:16px; box-shadow:var(--sombra-1);
+  }
+  .msg .hora{ font-size:11px; color:var(--tinta-2); }
+  .msg.entrada{ align-self:flex-start; }
+  .msg.entrada .balao{ background:#fff; border:1px solid #E4EEE8; border-bottom-left-radius:6px; }
+  .msg.saida{ align-self:flex-end; align-items:flex-end; }
+  .msg.saida .balao{ background:var(--verde-profundo); color:#F2FBF4; border-bottom-right-radius:6px; }
+  .msg.saida .hora{ text-align:right; }
+  .msg.nota{ align-self:stretch; max-width:none; }
+  .msg.nota .balao{
+    background:var(--nota-fundo); border:1px dashed var(--nota-borda);
+    color:var(--nota-tinta); border-radius:12px;
+  }
+  .msg.nota .balao .rotulo{
+    display:inline-flex; align-items:center; gap:6px;
+    font-size:11px; font-weight:800; letter-spacing:.08em; text-transform:uppercase;
+    margin-bottom:5px; color:#8A6D1C;
+  }
+
+  /* ── caixa de resposta ── */
+  .responder{
+    background:#fff; border-top:1px solid var(--borda); padding:0 20px 16px;
+  }
+  .abas{ display:flex; gap:2px; }
+  .abas button{
+    border:none; background:none; font-size:13.5px; font-weight:700;
+    color:var(--tinta-2); padding:12px 14px 10px; border-bottom:2.5px solid transparent;
+  }
+  .abas button.ativa{ color:var(--verde-profundo); border-color:var(--verde-profundo); }
+  .abas button.aba-nota.ativa{ color:#8A6D1C; border-color:#D9B93C; }
+  .caixa-texto{
+    border:1px solid var(--borda); border-radius:14px; padding:12px 14px 10px;
+    transition:border-color .15s, box-shadow .15s, background .15s;
+  }
+  .caixa-texto:focus-within{ border-color:var(--verde-medio); box-shadow:0 0 0 3px rgba(68,147,68,.16); }
+  .caixa-texto.modo-nota{ background:var(--nota-fundo); border-color:var(--nota-borda); }
+  .caixa-texto textarea{
+    width:100%; border:none; background:transparent; resize:none;
+    font-family:inherit; font-size:14.5px; line-height:1.5; color:var(--tinta);
+    min-height:56px; outline:none;
+  }
+  .caixa-texto .barra{
+    display:flex; align-items:center; gap:6px; margin-top:6px;
+  }
+  .ferramenta{
+    border:none; background:none; color:var(--tinta-2); font-size:16px;
+    width:34px; height:34px; border-radius:8px;
+  }
+  .ferramenta:hover{ background:var(--fundo-suave); color:var(--tinta); }
+  .enviar{
+    margin-left:auto; border:none; border-radius:10px;
+    background:var(--verde-vivo); color:var(--fundo-noite);
+    font-size:14px; font-weight:800; padding:10px 20px;
+    box-shadow:0 6px 16px rgba(44,197,78,.25);
+  }
+  .enviar:hover{ filter:brightness(1.06); }
+  .atalho{ font-size:11.5px; color:var(--tinta-2); margin-top:8px; }
+
+  /* ══ RESPONSIVO ══════════════════════════════════════════════ */
+  @media (max-width:1100px){
+    .app{ grid-template-columns:320px minmax(0,1fr); }
+    .lateral{
+      position:fixed; inset:0 auto 0 0; width:280px; z-index:30;
+      transform:translateX(-100%); transition:transform .22s ease;
+      box-shadow:24px 0 60px rgba(0,0,0,.35);
+    }
+    body.menu-aberto .lateral{ transform:translateX(0); }
+    .botao-menu{ display:block; }
+    .veu{
+      position:fixed; inset:0; z-index:25; background:rgba(4,21,11,.5);
+      border:none;
+    }
+    body.menu-aberto .veu{ display:block; }
+  }
+  @media (max-width:900px){
+    .acoes .botao.opcional{ display:none; }
+  }
+  @media (max-width:720px){
+    .app{ grid-template-columns:1fr; }
+    .lista{ border-right:none; }
+    .painel{ display:none; }
+    body.ver-conversa .lista{ display:none; }
+    body.ver-conversa .painel{ display:flex; }
+    .botao-voltar{ display:block; }
+    .msg{ max-width:86%; }
+    .painel .cabeca{ padding:10px 12px; }
+    .fluxo{ padding:16px 12px 8px; }
+    .responder{ padding:0 12px 12px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ícones dos canais (glifos próprios, simplificados) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-whatsapp" viewBox="0 0 24 24"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5.1-1.3A10 10 0 1 0 12 2Zm4.9 13.6c-.2.6-1.2 1.2-1.7 1.2-.4.1-1 .1-1.6-.1a13 13 0 0 1-5.8-5.1c-.7-1.1-1-2.1-.9-2.6 0-.5.6-1.5 1.2-1.6.5-.1.8 0 1 .4l.8 1.9c.1.3 0 .6-.2.8l-.5.6c.5 1 1.9 2.4 3.2 3l.6-.6c.2-.2.5-.3.8-.2l1.8.9c.4.1.5.5.3 1.4Z"/></symbol>
+    <symbol id="i-instagram" viewBox="0 0 24 24"><path d="M7.5 2h9A5.5 5.5 0 0 1 22 7.5v9A5.5 5.5 0 0 1 16.5 22h-9A5.5 5.5 0 0 1 2 16.5v-9A5.5 5.5 0 0 1 7.5 2Zm0 2A3.5 3.5 0 0 0 4 7.5v9A3.5 3.5 0 0 0 7.5 20h9a3.5 3.5 0 0 0 3.5-3.5v-9A3.5 3.5 0 0 0 16.5 4h-9ZM12 7.2a4.8 4.8 0 1 1 0 9.6 4.8 4.8 0 0 1 0-9.6Zm0 2a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6ZM17.3 5.5a1.2 1.2 0 1 1 0 2.4 1.2 1.2 0 0 1 0-2.4Z"/></symbol>
+    <symbol id="i-messenger" viewBox="0 0 24 24"><path d="M12 2C6.5 2 2 6.1 2 11.3c0 2.9 1.4 5.5 3.6 7.2V22l3.3-1.8c.9.3 2 .4 3.1.4 5.5 0 10-4.1 10-9.3S17.5 2 12 2Zm1.1 12.5-2.6-2.7-5 2.7 5.5-5.8 2.6 2.7 4.9-2.7-5.4 5.8Z"/></symbol>
+    <symbol id="i-email" viewBox="0 0 24 24"><path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm8 7.9L20 6H4l8 5.9ZM4 8.4V18h16V8.4l-8 5.9-8-5.9Z"/></symbol>
+    <symbol id="i-telegram" viewBox="0 0 24 24"><path d="M21.6 3.3 2.9 10.6c-1 .4-.9 1.1-.1 1.3l4.7 1.5 1.8 5.6c.2.6.4.8.9.8.4 0 .6-.2 1-.5l2.3-2.2 4.8 3.5c.9.5 1.5.2 1.7-.8l3.1-14.7c.3-1.2-.4-1.7-1.5-1.3ZM8.2 13.1l9.9-6.3c.5-.3.9-.1.5.2l-8.4 7.6-.3 3.5-1.7-5Z"/></symbol>
+    <symbol id="i-webchat" viewBox="0 0 24 24"><path d="M5 3h14a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3h-8.6L6 21.8V18H5a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3Zm2.5 6a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm4.5 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm4.5 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z"/></symbol>
+    <symbol id="i-caixa" viewBox="0 0 24 24"><path d="M4 4h16v10h-4l-2 3h-4l-2-3H4V4Zm0 12h4.9l2 3h2.2l2-3H20v4H4v-4Z"/></symbol>
+    <symbol id="i-time" viewBox="0 0 24 24"><path d="M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm7 1a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM2 19c0-3 3.2-5 7-5s7 2 7 5v1H2v-1Zm15.4 1H22v-1c0-2-1.4-3.5-3.5-4.3 1.7.9 2.9 2.4 2.9 4.3v1Z"/></symbol>
+  </defs>
+</svg>
+
+<div class="app">
+
+  <!-- ═══ BARRA LATERAL ═══ -->
+  <aside class="lateral">
+    <div class="topo">
+      <svg viewBox="0 0 96 96" aria-hidden="true">
+        <path d="M48 6 L84 27 L84 69 L48 90 L12 69 L12 27 Z" fill="rgba(44,197,78,0.08)" stroke="#2CC54E" stroke-width="4" stroke-linejoin="round"/>
+        <path d="M31 36 h34 a6 6 0 0 1 6 6 v14 a6 6 0 0 1 -6 6 h-18 l-10 9 v-9 h-6 a6 6 0 0 1 -6 -6 v-14 a6 6 0 0 1 6 -6 z" fill="none" stroke="#E9F6EE" stroke-width="4" stroke-linejoin="round"/>
+      </svg>
+      <div>
+        <span class="nome">Ragna<b>bot</b></span>
+        <span class="por">by Ragnatela</span>
+      </div>
+    </div>
+
+    <nav>
+      <div class="grupo">
+        <div class="titulo">Caixas de entrada</div>
+        <a href="#" class="ativo"><svg><use href="#i-caixa"/></svg> Todas as conversas <span class="cont">28</span></a>
+        <a href="#"><svg><use href="#i-caixa"/></svg> Minhas <span class="cont">6</span></a>
+        <a href="#"><svg><use href="#i-caixa"/></svg> Não atribuídas <span class="cont">9</span></a>
+      </div>
+
+      <div class="grupo">
+        <div class="titulo">Times e filas</div>
+        <a href="#"><svg><use href="#i-time"/></svg> Suporte N1 <span class="cont">11</span></a>
+        <a href="#"><svg><use href="#i-time"/></svg> Comercial <span class="cont">7</span></a>
+        <a href="#"><svg><use href="#i-time"/></svg> Financeiro <span class="cont">3</span></a>
+      </div>
+
+      <div class="grupo">
+        <div class="titulo">Canais</div>
+        <a href="#"><svg style="fill:#37C973"><use href="#i-whatsapp"/></svg> WhatsApp <span class="cont">14</span></a>
+        <a href="#"><svg style="fill:#E273B4"><use href="#i-instagram"/></svg> Instagram <span class="cont">5</span></a>
+        <a href="#"><svg style="fill:#63AEF5"><use href="#i-messenger"/></svg> Messenger <span class="cont">2</span></a>
+        <a href="#"><svg style="fill:#9FB4C2"><use href="#i-email"/></svg> E-mail <span class="cont">4</span></a>
+        <a href="#"><svg style="fill:#5FB9E8"><use href="#i-telegram"/></svg> Telegram <span class="cont">1</span></a>
+        <a href="#"><svg style="fill:#7BD08F"><use href="#i-webchat"/></svg> Chat do site <span class="cont">2</span></a>
+      </div>
+
+      <div class="grupo">
+        <div class="titulo">Etiquetas</div>
+        <a href="#"><span class="etiqueta-ponto" style="background:#FF7A59"></span> urgente</a>
+        <a href="#"><span class="etiqueta-ponto" style="background:#2CC54E"></span> novo-cliente</a>
+        <a href="#"><span class="etiqueta-ponto" style="background:#5FB9E8"></span> renovação</a>
+        <a href="#"><span class="etiqueta-ponto" style="background:#D9B93C"></span> financeiro</a>
+      </div>
+    </nav>
+
+    <div class="usuario">
+      <span class="avatar" style="width:34px;height:34px;font-size:12.5px">AS</span>
+      <div>
+        <div>Ana Souza</div>
+        <div class="papel">Atendente · disponível</div>
+      </div>
+    </div>
+  </aside>
+  <button class="veu" id="veu" aria-label="Fechar menu"></button>
+
+  <!-- ═══ LISTA DE CONVERSAS ═══ -->
+  <section class="lista">
+    <header class="cabeca">
+      <div class="linha1">
+        <button class="botao-menu" id="abrir-menu" aria-label="Abrir menu">☰</button>
+        <h1>Caixa de entrada</h1>
+      </div>
+      <div class="busca"><input type="search" placeholder="Buscar conversa, contato ou mensagem…" aria-label="Buscar"></div>
+      <div class="filtros">
+        <button class="ativo">Abertas</button>
+        <button>Pendentes</button>
+        <button>Resolvidas</button>
+        <button>Tudo</button>
+      </div>
+    </header>
+
+    <div class="conversas">
+
+      <button class="conversa-item aberta abre-conversa">
+        <span class="avatar c1">MA
+          <span class="canal-selo" style="background:var(--ch-whatsapp)"><svg><use href="#i-whatsapp"/></svg></span>
+        </span>
+        <span class="meio">
+          <span class="linha"><span class="quem">Marcos Andrade</span><span class="hora">09:42</span></span>
+          <span class="previa">Bom dia! O acesso voltou por aqui, mas queria entender o que aconteceu…</span>
+          <span class="rodape-item"><span class="selo aberta-s">Aberta</span><span class="selo etq">urgente</span><span class="nao-lidas">2</span></span>
+        </span>
+      </button>
+
+      <button class="conversa-item abre-conversa">
+        <span class="avatar c2">JP
+          <span class="canal-selo" style="background:var(--ch-instagram)"><svg><use href="#i-instagram"/></svg></span>
+        </span>
+        <span class="meio">
+          <span class="linha"><span class="quem">Juliana Prado</span><span class="hora">09:15</span></span>
+          <span class="previa">Vocês atendem aos sábados? Vi o horário no perfil, mas fiquei na dúvida.</span>
+          <span class="rodape-item"><span class="selo aberta-s">Aberta</span><span class="selo etq">novo-cliente</span></span>
+        </span>
+      </button>
+
+      <button class="conversa-item abre-conversa">
+        <span class="avatar c3">RF
+          <span class="canal-selo" style="background:var(--ch-email)"><svg><use href="#i-email"/></svg></span>
+        </span>
+        <span class="meio">
+          <span class="linha"><span class="quem">Renata Farias</span><span class="hora">08:57</span></span>
+          <span class="previa">Segue em anexo o comprovante. Podem confirmar o recebimento?</span>
+          <span class="rodape-item"><span class="selo pendente">Pendente</span><span class="selo etq">financeiro</span></span>
+        </span>
+      </button>
+
+      <button class="conversa-item abre-conversa">
+        <span class="avatar c4">CT
+          <span class="canal-selo" style="background:var(--ch-telegram)"><svg><use href="#i-telegram"/></svg></span>
+        </span>
+        <span class="meio">
+          <span class="linha"><span class="quem">Carlos Teixeira</span><span class="hora">08:30</span></span>
+          <span class="previa">Perfeito, muito obrigado pelo retorno rápido!</span>
+          <span class="rodape-item"><span class="selo resolvida">Resolvida</span></span>
+        </span>
+      </button>
+
+      <button class="conversa-item abre-conversa">
+        <span class="avatar c5">LM
+          <span class="canal-selo" style="background:var(--ch-messenger)"><svg><use href="#i-messenger"/></svg></span>
+        </span>
+        <span class="meio">
+          <span class="linha"><span class="quem">Larissa Moura</span><span class="hora">ontem</span></span>
+          <span class="previa">Quero renovar o plano antes do vencimento. Como faço?</span>
+          <span class="rodape-item"><span class="selo aberta-s">Aberta</span><span class="selo etq">renovação</span><span class="nao-lidas">1</span></span>
+        </span>
+      </button>
+
+      <button class="conversa-item abre-conversa">
+        <span class="avatar c6">VS
+          <span class="canal-selo" style="background:var(--ch-webchat)"><svg><use href="#i-webchat"/></svg></span>
+        </span>
+        <span class="meio">
+          <span class="linha"><span class="quem">Visitante do site</span><span class="hora">ontem</span></span>
+          <span class="previa">Olá! Gostaria de um orçamento para minha empresa.</span>
+          <span class="rodape-item"><span class="selo pendente">Pendente</span><span class="selo etq">novo-cliente</span></span>
+        </span>
+      </button>
+
+    </div>
+  </section>
+
+  <!-- ═══ PAINEL DA CONVERSA ═══ -->
+  <section class="painel">
+    <header class="cabeca">
+      <button class="botao-voltar" id="voltar" aria-label="Voltar para a lista">‹</button>
+      <span class="avatar c1" style="font-size:13px">MA
+        <span class="canal-selo" style="background:var(--ch-whatsapp)"><svg><use href="#i-whatsapp"/></svg></span>
+      </span>
+      <div class="quem">
+        <div class="nome">Marcos Andrade</div>
+        <div class="via">via WhatsApp · atribuída a Ana Souza · Suporte N1</div>
+      </div>
+      <div class="acoes">
+        <button class="botao opcional">Atribuir</button>
+        <button class="botao opcional">Adiar</button>
+        <button class="botao primario">✓ Resolver</button>
+      </div>
+    </header>
+
+    <div class="fluxo">
+      <span class="dia">HOJE</span>
+
+      <div class="msg entrada">
+        <div class="balao">Bom dia! O acesso voltou por aqui, mas queria entender o que aconteceu ontem à tarde.</div>
+        <span class="hora">09:38</span>
+      </div>
+
+      <div class="msg saida">
+        <div class="balao">Bom dia, Marcos! Houve uma instabilidade no link entre 15h10 e 15h25 e o redundante assumiu em seguida. Já está normalizado — estamos acompanhando desde então.</div>
+        <span class="hora">09:40 · Ana Souza</span>
+      </div>
+
+      <div class="msg nota">
+        <div class="balao">
+          <span class="rotulo">🔒 Nota interna</span>
+          Cliente prefere retorno por telefone depois das 14h. Chamado técnico nº 4821 anexado ao contato.
+        </div>
+        <span class="hora">09:41 · visível só para a equipe</span>
+      </div>
+
+      <div class="msg entrada">
+        <div class="balao">Entendi, obrigado! Vocês conseguem me mandar um resumo por e-mail também?</div>
+        <span class="hora">09:42</span>
+      </div>
+    </div>
+
+    <div class="responder">
+      <div class="abas">
+        <button class="ativa" id="aba-responder">Responder</button>
+        <button class="aba-nota" id="aba-nota">Nota interna</button>
+      </div>
+      <div class="caixa-texto" id="caixa-texto">
+        <textarea id="texto" placeholder="Escreva a resposta para Marcos… (Ctrl+Enter envia)" aria-label="Escrever resposta"></textarea>
+        <div class="barra">
+          <button class="ferramenta" title="Anexar arquivo">📎</button>
+          <button class="ferramenta" title="Inserir emoji">🙂</button>
+          <button class="ferramenta" title="Resposta pronta">⚡</button>
+          <button class="enviar" id="enviar">Enviar ➤</button>
+        </div>
+      </div>
+      <div class="atalho">⚡ abre as respostas prontas · a aba <b>Nota interna</b> nunca chega ao cliente.</div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  // Navegação do mockup (celular): tocar numa conversa abre o painel; ‹ volta.
+  const corpo = document.body;
+  document.querySelectorAll('.abre-conversa').forEach(b =>
+    b.addEventListener('click', () => { if (innerWidth <= 720) corpo.classList.add('ver-conversa'); }));
+  document.getElementById('voltar').addEventListener('click', () => corpo.classList.remove('ver-conversa'));
+
+  // Menu lateral no celular/tablet
+  document.getElementById('abrir-menu').addEventListener('click', () => corpo.classList.add('menu-aberto'));
+  document.getElementById('veu').addEventListener('click', () => corpo.classList.remove('menu-aberto'));
+
+  // Alternância Responder × Nota interna
+  const abaR = document.getElementById('aba-responder');
+  const abaN = document.getElementById('aba-nota');
+  const caixa = document.getElementById('caixa-texto');
+  const texto = document.getElementById('texto');
+  abaR.addEventListener('click', () => {
+    abaR.classList.add('ativa'); abaN.classList.remove('ativa');
+    caixa.classList.remove('modo-nota');
+    texto.placeholder = 'Escreva a resposta para Marcos… (Ctrl+Enter envia)';
+  });
+  abaN.addEventListener('click', () => {
+    abaN.classList.add('ativa'); abaR.classList.remove('ativa');
+    caixa.classList.add('modo-nota');
+    texto.placeholder = 'Escreva uma nota interna — o cliente não vê.';
+  });
+</script>
+</body>
+</html>
