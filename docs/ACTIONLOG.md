@@ -1,6 +1,6 @@
 # 📜 ACTIONLOG — Construção do Ragnabot
-> Registro cronológico da construção da plataforma. Espelho versionado do log canônico
-> `/ia/.claude/ragnabot-actions-log.md` (infra do NOC). Sem segredos, por lei.
+> LOG CANÔNICO local da construção (regra do dono, 27/08). Espelho versionado no repo:
+> `ragnatelaiot/ragnabot` → docs/ACTIONLOG.md. Sem segredos, por lei.
 
 ## 2026-08-27 — Do zero ao FUNCIONAL em um dia
 
@@ -58,3 +58,9 @@ submeter display name. Depois (NOC): webhook `chat002.../webhooks` + templates (
 - [ ] Menu "Atendimento" no NOC (Fase 6) — aguarda janela de deploy do NOC (política de sessão ativa)
 - [ ] Pin da imagem por digest (hoje `chatwoot:latest`) + storage S3 para HA de aplicação
 - [ ] Fases 4-5 (WhatsApp oficial, omnichannel), 7 (SaaS), 8 (produção), 9 (piloto)
+
+## Requisito herdado do sistema antigo (a corrigir por construção)
+No Whaticket da VM 10016, ticket de **grupo** é visível a todo admin (fora do filtro de dono, por
+desenho do fornecedor) e super-admin vê todas as empresas. **No Ragnabot/Chatwoot**: a visibilidade
+por conversa deve respeitar atribuição (dono/time) e o isolamento entre contas (tenants) deve ser
+absoluto — validar na Fase 3/7 que um agente só vê o que lhe cabe, inclusive conversas de grupo.
