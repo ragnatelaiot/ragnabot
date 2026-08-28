@@ -140,3 +140,35 @@ absoluto — validar na Fase 3/7 que um agente só vê o que lhe cabe, inclusive
   DNS** (Authentication error na API de Turnstile, que exige permissão de conta). Pendência
   registrada com o passo a passo para o dono.
 - 📋 **`21-TAREFAS-DAS-ORDENS.md`**: todas as ordens do dono organizadas em tarefas rastreáveis.
+
+## 2026-08-28 (manhã) — 2FA LIGADO + achado de LICENÇA que afeta o negócio
+### ✅ 2FA (autenticação em duas etapas) habilitado
+`Chatwoot.mfa_enabled?` era `false` porque depende de `encryption_configured?` — as três chaves de
+criptografia de atributos do Rails não existiam (é onde o segredo TOTP de cada usuário fica guardado).
+Geradas e gravadas no **Secret do cluster** + cofre `/root/.chat002-credenciais` (**nunca no git**).
+Após o rollout: `mfa_enabled? => true`. O usuário já pode cadastrar 2FA por aplicativo (QR/TOTP),
+com códigos de recuperação (`otp_backup_codes`).
+
+### ⚠️ ACHADO DE LICENÇA — precisa de decisão do dono
+A imagem tem DUAS licenças:
+- **núcleo (`/app/app`, `/app/lib`…) = MIT**, livre inclusive para uso comercial;
+- **`/app/enterprise/` = Chatwoot Enterprise License**, que exige assinatura paga e número de
+  assentos para **uso em produção**.
+
+Onde cada coisa mora (verificado arquivo a arquivo):
+| recurso | onde | situação |
+|---|---|---|
+| **2FA / MFA** | `/app/app/controllers/api/v1/profile/mfa_controller.rb` → **núcleo MIT** | ✅ **livre** — ligado hoje |
+| **Auditoria** (`audit_logs`) | `/app/enterprise/app/...` → **licença paga** | ⚠️ decisão |
+| SLA, papéis personalizados, Captain (IA) | `/app/enterprise/` | ⚠️ decisão |
+
+A conta 1 tem 27 recursos habilitados (campanhas, automações, macros, relatórios, times, canais…) —
+**nenhum deles é enterprise**. A tabela `audits` existe e tem 15 registros, mas `audit_logs` **não**
+está na lista de recursos da conta.
+
+**Por que isso importa:** o Ragnabot será **comercializado** (SaaS). Usar recurso da pasta enterprise
+sem assinatura seria violação de licença — risco jurídico, não apenas técnico.
+**Três caminhos:** (a) assinar o Enterprise pelo número de assentos; (b) **construir do nosso lado**
+o que falta (auditoria é a mais sensível, e o NOC já tem motor de auditoria maduro para reusar);
+(c) operar só com o núcleo MIT. **Recomendo (b)** para auditoria — é requisito de primeira classe da
+casa e ficamos donos do que vendemos.
