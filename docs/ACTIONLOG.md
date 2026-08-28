@@ -84,3 +84,36 @@ absoluto — validar na Fase 3/7 que um agente só vê o que lhe cabe, inclusive
 - ⏸️ **Decisão do dono:** questões de **banco/backup/DR ficam para depois do piloto**. Nesta etapa
   ficou feito o agente Zabbix nas VMs 10603/10604 + UserParameters de replicação (todos provados
   lendo valor real: standbys=1, lag=0, slots_inativos=0, redis=1). Registrar hosts no servidor: adiado.
+
+## 2026-08-28 (madrugada) — Cluster RAGNABOT no NOC + digest + estrutura documentada
+- **Cluster criado** (ordem do dono): 5 servidores no grupo RAGNATELA com marcação
+  `[CLUSTER RAGNABOT]` — RGTK8S001/002/003 (nós k8s, o 3º no site XSE) e RGTPSTGSQL001/002.
+- **Serviço + rota** de saúde ao vivo (somente leitura): nós/etcd/pods/versão fixada · bancos com
+  **identificação automática do primário** (`pg_is_in_recovery`), réplica em dia, vagas inativas,
+  tamanho · espaço em disco · papel do Redis · lista de alertas. `GET /api/ragnabot-cluster/health`.
+- ⚠️ **Falso positivo real corrigido no 1º teste:** atraso da réplica media *tempo desde a última
+  transação* → num banco ocioso acusava 21.934s (6h) com replicação perfeita (primário reportava
+  lag=0 e réplica conectada). Passou a medir **por LSN**: recebido == aplicado ⇒ em dia.
+- **Imagem fixada por digest** `chatwoot@sha256:18f280a6…` (era `:latest`) nos dois Deployments +
+  manifesto; rollout limpo. Alerta do painel para o caso de desfixar.
+- **`11-ESTRUTURA-RAGNABOT.md`**: documentação da estrutura (k8s, bancos, mídias, HA, eleição de
+  primário — manual e por quê, atualização, espaço).
+- Pendente: **página visual** do cluster no NOC (exige build+deploy → janela sem sessão ativa).
+
+## 2026-08-28 (madrugada, cont.) — Frontend v2 no ar + descrição em PT-BR
+- **Tema v2 APLICADO** (substituiu o v1 reprovado). Entrega do agente site-ragnatela, revisada e
+  aprovada pelo NOC: autocontida (zero dependência externa), sem segredos, imagem em data URI.
+- ⚠️ **Erro meu que o agente pegou e corrigiu:** a paleta do tema v1 (`#055508`/`#2CC54E`/`#04150B`)
+  **não era a paleta do produto**. A aprovada pelo dono em 23/08 é a do painel do cliente:
+  fundo `#03151f`, ação `#2ee879` (`96-IDENTIDADE-PAINEL-CLIENTE` §2). Por isso, lado a lado com o
+  painel, "lia-se como outra empresa" — exatamente a queixa do dono. O v2 herda a paleta aprovada.
+- Diferença técnica que importa: o v1 brigava classe a classe com `!important`; o v2 **redefine as
+  variáveis de cor do próprio Chatwoot** (`--slate-1..12`), o que reveste o aplicativo inteiro —
+  inclusive telas ainda não abertas.
+- Também corrigido: `branco sobre o verde dá 1,62:1` — a regra do `.bg-n-brand` agora força a cor
+  do texto junto, senão o botão ficaria ilegível em todo o produto.
+- **Descrição do sistema traduzida** para PT-BR (estava em inglês, falando de "Chatwoot"):
+  `INSTALLATION_DESCRIPTION` agora descreve o Ragnabot e os canais.
+- Limite declarado pelo agente: só a tela de ENTRADA foi vista no produto real; as telas internas
+  foram tratadas pela via das variáveis (ampla, mas não é o mesmo que ter olhado). Pendente: alguém
+  com acesso percorrer caixa, contatos, relatórios e ajustes com o tema aplicado.
