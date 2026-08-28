@@ -274,3 +274,30 @@ Serviço systemd `ragnabot-turnstile` em `127.0.0.1:8791`.
 tempo constante · destino do redirecionamento só aceita caminho interno (sem redirecionamento
 aberto) · guarda só escuta em localhost · cookie HttpOnly/Secure/SameSite, 12 h.
 Backup do vhost: `chat002-ragnatela.bak-turnstile-*`.
+
+## 2026-08-28 — CORREÇÃO: Turnstile dentro do formulário + tema devolvido ao login
+O dono apontou dois defeitos na primeira versão, **os dois procedentes**:
+
+### 🔴 ERRO MEU — a tela de entrada perdeu o tema
+Ao criar `location = /app/login` para o `auth_request`, **quebrei a injeção do tema naquela página**:
+`location =` (exato) tem precedência sobre `location /` (prefixo), e era o `location /` que carregava
+o `sub_filter` do tema. Resultado: o login voltou ao visual padrão do software de origem.
+⚠️ **Lição:** no nginx, criar um `location =` para uma página que já era servida por `location /`
+**tira dela tudo o que estava no bloco genérico** (sub_filter, cabeçalhos, timeouts). Ou se replica,
+ou não se cria o location exato.
+
+### 🔴 Janela intersticial — desenho errado
+Eu havia feito uma **página separada** de verificação. O certo é o widget **dentro do formulário**,
+como no painel do cliente (referência que o dono mandou). Refeito:
+- `location = /app/login` **removido** (a página volta a ser servida pelo `location /`, com tema).
+- Guarda ganhou `POST /__verificar` (JSON): valida o token **na Cloudflare** e emite o cookie.
+- `turnstile-inline.js` (servido pelo proxy) desenha o widget dentro do formulário, **trava o botão
+  Entrar** até a verificação passar e chama o guarda por AJAX.
+- O `auth_request` mudou para o **POST `/auth/sign_in`**: sem cookie válido, o login é **recusado**.
+
+**Provado:** `/app/login` → 200 com tema e widget · JS e CSS servidos · **POST do login sem
+verificação → 401**. Backup: `chat002-ragnatela.bak-fixlogin2-*`.
+
+⚠️ Também mordeu: `proxy_set_header Content-Length ""` perdeu as aspas ao passar por camadas de
+shell/base64 e derrubou o `nginx -t`. **Editar vhost com script Python no destino**, não com
+`sed`/heredoc atravessando SSH.

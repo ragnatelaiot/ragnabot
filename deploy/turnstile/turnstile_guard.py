@@ -105,6 +105,22 @@ class Guarda(http.server.BaseHTTPRequestHandler):
         if corpo:
             self.wfile.write(corpo)
 
+    def _valida_na_cloudflare(self, token, ip):
+        """Pergunta a Cloudflare se o token e legitimo. E isto que torna a protecao real."""
+        if not token:
+            return False
+        dados = {'secret': SECRET, 'response': token}
+        if ip:
+            dados['remoteip'] = ip
+        try:
+            req = urllib.request.Request(
+                'https://challenges.cloudflare.com/turnstile/v0/siteverify',
+                data=urllib.parse.urlencode(dados).encode())
+            with urllib.request.urlopen(req, timeout=8) as r:
+                return json.load(r).get('success') is True
+        except Exception:
+            return False
+
     def do_GET(self):
         u = urllib.parse.urlparse(self.path)
         if u.path == '/__verificado':                       # o nginx pergunta
@@ -115,7 +131,24 @@ class Guarda(http.server.BaseHTTPRequestHandler):
         return self._fim(404)
 
     def do_POST(self):
-        if urllib.parse.urlparse(self.path).path != '/__verificacao':
+        caminho = urllib.parse.urlparse(self.path).path
+        # --- verificacao POR DENTRO do formulario (widget embutido, sem janela extra) ---
+        if caminho == '/__verificar':
+            n = min(int(self.headers.get('Content-Length', 0) or 0), 8192)
+            try:
+                token = json.loads(self.rfile.read(n) or b'{}').get('token', '')
+            except Exception:
+                token = ''
+            ip = (self.headers.get('X-Real-IP') or '').split(',')[0].strip()
+            if self._valida_na_cloudflare(token, ip):
+                exp = str(int((time.time() + VALIDADE_S) * 1000))
+                valor = urllib.parse.quote(f'{exp}.{assinar(exp)}')
+                return self._fim(204, b'', {
+                    'Set-Cookie': f'{COOKIE}={valor}; Path=/; Max-Age={VALIDADE_S}; HttpOnly; Secure; SameSite=Lax',
+                })
+            return self._fim(403)
+
+        if caminho != '/__verificacao':
             return self._fim(404)
         n = min(int(self.headers.get('Content-Length', 0) or 0), 8192)
         p = urllib.parse.parse_qs(self.rfile.read(n).decode('utf-8', 'replace'))
@@ -123,19 +156,8 @@ class Guarda(http.server.BaseHTTPRequestHandler):
         destino = (p.get('destino') or ['/app/login'])[0]
         if not CAMINHO_OK.match(destino):                   # so caminho interno
             destino = '/app/login'
-        dados = {'secret': SECRET, 'response': token}
         ip = (self.headers.get('X-Real-IP') or '').split(',')[0].strip()
-        if ip:
-            dados['remoteip'] = ip
-        try:
-            req = urllib.request.Request(
-                'https://challenges.cloudflare.com/turnstile/v0/siteverify',
-                data=urllib.parse.urlencode(dados).encode())
-            with urllib.request.urlopen(req, timeout=8) as r:
-                ok = json.load(r).get('success') is True
-        except Exception:
-            ok = False
-        if not ok:
+        if not self._valida_na_cloudflare(token, ip):
             return self._fim(302, b'', {'Location': '/__verificacao?erro=1'})
         exp = str(int((time.time() + VALIDADE_S) * 1000))
         valor = urllib.parse.quote(f'{exp}.{assinar(exp)}')
