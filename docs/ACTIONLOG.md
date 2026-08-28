@@ -256,3 +256,21 @@ Na RB5009 a regra é escopada a `172.17.20.160/27` (faixa do nó 3).
 clientes intacta (SISAC 302, chat001 200, painel 200, cloud-análise 301).
 **Reversão:** remover as regras `K8S-NODEPORT-DROP` nas 3 bordas.
 ⚠️ `place-after` NÃO existe nesta versão do RouterOS — só `place-before` (custou uma tentativa).
+
+## 2026-08-28 — "Não sou robô" (Cloudflare Turnstile) NO AR ✅
+Dono forneceu as chaves. Guardadas em `/etc/ragnabot/turnstile.env` (**600, fora do git**);
+**segredo validado contra a Cloudflare** (aceitou a chave, recusou só o token falso — como esperado).
+
+**Decisão de desenho:** o Chatwoot não valida Turnstile nativamente. Em vez de pôr o quadradinho
+como enfeite, escrevi um **guarda que valida no servidor**: `/opt/ragnabot/turnstile_guard.py`
+(Python puro — o proxy não tem Node, e não vou instalar runtime novo num servidor com ~20 sites).
+Serviço systemd `ragnabot-turnstile` em `127.0.0.1:8791`.
+
+**Ligação no nginx:** `auth_request` na tela de entrada; quem não passou vai para `/__verificacao`.
+**Provado:** `/app/login` sem verificação → **302 para a verificação** · a tela → 200 · raiz → 200
+(não afetada) · **token falso é RECUSADO** (volta com erro) · sem cookie → 401.
+
+**Segurança do desenho:** segredo nunca vai ao navegador · cookie assinado com HMAC e comparado em
+tempo constante · destino do redirecionamento só aceita caminho interno (sem redirecionamento
+aberto) · guarda só escuta em localhost · cookie HttpOnly/Secure/SameSite, 12 h.
+Backup do vhost: `chat002-ragnatela.bak-turnstile-*`.
