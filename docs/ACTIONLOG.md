@@ -341,3 +341,21 @@ A caixa de entrada **com conversa real** (a conta tem zero conversas), alvo de t
 internas e o título da aba. Motivo comum: depois de dezenas de entradas, **o próprio captcha que
 instalamos passou a barrar a automação** — comportamento correto dele. Tentou 18 vezes.
 **Fica como pendência para quando houver conversa real no sistema.**
+
+## 2026-08-28 — Freio de força bruta: fim da falha silenciosa ✅
+Defeito que o agente destacou "acima dos outros" e que reproduzi: ao ser barrado, o usuário clicava
+em Entrar e **não recebia mensagem nenhuma**. Causa medida: o nginx devolvia uma **página HTML crua**
+(`429 Too Many Requests`), e a tela de entrada — que conversa por **JSON** — simplesmente ignorava.
+É o tipo de defeito que gera chamado sem ninguém entender a causa.
+**Correção:** `error_page 429` do login aponta para uma resposta em **JSON e em português**, no
+formato que a tela entende. **Provado:** `content-type: application/json` e a mensagem
+*"Muitas tentativas de entrada. Aguarde um minuto e tente novamente."*
+Backup: `chat002-ragnatela.bak-429-*`.
+
+### Pendências que o agente deixou (dependem de outra pessoa/janela)
+1. **Uma conversa de teste na caixa de entrada** — a conta tem zero conversas, então o fio de
+   mensagens, anexos e a nota interna **não foram vistos no celular**. É o maior furo da revisão.
+2. Três medições internas exigem **sessão aberta à mão** (o próprio captcha que instalamos passa a
+   barrar automação depois de dezenas de entradas — comportamento correto dele).
+3. **Fora do alcance do CSS:** ícone e `manifest.json` ainda com o nome de origem, `DEFAULT_LOCALE`,
+   os 12 links para o site do fornecedor e **o anúncio com cupom da Amazon dentro de Campanhas**.
