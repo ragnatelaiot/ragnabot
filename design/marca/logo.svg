@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 48" role="img" aria-label="Ragnabot">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2CC54E"/><stop offset="1" stop-color="#055508"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(4,4)">
+    <path d="M20 0 L38 10 L38 30 L20 40 L2 30 L2 10 Z" fill="url(#g)"/>
+    <path d="M11 26 h13 a3 3 0 0 0 3-3 v-7 a3 3 0 0 0-3-3 H14 a3 3 0 0 0-3 3 v12 z" fill="#04150B" opacity=".92"/>
+    <circle cx="15.5" cy="19.5" r="1.7" fill="#2CC54E"/>
+    <circle cx="20" cy="19.5" r="1.7" fill="#E9F6EE"/>
+    <circle cx="24.5" cy="19.5" r="1.7" fill="#2CC54E"/>
+  </g>
+  <text x="52" y="24" font-family="Segoe UI,Roboto,Helvetica,Arial,sans-serif" font-size="21" font-weight="700" fill="#12211C">Ragna<tspan fill="#055508">bot</tspan></text>
+  <text x="52" y="38" font-family="Segoe UI,Roboto,Helvetica,Arial,sans-serif" font-size="9.5" letter-spacing=".5" fill="#5D7169">by Ragnatela IoT</text>
+</svg>

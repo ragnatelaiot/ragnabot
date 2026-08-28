@@ -1,0 +1,9 @@
+# Logomarca Ragnabot persistida (sobrevive a restart/rollout — o filesystem do pod e efemero).
+# Montada por subPath em /app/public/brand-assets/ragnabot-*.svg no Deployment web.
+# As InstallationConfig do Chatwoot (LOGO/LOGO_DARK/LOGO_THUMBNAIL) apontam para esses caminhos.
+# (Os SVGs vivem em design/marca/ neste repo; gere o ConfigMap com kubectl create configmap
+#  ragnabot-branding --from-file=design/marca/ -n ragnabot -o yaml --dry-run=client)
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: ragnabot-branding, namespace: ragnabot }
+# data: preenchido a partir de design/marca/*.svg

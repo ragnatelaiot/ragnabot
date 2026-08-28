@@ -64,3 +64,10 @@ No Whaticket da VM 10016, ticket de **grupo** é visível a todo admin (fora do 
 desenho do fornecedor) e super-admin vê todas as empresas. **No Ragnabot/Chatwoot**: a visibilidade
 por conversa deve respeitar atribuição (dono/time) e o isolamento entre contas (tenants) deve ser
 absoluto — validar na Fase 3/7 que um agente só vê o que lhe cabe, inclusive conversas de grupo.
+
+## 2026-08-27 (noite) — Marca Ragnabot + correcao da lentidao do login
+- **Marca:** InstallationConfig (INSTALLATION_NAME/BRAND_NAME=Ragnabot, URLs=ragnatela) + logo SVG
+  (3 variantes) persistidos via ConfigMap `ragnabot-branding` (subPath em public/brand-assets).
+  Cor primaria + login "noite de vidro" exatos = imagem custom no GHCR (aguarda token write:packages do dono).
+- **Lentidao (corrigida):** puma 2 workers/5 threads + 2 replicas web; cache imutavel no navegador para
+  assets Vite; proxy_cache+gzip no proxy (MISS 7s uma vez -> HIT 0,008s). Login repetido agora instantaneo.
