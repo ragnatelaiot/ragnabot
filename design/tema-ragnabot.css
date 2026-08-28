@@ -1,0 +1,139 @@
+/* ============================================================================
+   TEMA RAGNABOT — identidade visual da Ragnatela IoT Solutions
+   Injetado pelo proxy reverso (nginx sub_filter). NAO exige rebuild da imagem,
+   entao SOBREVIVE a upgrades do Chatwoot e e reversivel em segundos.
+   Paleta e contrastes conforme design aprovado (design/marca + identidade.md).
+   NOC 2026-08-27.
+   ========================================================================= */
+:root{
+  --rgb-profundo:#055508;   /* verde profundo — acoes primarias */
+  --rgb-medio:#449344;      /* verde medio — hover */
+  --rgb-vivo:#2CC54E;       /* verde vivo — acento (regra dos 2%) */
+  --rgb-noite:#04150B;      /* fundo noite */
+  --rgb-noite2:#0A2415;
+  --rgb-claro:#E9F6EE;
+  --rgb-claro2:#A9C4B2;
+}
+
+/* ---- 1. A MARCA: o azul do Chatwoot (#2781f6) vira verde Ragnatela ------- */
+.bg-n-brand,.hover\:bg-n-brand:hover,.group-hover\:bg-n-brand,
+.checked\:bg-n-brand:checked,.indeterminate\:bg-n-brand:indeterminate,
+.after\:bg-n-brand:after,.before\:bg-n-brand:before,
+.hover\:enabled\:bg-n-brand:hover:enabled,.focus-visible\:bg-n-brand:focus-visible,
+.dark\:bg-n-brand:is(.dark *){background-color:var(--rgb-profundo)!important}
+.hover\:bg-n-brand:hover,.hover\:enabled\:bg-n-brand:hover:enabled{background-color:var(--rgb-medio)!important}
+
+.text-n-brand,.hover\:text-n-brand:hover,.group-focus-within\:text-n-brand,
+.prose-a\:text-n-brand,.prose-strong\:text-n-brand,
+.dark\:hover\:text-n-brand:hover:is(.dark *){color:var(--rgb-profundo)!important}
+
+.border-n-brand,.hover\:border-n-brand:hover,.focus\:border-n-brand:focus,
+.border-t-n-brand,.checked\:border-n-brand:checked,
+.indeterminate\:border-n-brand:indeterminate,
+.dark\:border-n-brand:is(.dark *),.dark\:checked\:border-n-brand:checked:is(.dark *){border-color:var(--rgb-medio)!important}
+
+.ring-n-brand,.focus\:ring-n-brand:focus,.focus-visible\:ring-n-brand:focus-visible,
+.focus-within\:ring-n-brand:focus-within,.dark\:ring-n-brand:is(.dark *){--tw-ring-color:var(--rgb-vivo)!important}
+
+.outline-n-brand,.focus\:outline-n-brand:focus,.focus-visible\:outline-n-brand:focus-visible,
+.focus-within\:outline-n-brand:focus-within,.dark\:focus\:outline-n-brand:focus:is(.dark *),
+.dark\:focus-within\:outline-n-brand:focus-within:is(.dark *){outline-color:var(--rgb-vivo)!important}
+
+.from-n-brand{--tw-gradient-from:var(--rgb-profundo)!important}
+
+/* seleção de texto com a marca */
+::selection{background:var(--rgb-vivo);color:#04150B}
+
+/* ---- 2. TELA DE LOGIN: "noite de vidro" --------------------------------- */
+/* Ativa SO quando existe campo de senha na tela (ou seja: login/redefinicao).
+   Depois de entrar no sistema o seletor deixa de casar e o app volta ao normal. */
+body:has(input[type="password"]){
+  background:
+    radial-gradient(60rem 40rem at 12% -10%, rgba(44,197,78,.20), transparent 60%),
+    radial-gradient(50rem 36rem at 110% 15%, rgba(5,85,8,.55), transparent 62%),
+    linear-gradient(160deg, var(--rgb-noite) 0%, var(--rgb-noite2) 52%, #061C10 100%)
+    !important;
+  background-attachment:fixed!important;
+  position:relative;
+}
+/* teia sutil de hexágonos (a metáfora da marca), bem discreta */
+body:has(input[type="password"])::before{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.13;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='56' height='64' viewBox='0 0 56 64'><path d='M28 1 L54 16 L54 48 L28 63 L2 48 L2 16 Z' fill='none' stroke='%232CC54E' stroke-width='1'/></svg>");
+  background-size:56px 64px;
+}
+/* aurora viva no topo */
+body:has(input[type="password"])::after{
+  content:"";position:fixed;left:50%;top:-28vh;width:120vw;height:60vh;
+  transform:translateX(-50%);pointer-events:none;z-index:0;
+  background:radial-gradient(closest-side, rgba(44,197,78,.16), transparent 70%);
+  animation:rgb-aurora 14s ease-in-out infinite alternate;
+}
+@keyframes rgb-aurora{from{opacity:.55;transform:translateX(-50%) translateY(-2vh)}
+                      to{opacity:1;transform:translateX(-50%) translateY(3vh)}}
+@media (prefers-reduced-motion:reduce){body:has(input[type="password"])::after{animation:none}}
+
+/* o conteudo acima da textura */
+body:has(input[type="password"]) #app{position:relative;z-index:1}
+
+/* cartao de vidro: o container do formulario */
+body:has(input[type="password"]) form{
+  background:rgba(255,255,255,.055)!important;
+  border:1px solid rgba(255,255,255,.14)!important;
+  border-radius:18px!important;
+  backdrop-filter:blur(18px) saturate(1.15);
+  -webkit-backdrop-filter:blur(18px) saturate(1.15);
+  box-shadow:0 24px 60px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.07);
+  padding:28px 26px!important;
+}
+/* titulo e textos claros */
+body:has(input[type="password"]) h1,
+body:has(input[type="password"]) h2,
+body:has(input[type="password"]) h3{color:var(--rgb-claro)!important;letter-spacing:-.02em}
+body:has(input[type="password"]) label{color:var(--rgb-claro2)!important}
+
+/* campos: escuros, elegantes, foco verde */
+body:has(input[type="password"]) input[type="email"],
+body:has(input[type="password"]) input[type="password"],
+body:has(input[type="password"]) input[type="text"]{
+  background:rgba(4,21,11,.55)!important;
+  border:1px solid rgba(255,255,255,.16)!important;
+  color:var(--rgb-claro)!important;
+  border-radius:11px!important;
+  transition:border-color .18s ease, box-shadow .18s ease;
+}
+body:has(input[type="password"]) input:focus{
+  border-color:var(--rgb-vivo)!important;
+  box-shadow:0 0 0 3px rgba(44,197,78,.22)!important;
+  outline:none!important;
+}
+body:has(input[type="password"]) input::placeholder{color:#7f9a8b!important}
+
+/* botao Entrar: verde vivo com tinta escura (contraste 8,3:1 — medido) */
+body:has(input[type="password"]) button[type="submit"],
+body:has(input[type="password"]) form button{
+  background:linear-gradient(180deg, var(--rgb-vivo), #24A843)!important;
+  color:#04150B!important;
+  font-weight:700!important;
+  border:none!important;border-radius:12px!important;
+  box-shadow:0 8px 22px rgba(44,197,78,.28);
+  transition:transform .12s ease, box-shadow .18s ease, filter .18s ease;
+}
+body:has(input[type="password"]) form button:hover{
+  filter:brightness(1.06);box-shadow:0 12px 30px rgba(44,197,78,.40);transform:translateY(-1px);
+}
+body:has(input[type="password"]) form button:active{transform:translateY(0)}
+
+/* links (esqueceu a senha) */
+body:has(input[type="password"]) a{color:var(--rgb-vivo)!important}
+body:has(input[type="password"]) a:hover{color:#7BE39A!important}
+
+/* logo com respiro */
+body:has(input[type="password"]) img[src*="brand-assets"]{filter:drop-shadow(0 6px 18px rgba(0,0,0,.5))}
+
+/* ---- 3. RESPONSIVO (lei da casa: tem que funcionar no celular) ---------- */
+@media (max-width:640px){
+  body:has(input[type="password"]) form{
+    margin:0 14px!important;padding:22px 18px!important;border-radius:16px!important;
+  }
+}
