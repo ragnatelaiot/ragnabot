@@ -117,3 +117,26 @@ absoluto — validar na Fase 3/7 que um agente só vê o que lhe cabe, inclusive
 - Limite declarado pelo agente: só a tela de ENTRADA foi vista no produto real; as telas internas
   foram tratadas pela via das variáveis (ampla, mas não é o mesmo que ter olhado). Pendente: alguém
   com acesso percorrer caixa, contatos, relatórios e ajustes com o tema aplicado.
+
+## 2026-08-28 (manhã) — Segurança de acesso + o nome do open-source fora da interface
+- **Freio de força bruta no proxy** (`limit_req` 10/min no `/auth/sign_in`, rajada 5): provado com
+  12 tentativas seguidas → passa a devolver **429**. Backup do vhost antes.
+- **Proteção nativa do produto LIGADA** (`ENABLE_RACK_ATTACK=true`): já cobre login (5/5min por IP,
+  10/15min por e-mail), redefinição de senha, reenvio de confirmação e **verificação de 2FA**
+  (o produto TEM MFA nativo — importante para a frente de acesso).
+- 🔴 **A marca sumia a cada reinício.** Causa: o Chatwoot **ressemeia** as `InstallationConfig` a
+  partir do YAML da imagem no boot; valor não travado volta ao padrão. Corrigido gravando com
+  **`locked = true`**. Sem isso, todo restart devolvia "Chatwoot" à tela.
+- 🔴 **Nome do open-source visível** ("Entrar no Chatwoot"). O texto vive no pacote de idioma
+  compilado — não sai por configuração. Resolvido com `sub_filter` no bloco de assets
+  (`Accept-Encoding ""` + `sub_filter_types application/javascript`), trocando as **frases
+  visíveis** — nunca a palavra solta, que também é identificador interno no código.
+  Cache do proxy limpo depois (guardava a versão antiga). Provado: **"Entrar no Ragnabot"**.
+- 🔴 **Achado do dono que eu deveria ter previsto:** ao clicar em "exibir senha" o tema do login
+  sumia. Causa: o seletor `body:has(input[type="password"])` — revelar a senha troca o campo para
+  `type="text"` e a regra deixa de casar. Repassado ao agente de revisão com ordem de varrer
+  seletores frágeis pelo mesmo motivo.
+- **Cloudflare "não sou robô":** tentei criar o widget sozinho — o token disponível é **restrito a
+  DNS** (Authentication error na API de Turnstile, que exige permissão de conta). Pendência
+  registrada com o passo a passo para o dono.
+- 📋 **`21-TAREFAS-DAS-ORDENS.md`**: todas as ordens do dono organizadas em tarefas rastreáveis.

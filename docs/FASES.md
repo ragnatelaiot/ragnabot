@@ -62,6 +62,7 @@ estrutura técnica · registro de ações — tudo versionado no repositório.
 | **11 — Cobrança** | Planos recorrentes + integração **Efibank** (liberação automática) | agente |
 | **12 — SaaS** | Provisionamento de empresa em uma ação, **multiconexão** por empresa e **teste de isolamento** | agente |
 | **13 — Engenharia reversa do chat atual** | Levantar TODAS as funções do sistema de hoje e decidir, uma a uma: **levar, adaptar ou descartar** | agente |
+| **14 — Revisão crítica de frontend** | Auditoria do código visual no ar, **responsividade no celular** (360→1440 em navegador real) e melhorias de elegância, robustez e modernidade | agente |
 
 ---
 
@@ -81,7 +82,7 @@ estrutura técnica · registro de ações — tudo versionado no repositório.
 | 5 | Canais: WhatsApp oficial → Telegram → e-mail → Instagram/Messenger | 4 e 5 dependem do item 1 |
 | 6 | Menu "Atendimento" no NOC + entrada sem digitar senha de novo | precisa da janela |
 | 7 | Indicadores dentro do produto real (hoje existem como mockup) | após o tema estabilizar |
-| 8 | Percorrer as telas internas com o tema aplicado | preciso de acesso ou do dono conferindo |
+| 8 | Percorrer as telas internas com o tema aplicado | 🔧 na Fase 14 (agente entra com a conta administradora) |
 | 9 | Ícones da marca (formatos que o navegador pede) | acabamento |
 | 10 | **Documentação final em DOCX** | consolida todos os MD ao fim |
 
