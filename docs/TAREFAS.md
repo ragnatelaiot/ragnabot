@@ -45,7 +45,8 @@
 |---|---|---|---|
 | D1 | *"criar no NOC o cluster, subgrupo RAGNABOT, com servidores, banco, espaço, quem é primário, atualização"* | Cluster no NOC | ✅ 5 servidores + saúde ao vivo, zero alertas |
 | D2 | idem | Página visual do cluster | 🔧 agente · ⏳ janela de deploy |
-| D3 | *"acopla ao NOC como menu Atendimento"* | Menu + entrada sem digitar senha de novo | ⬜ ⏳ janela |
+| D3 | *"acopla ao NOC como menu Atendimento"* | Menu + entrada sem digitar senha de novo | 🔧 caminho achado |
+| D5 | *"só os super users do NOC gerenciam o SaaS do Ragnabot"* (regra do dono) | **SSO por link**: superuser do NOC entra sem senha própria e gerencia empresas/contas | ⬜ próximo · ⏳ janela |
 | D4 | *"questão de banco fica como pendência pós-piloto"* | Cópia de segurança, recuperação, ensaios | ⏸️ **adiado por decisão** |
 
 ## BLOCO E — CONHECIMENTO E DOCUMENTAÇÃO
@@ -59,6 +60,25 @@
 | E5 | *"no final da nossa documentação, DOCX"* | Consolidar tudo em DOCX | ⬜ ao final |
 | E6 | *"mostra todas as fases que já criou e executou e as que faltam"* | Painel de fases | ✅ `20-PAINEL-DE-FASES.md` |
 | E7 | *"documente tudo, guarde na memória, se a sessão cair volte de onde parou"* | Memória de retomada | ✅ ativa |
+
+
+## BLOCO F — SEGURANÇA (auditoria de 28/08)
+
+| # | Item | Estado |
+|---|---|---|
+| F1 | Banco sem poder total (superuser removido) | ✅ provado |
+| F2 | Cerca de rede: isolamento restritivo do pod | ✅ provado |
+| F3 | Pod endurecido (privilégio, capacidades, seccomp, token) | ✅ |
+| F4 | Cookie seguro + HSTS + Permissions-Policy | ✅ |
+| F5 | Isolamento entre empresas (o que o sistema antigo vazava) | ✅ **401 provado** |
+| F6 | Rodar sem ser administrador (não-root) | ⬜ exige mapear diretórios |
+| F7 | Cifrar segredos do Kubernetes em repouso | ⬜ reinicia API, um nó por vez |
+| F8 | Fechar porta interna (NodePort) no firewall | ⬜ ⚠️ **só com aval** — envolve as CHRs |
+| F9 | Comandos perigosos do Redis | ⬜ |
+| F10 | Política de conteúdo do navegador (CSP) | ⬜ em modo relatar primeiro |
+| F11 | OCSP + HTTPS no /super_admin | ⬜ |
+
+> Detalhe de cada um, com o porquê e como reverter: `23-PENDENCIAS-SEGURANCA.md`
 
 ---
 

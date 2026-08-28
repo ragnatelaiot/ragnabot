@@ -86,6 +86,12 @@ estrutura técnica · registro de ações — tudo versionado no repositório.
 | 9 | Ícones da marca (formatos que o navegador pede) | acabamento |
 | 10 | **Documentação final em DOCX** | consolida todos os MD ao fim |
 
+### Segurança — pendências abertas 🔒
+Registradas em **`23-PENDENCIAS-SEGURANCA.md`**: rodar sem ser administrador (não-root), cifrar os
+segredos do Kubernetes, fechar a porta interna no firewall (⚠️ só com aval, envolve as CHRs),
+comandos perigosos do Redis, política de conteúdo do navegador e itens menores.
+Já resolvido: banco sem poder total, cerca de rede, pod endurecido, cabeçalhos e freio de login.
+
 ### Adiado por decisão do dono ⏸️
 Cópia de segurança dos bancos, recuperação em ponto no tempo, ensaio de troca de primário e
 teste de queda de nó — **retomar depois do piloto**. *(Zabbix já instalado nas VMs de banco.)*
