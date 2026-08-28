@@ -8,8 +8,8 @@
 
 | # | Ordem (palavras do dono) | Tarefa | Estado |
 |---|---|---|---|
-| A1 | *"prepara no login o sistema de eu não sou robô da Cloudflare e tenta criar você mesmo o código"* | Criar o widget na Cloudflare | ⏳ **bloqueado** — o token que temos só tem permissão de DNS; criar o widget exige permissão de conta (ver §Pendências) |
-| A2 | idem | Preparar o código para aplicar assim que houver a chave | ⬜ |
+| A1 | *"prepara no login o sistema de eu não sou robô da Cloudflare"* | Widget criado pelo dono; chaves entregues | ✅ |
+| A2 | idem | **NO AR**: guarda próprio validando na Cloudflare (o Chatwoot não valida nativo) | ✅ **provado** |
 | A3 | *"sistema de prevenção de ataque força bruta igual temos no NOC, após 7 logins errados começa a ter penalidade de tempo"* | Freio de taxa no `/auth/sign_in` (proxy) | ✅ **provado**: 12 tentativas seguidas → passa a devolver 429 |
 | A4 | idem | Ligar a proteção nativa do produto | ✅ `ENABLE_RACK_ATTACK=true` — cobre login (5/5min por IP, 10/15min por e-mail), redefinição de senha e verificação de 2FA |
 | A5 | idem | Penalidade **progressiva** idêntica à do NOC (7 erros → 30s +15s a cada erro, recupera em 2h) | ⬜ exige código próprio — a nativa é janela fixa, não escalonada |
@@ -79,6 +79,22 @@
 | F11 | OCSP + HTTPS no /super_admin | ⬜ |
 
 > Detalhe de cada um, com o porquê e como reverter: `23-PENDENCIAS-SEGURANCA.md`
+
+
+## BLOCO G — AUDITORIA E PROTOCOLO (ordens de 28/08) 🔴 alto valor
+
+| # | Ordem do dono | Tarefa | Estado |
+|---|---|---|---|
+| G1 | *"cada atendimento deverá ter um protocolo... RGT-sequência de 10 números"* + *"cada empresa terá 3 letras de prefixo"* | Protocolo por empresa (prefixo + 10 dígitos), gerado automaticamente | ⬜ |
+| G2 | *"ser possível a busca do atendimento pelo protocolo"* | Busca por protocolo | ⬜ |
+| G3 | *"auditoria geral por usuário em tudo: configurações, logar, deslogar, IP, início e fim de atendimento"* | Registro completo de auditoria | ⬜ |
+| G4 | *"admins das contas deles terão acesso full das auditorias **apenas das empresas deles**"* | Isolamento por empresa + teste que prova | ⬜ |
+| G5 | *"gerar PDFs elegantes sobre os filtros escolhidos (data, usuário, ação, IP...)"* | Relatório em PDF com filtros | ⬜ |
+| G6 | *"pode replicar para o NOC"* | Espelho para os super users no NOC | ⬜ |
+| G7 | *"cria o campo para eu preencher"* (Efibank) | Tela de configuração do Efibank (editável pelo dono) | ⬜ |
+| G8 | *"cria um padrão ilimitado sem financeiro para a Ragnatela"* + *"poder criar os planos comercializados"* | Plano do proprietário + gestão de planos | ⬜ |
+
+> Desenho aprovado das G1-G6: `24-AUDITORIA-E-PROTOCOLO.md`
 
 ---
 
