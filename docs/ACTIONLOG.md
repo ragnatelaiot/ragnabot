@@ -242,3 +242,17 @@ principal; o NodePort é bypass que exige já estar na rede de gerência.
 
 ### ⏳ Pendentes (próxima leva): cifragem de Secrets no etcd (reinicia apiserver, um nó por vez),
 Redis rename-command, CSP, OCSP, https no /super_admin, e o runAsNonRoot com emptyDir.
+
+## 2026-08-28 — NodePort fechado no firewall (item 2 das pendências) ✅
+Dono perguntou: "é seguro fazer sem derrubar as VRFs de clientes? se for, pode fazer".
+**Verifiquei ANTES de afirmar:** as 14 rotas para `172.17.20.x` nas CHRs são TODAS das VLANs do
+próprio Kubernetes (V30-V35) e da VRF `xse` (casa própria da Ragnatela). **Nenhuma VRF de cliente**
+toca a faixa. Como a regra filtra por `dst-address` da nossa faixa e portas exclusivas do k8s,
+o impacto em cliente é nulo.
+**Aplicado nas 3 bordas** com ordem conservadora (os accepts ANTES do drop):
+`K8S-INGRESS` (proxy) → `K8S-OK-1` (nó↔nó) → **`K8S-NODEPORT-DROP`** (o resto).
+Na RB5009 a regra é escopada a `172.17.20.160/27` (faixa do nó 3).
+**Validado:** site 200 · proxy alcança os 3 nós (404 do ingress sem Host = esperado) · vizinhança de
+clientes intacta (SISAC 302, chat001 200, painel 200, cloud-análise 301).
+**Reversão:** remover as regras `K8S-NODEPORT-DROP` nas 3 bordas.
+⚠️ `place-after` NÃO existe nesta versão do RouterOS — só `place-before` (custou uma tentativa).

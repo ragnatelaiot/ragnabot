@@ -30,8 +30,20 @@ sem preparar os diretórios de escrita derruba a aplicação.
 **Reversão:** remover o `securityContext` do pod e refazer o rollout.
 **Por que não fiz agora:** preferi não arriscar o que está estável sem o mapeamento dos diretórios.
 
-## ⬜ PENDENTE — 2. Fechar a porta interna do cluster (NodePort) no firewall
-**Gravidade:** média · **Bloqueio:** ⚠️ **cautela pedida pelo dono**
+## ✅ RESOLVIDO — 2. Fechar a porta interna do cluster (NodePort) no firewall
+**Concluído em 28/08, com aval do dono** ("é seguro fazer sem derrubar as VRFs de clientes? se for, pode fazer").
+**A verificação que autorizou:** as 14 rotas para `172.17.20.x` são TODAS das VLANs do próprio
+Kubernetes (V30-V35) e da nossa VRF do XSE (casa própria). **Nenhuma VRF de cliente** (CRCMA,
+Hemolab, GF, Análise, SISAC, Oncovida, GM) toca essa faixa — a regra só afeta tráfego destinado a
+ela, em portas que só o Kubernetes usa.
+**Aplicado nas 3 bordas** (CHR001, CHR002, RB5009), com ordem conservadora:
+`accept` proxy (K8S-INGRESS) → `accept` nó↔nó (K8S-OK-1) → **`drop` o resto** (K8S-NODEPORT-DROP).
+**Validado:** site em 200 · proxy alcança os 3 nós · vizinhança de clientes intacta
+(SISAC 302, chat001 200, painel 200, cloud-análise 301).
+**Reversão:** `/ip firewall filter remove [find where comment~"K8S-NODEPORT-DROP"]` nas 3 bordas.
+
+<details><summary>situação anterior (histórico)</summary>
+**Gravidade:** média · **Bloqueio:** ⚠️ cautela pedida pelo dono
 **Situação:** as portas 30080/30443 aceitam conexão de quem já está na rede de gerência, servindo a
 aplicação **sem HTTPS** e **por fora do freio de login**.
 **O que fazer:** nas CHRs e na RB5009, uma regra de descarte **escopada só à faixa do cluster**
@@ -41,6 +53,7 @@ afeta os demais. O comando chegou a ser barrado pelo classificador de segurança
 cautela. **Requer autorização explícita do dono para mexer em regra de CHR.**
 **Mitigação atual:** a cerca de rede já contém o vetor principal; este é um bypass que exige o
 atacante já estar dentro da rede de gerência.
+</details>
 
 ## ⬜ PENDENTE — 3. Cifrar os segredos do Kubernetes em repouso
 **Gravidade:** alta · **Bloqueio:** nenhum (reinicia o servidor de API, um nó por vez)
@@ -77,6 +90,6 @@ dias, ajustar e só então passar a bloquear. Aplicado no vhost do Ragnabot.
 2. **Não-root** (item 1) — alto valor; exige mapear diretórios primeiro.
 3. **Redis** (item 4) e **OCSP/HTTPS do super_admin** (item 6) — rápidos.
 4. **CSP** (item 5) — em modo relatar, com observação.
-5. **NodePort** (item 2) — **só com o seu aval**, por envolver as CHRs.
+5. ~~NodePort (item 2)~~ — ✅ **feito em 28/08** com aval do dono.
 
 > Todos os artefatos (comandos, YAML e SQL) estão prontos em `22-AUDITORIA-SEGURANCA.md` §C.

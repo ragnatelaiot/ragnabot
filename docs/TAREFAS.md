@@ -73,7 +73,7 @@
 | F5 | Isolamento entre empresas (o que o sistema antigo vazava) | ✅ **401 provado** |
 | F6 | Rodar sem ser administrador (não-root) | ⬜ exige mapear diretórios |
 | F7 | Cifrar segredos do Kubernetes em repouso | ⬜ reinicia API, um nó por vez |
-| F8 | Fechar porta interna (NodePort) no firewall | ⬜ ⚠️ **só com aval** — envolve as CHRs |
+| F8 | Fechar porta interna (NodePort) no firewall | ✅ **feito** nas 3 bordas, clientes intactos |
 | F9 | Comandos perigosos do Redis | ⬜ |
 | F10 | Política de conteúdo do navegador (CSP) | ⬜ em modo relatar primeiro |
 | F11 | OCSP + HTTPS no /super_admin | ⬜ |
