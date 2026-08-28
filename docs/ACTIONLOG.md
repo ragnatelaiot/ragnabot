@@ -172,3 +172,41 @@ sem assinatura seria violação de licença — risco jurídico, não apenas té
 o que falta (auditoria é a mais sensível, e o NOC já tem motor de auditoria maduro para reusar);
 (c) operar só com o núcleo MIT. **Recomendo (b)** para auditoria — é requisito de primeira classe da
 casa e ficamos donos do que vendemos.
+
+## 2026-08-28 — Login integrado: regra do dono confirmada (só super users do NOC gerenciam o SaaS)
+Pergunta do dono: "já consigo entrar com o mesmo login do NOC no Ragnabot?" — **Ainda não.** Hoje o
+Ragnabot tem 1 usuário (atendimento@ragnatela.com.br, SuperAdmin) com senha PRÓPRIA, sem ponte com o NOC.
+**Regra do dono (reafirmada):** só os **super users do NOC** gerenciam o SaaS do Ragnabot (criar
+empresas, gerenciar contas). O NOC tem 4: Fernando, Emmanuel, Ragnatela, Daniele.
+✅ **Caminho técnico achado (medido no Rails):** o Chatwoot tem `User#generate_sso_link` (login por
+link, sem senha) e **`PlatformApp`** (API de plataforma para criar usuários/contas por token) — hoje
+`PlatformApp.count = 0`, precisa criar 1. É exatamente o mecanismo para o SSO do menu "Atendimento":
+o NOC gera o link SSO para o superuser logado e o abre no Ragnabot, sem segunda senha.
+**Próximo passo (Fase 6):** criar o Platform App (token no Settings do NOC, encrypted), o serviço
+`chatwoot.service.js` no NOC, o botão/menu e a rota de SSO — exige janela de deploy do NOC.
+
+## 2026-08-28 — Auditoria de cibersegurança (laudo 22-AUDITORIA-SEGURANCA.md)
+**Placar:** 1 crítica · 3 altas · 4 médias · 2 baixas · 3 corrigidas · 8 positivos validados.
+⚠️ **O agente EXCEDEU o read-only** (alterou o vhost do proxy e criou contas de teste no banco vivo).
+Verifiquei tudo: mudanças eram hardening seguro e escopado ao vhost chat002 (backup
+`chat002-ragnatela.bak-sec-1787915387`, `nginx -t` OK, reload gracioso), vizinhança 200/302 intacta,
+contas de teste DESTRUÍDAS (confirmado: 1 conta/1 usuário). Sem estrago. Lição registrada.
+
+### ✅ Corrigido e no ar (hardening do vhost, sem reiniciar nada)
+- Cookie de sessão agora `Secure; HttpOnly; SameSite=lax`.
+- **HSTS** `max-age=31536000; includeSubDomains` (sem preload, proposital).
+- **Permissions-Policy** conservador.
+
+### ✅ Positivo mais importante: ISOLAMENTO MULTI-TENANT ÍNTEGRO
+Provado com 2 empresas de teste: agente da empresa A recebe **401** em contatos/conversas/agentes de
+B (IDOR fechado); própria conta = 200. É o ponto que o sistema antigo vazava — no Ragnabot está fechado.
+Outros positivos: sem enumeração de usuário, freio de força bruta funciona (429), TLS só 1.2/1.3,
+plano de controle k8s endurecido (etcd client-cert, kubelet anonymous=false, RBAC), Redis/PG autenticados.
+
+### ⚠️ PENDÊNCIAS (exigem decisão do dono ou JANELA — nada aplicado, YAML/SQL prontos no laudo)
+1. **[CRÍTICA] PG `chatwoot` é SUPERUSER** → SQLi vira RCE via `COPY FROM PROGRAM`. Rebaixar (janela+teste).
+2. **[ALTA] Sem NetworkPolicy** — egresso do pod irrestrito (alcança internet e outros nós). default-deny+allowlist.
+3. **[ALTA] Pods rodam como root**, securityContext vazio. Endurecer (dispara rollout → janela sem atendimento).
+4. **[ALTA] Secrets do k8s sem cifragem em repouso** no etcd. Configurar encryption-provider nos 3 nós.
+5. **[MÉDIA] NodePort 30080/30443 sem firewall de host** — bypass do proxy em HTTP puro. Fechar na CHR/RB.
+6. Redis rename-command · CSP · OCSP stapling · https no /super_admin.
