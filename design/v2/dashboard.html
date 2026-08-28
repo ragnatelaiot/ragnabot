@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Painel — Ragnabot | Ragnatela IoT Solutions</title>
+<meta name="description" content="Painel administrativo do Ragnabot: conversas, prazos, canais e equipe.">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#03151f">
+<link rel="icon" href="assets/marca/icone-marca-192.png" sizes="192x192" type="image/png">
+<link rel="apple-touch-icon" href="assets/marca/icone-marca-180.png">
+<link rel="stylesheet" href="assets/rb-base.css">
+
+</head>
+<body>
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true" focusable="false"><defs>
+<symbol id="i-caixa" viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-12.3 7.6L3 21l1.5-5.4A8.5 8.5 0 1 1 21 12Z"/></symbol>
+<symbol id="i-painel" viewBox="0 0 24 24"><rect x="3" y="3" width="7.5" height="8.5" rx="1.6"/><rect x="13.5" y="3" width="7.5" height="5" rx="1.6"/><rect x="3" y="14.5" width="7.5" height="6.5" rx="1.6"/><rect x="13.5" y="11" width="7.5" height="10" rx="1.6"/></symbol>
+<symbol id="i-contatos" viewBox="0 0 24 24"><path d="M16 20v-1.6A3.4 3.4 0 0 0 12.6 15H6.4A3.4 3.4 0 0 0 3 18.4V20"/><circle cx="9.5" cy="8" r="3.4"/><path d="M21 20v-1.6a3.4 3.4 0 0 0-2.6-3.3M15.5 4.8a3.4 3.4 0 0 1 0 6.4"/></symbol>
+<symbol id="i-relatorio" viewBox="0 0 24 24"><path d="M4 20V10M9.3 20V4M14.7 20v-7M20 20V7"/></symbol>
+<symbol id="i-campanha" viewBox="0 0 24 24"><path d="M3 10v4a1 1 0 0 0 1 1h3l5 4V5L7 9H4a1 1 0 0 0-1 1Z"/><path d="M17 9a4 4 0 0 1 0 6M19.8 6.2a8 8 0 0 1 0 11.6"/></symbol>
+<symbol id="i-ajustes" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.1"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7.5 19.4l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 3.6 14H3.5a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10 3.6V3.5a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7h.1a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.2.8Z"/></symbol>
+<symbol id="i-busca" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.9-3.9"/></symbol>
+<symbol id="i-filtro" viewBox="0 0 24 24"><path d="M3 5h18l-7 8.2V20l-4-2.2v-4.6L3 5Z"/></symbol>
+<symbol id="i-enviar" viewBox="0 0 24 24"><path d="M21.5 3 10.8 13.7M21.5 3l-6.8 18.5-3.9-7.8-7.8-3.9L21.5 3Z"/></symbol>
+<symbol id="i-nota" viewBox="0 0 24 24"><path d="M14 3H6.5A1.5 1.5 0 0 0 5 4.5v15A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V8l-5-5Z"/><path d="M14 3v5h5M8.6 13h6.8M8.6 16.6h4.2"/></symbol>
+<symbol id="i-anexo" viewBox="0 0 24 24"><path d="M20.4 11.5 12.2 19.7a5 5 0 0 1-7.1-7.1l8.2-8.2a3.3 3.3 0 1 1 4.7 4.7l-8.2 8.2a1.7 1.7 0 1 1-2.4-2.4l7.6-7.5"/></symbol>
+<symbol id="i-rosto" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8.4 14.4a4.4 4.4 0 0 0 7.2 0"/><path d="M9 9.4h.01M15 9.4h.01"/></symbol>
+<symbol id="i-etiqueta" viewBox="0 0 24 24"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0l-7.2-7.2A2 2 0 0 1 2.8 12V4.8A2 2 0 0 1 4.8 2.8H12a2 2 0 0 1 1.4.6l7.2 7.2a2 2 0 0 1 0 2.8Z"/><path d="M7.5 7.5h.01"/></symbol>
+<symbol id="i-time" viewBox="0 0 24 24"><path d="M17 20v-1.8a3.2 3.2 0 0 0-3.2-3.2H7.2A3.2 3.2 0 0 0 4 18.2V20"/><circle cx="10.5" cy="8" r="3.2"/><path d="M20 20v-1.8a3.2 3.2 0 0 0-2.4-3.1"/></symbol>
+<symbol id="i-usuario" viewBox="0 0 24 24"><path d="M19 20v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7.5" r="3.6"/></symbol>
+<symbol id="i-robo" viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="12" rx="2.6"/><path d="M12 8V4.6M9 14h.01M15 14h.01M9.6 17.4h4.8M2.5 12.5v3M21.5 12.5v3"/><circle cx="12" cy="3.4" r="1.2"/></symbol>
+<symbol id="i-relogio" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 6.8V12l3.4 2"/></symbol>
+<symbol id="i-visto" viewBox="0 0 24 24"><path d="m4.5 12.5 5 5 10-11"/></symbol>
+<symbol id="i-visto2" viewBox="0 0 24 24"><path d="m1.5 12.8 4.4 4.4L14.8 7.6M9.6 13.6l3.2 3.6 9-9.6"/></symbol>
+<symbol id="i-alerta" viewBox="0 0 24 24"><path d="M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3l-8.5-14.4a2 2 0 0 0-3.4 0Z"/><path d="M12 9.4v4.2M12 17.4h.01"/></symbol>
+<symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4.4M12 8.2h.01"/></symbol>
+<symbol id="i-seta-c" viewBox="0 0 24 24"><path d="m6 14 6-6 6 6"/></symbol>
+<symbol id="i-seta-b" viewBox="0 0 24 24"><path d="m6 10 6 6 6-6"/></symbol>
+<symbol id="i-seta-d" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+<symbol id="i-seta-e" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></symbol>
+<symbol id="i-mais" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="i-menu" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></symbol>
+<symbol id="i-sair" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></symbol>
+<symbol id="i-sino" viewBox="0 0 24 24"><path d="M18 8.6a6 6 0 1 0-12 0c0 6.4-2.5 8.4-2.5 8.4h17S18 15 18 8.6Z"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></symbol>
+<symbol id="i-cadeado" viewBox="0 0 24 24"><rect x="4" y="10.4" width="16" height="10.6" rx="2.2"/><path d="M7.8 10.4V7a4.2 4.2 0 1 1 8.4 0v3.4"/></symbol>
+<symbol id="i-chave" viewBox="0 0 24 24"><circle cx="7.6" cy="16.4" r="3.6"/><path d="m10.2 13.8 8.4-8.4M16.4 7.6l2.2 2.2M14.2 9.8l2.2 2.2"/></symbol>
+<symbol id="i-empresa" viewBox="0 0 24 24"><path d="M3 21h18M5 21V6.2a1.2 1.2 0 0 1 1.2-1.2h6.6A1.2 1.2 0 0 1 14 6.2V21M14 21V11h4.8A1.2 1.2 0 0 1 20 12.2V21"/><path d="M8 9h3M8 13h3M8 17h3M17 15h.01M17 18h.01"/></symbol>
+<symbol id="i-cartao" viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="14" rx="2.2"/><path d="M2.5 10h19"/></symbol>
+<symbol id="i-raio" viewBox="0 0 24 24"><path d="M13.4 2 4 13.6h6.4L10 22l9.4-11.6H13L13.4 2Z"/></symbol>
+<symbol id="i-responder" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h9.5a6.5 6.5 0 0 1 6.5 6.5V20"/></symbol>
+<symbol id="i-estrela" viewBox="0 0 24 24"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2-5.5-2.9-5.5 2.9 1-6.2L3 9.6l6.2-.9L12 3Z"/></symbol>
+<symbol id="i-arquivar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="4.4" rx="1.4"/><path d="M4.6 8.4V19a1.6 1.6 0 0 0 1.6 1.6h11.6a1.6 1.6 0 0 0 1.6-1.6V8.4M10 12.6h4"/></symbol>
+<symbol id="i-telefone" viewBox="0 0 24 24"><path d="M21.6 16.9v2.8a1.9 1.9 0 0 1-2 1.9 18.6 18.6 0 0 1-8.1-2.9 18.3 18.3 0 0 1-5.6-5.6A18.6 18.6 0 0 1 3 4.9a1.9 1.9 0 0 1 1.9-2h2.8a1.9 1.9 0 0 1 1.9 1.6c.1 1 .4 1.9.7 2.8a1.9 1.9 0 0 1-.4 2l-1.2 1.2a15 15 0 0 0 5.6 5.6l1.2-1.2a1.9 1.9 0 0 1 2-.4c.9.3 1.8.6 2.8.7a1.9 1.9 0 0 1 1.6 1.9Z"/></symbol>
+<symbol id="i-whatsapp" viewBox="0 0 24 24"><path d="M20.5 11.7a8.4 8.4 0 0 1-12.2 7.5L3.5 20.5l1.4-4.7a8.4 8.4 0 1 1 15.6-4.1Z"/><path d="M9.2 9.1c-.2 1.6 1.1 3.4 1.9 4.2s2.6 2 4.2 1.8"/></symbol>
+<symbol id="i-instagram" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="5.2"/><circle cx="12" cy="12" r="3.8"/><path d="M17.2 6.9h.01"/></symbol>
+<symbol id="i-messenger" viewBox="0 0 24 24"><path d="M12 2.8c-5.1 0-9.2 3.8-9.2 8.6a8.3 8.3 0 0 0 3.4 6.6v3.2l3.2-1.7a10 10 0 0 0 2.6.4c5.1 0 9.2-3.8 9.2-8.5S17.1 2.8 12 2.8Z"/><path d="m7.1 13.6 2.7-2.8 2 2 2.9-2.9-2.6 2.8-2-2-3 2.9Z"/></symbol>
+<symbol id="i-telegram" viewBox="0 0 24 24"><path d="M21.4 4.3 2.9 11.2l4.8 1.6 1.8 5.6 2.6-2.9 4.6 3.4 4.7-14.6Z"/><path d="m7.7 12.8 10.4-6.4-8.6 8"/></symbol>
+<symbol id="i-email" viewBox="0 0 24 24"><rect x="2.6" y="4.6" width="18.8" height="14.8" rx="2.2"/><path d="m3.4 6.4 8.6 6 8.6-6"/></symbol>
+<symbol id="i-webchat" viewBox="0 0 24 24"><rect x="2.6" y="3.4" width="18.8" height="14" rx="2.4"/><path d="M2.6 7.6h18.8M8 20.6h8M12 17.4v3.2M6 5.6h.01M8.4 5.6h.01"/></symbol>
+<symbol id="i-fila" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h9"/><circle cx="18.5" cy="18" r="2.4"/></symbol>
+<symbol id="i-pausa" viewBox="0 0 24 24"><path d="M9.5 4.5v15M14.5 4.5v15"/></symbol>
+<symbol id="i-lixo" viewBox="0 0 24 24"><path d="M3.8 6.2h16.4M8.6 6.2V4.6A1.6 1.6 0 0 1 10.2 3h3.6a1.6 1.6 0 0 1 1.6 1.6v1.6M18 6.2V20a1.6 1.6 0 0 1-1.6 1.6H7.6A1.6 1.6 0 0 1 6 20V6.2"/></symbol>
+<symbol id="i-copiar" viewBox="0 0 24 24"><rect x="8.4" y="8.4" width="12.6" height="12.6" rx="2.2"/><path d="M5.6 15.6H4.4A1.4 1.4 0 0 1 3 14.2V4.4A1.4 1.4 0 0 1 4.4 3h9.8a1.4 1.4 0 0 1 1.4 1.4v1.2"/></symbol>
+<symbol id="i-atualizar" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 3.5V10h-6.5"/></symbol>
+<symbol id="i-ligar" viewBox="0 0 24 24"><path d="M12 3v9"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></symbol>
+<symbol id="i-globo" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3.2 12h17.6M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18Z"/></symbol>
+<symbol id="i-olho" viewBox="0 0 24 24"><path d="M2 12s3.6-6.6 10-6.6S22 12 22 12s-3.6 6.6-10 6.6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.9"/></symbol>
+<symbol id="i-olho-off" viewBox="0 0 24 24"><path d="M10.6 6.6A9.6 9.6 0 0 1 12 6.5c6.4 0 10 5.5 10 5.5a17 17 0 0 1-3.3 3.9M6.4 7.9A16.6 16.6 0 0 0 2 12s3.6 5.5 10 5.5a9.9 9.9 0 0 0 3.5-.6M3 3l18 18M9.9 9.9a3 3 0 0 0 4.2 4.2"/></symbol>
+</defs></svg>
+<div class="rb-brilhos" aria-hidden="true"></div>
+<div class="rb-app">
+<nav class="rb-trilho" aria-label="Navegação principal">
+  <a class="rb-trilho__marca" href="dashboard.html" aria-label="Ragnabot — início">
+    <img src="assets/marca/icone-marca-192.png" alt="" width="34" height="34"></a>
+  <a class="rb-tri" href="conversas.html"><span class="rb-tri__sino num">7</span><svg class="i i-22" aria-hidden="true"><use href="#i-caixa"/></svg>Caixa</a><a class="rb-tri rb-tri--on" href="dashboard.html" aria-current="page"><svg class="i i-22" aria-hidden="true"><use href="#i-painel"/></svg>Painel</a><a class="rb-tri" href="#"><svg class="i i-22" aria-hidden="true"><use href="#i-contatos"/></svg>Contatos</a><a class="rb-tri" href="#"><svg class="i i-22" aria-hidden="true"><use href="#i-campanha"/></svg>Campanhas</a><a class="rb-tri" href="#"><svg class="i i-22" aria-hidden="true"><use href="#i-relatorio"/></svg>Relatórios</a><a class="rb-tri" href="configuracoes.html"><svg class="i i-22" aria-hidden="true"><use href="#i-ajustes"/></svg>Ajustes</a>
+  <div class="rb-trilho__pe">
+    <button class="rb-tri" type="button"><svg class="i i-22" aria-hidden="true"><use href="#i-sino"/></svg>Avisos</button>
+    <span class="rb-av" title="Emmanuel Castro — administrador">EC<span class="rb-av__st rb-pt--on"></span></span>
+  </div>
+</nav>
+<aside class="rb-sec rb-sec--recolhe" aria-label="Seções do painel">
+  <div class="rb-sec__topo">
+    <h2>Painel</h2>
+    <p>Conta: Ragnatela IoT Solutions</p>
+  </div>
+  <div class="rb-sec__lista">
+    <p class="rb-grp">Visão</p>
+    <a class="rb-it rb-it--on" href="#" aria-current="page"><svg class="i" aria-hidden="true"><use href="#i-painel"/></svg>Visão geral</a>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-caixa"/></svg>Atendimento</a>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-globo"/></svg>Canais</a>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-time"/></svg>Equipe</a>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-relogio"/></svg>Prazos (SLA)</a>
+    <p class="rb-grp">Aprofundar</p>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-etiqueta"/></svg>Assuntos<span class="rb-it__n num">24</span></a>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-robo"/></svg>Automação</a>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-estrela"/></svg>Satisfação</a>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-arquivar"/></svg>Exportar dados</a>
+  </div>
+  <div class="rb-sec__pe"><button class="rb-usr" type="button">
+  <span class="rb-av rb-av--p">EC<span class="rb-av__st rb-pt--on" style="width:9px;height:9px"></span></span>
+  <span style="min-width:0">
+    <span class="rb-usr__n">Emmanuel Castro</span>
+    <span class="rb-usr__e">Administrador da conta</span>
+  </span>
+  <svg class="i i-16" style="margin-left:auto;color:var(--rb-muted)" aria-hidden="true"><use href="#i-seta-c"/></svg>
+</button></div>
+</aside>
+<main class="rb-corpo">
+
+  <header class="rb-capa">
+    <p class="rb-capa__ol">Painel do administrador</p>
+    <h1>Como o atendimento está indo hoje</h1>
+    <p>Quinta-feira, 28 de agosto · atualizado há 40 segundos. Os números abaixo somam todos os
+       canais conectados nesta conta.</p>
+  </header>
+
+  <div class="rb-barra">
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="rb-bt rb-bt--p" type="button" aria-pressed="true" style="border-color:var(--rb-green);color:var(--rb-heading)">Hoje</button>
+      <button class="rb-bt rb-bt--p" type="button">7 dias</button>
+      <button class="rb-bt rb-bt--p" type="button">30 dias</button>
+      <button class="rb-bt rb-bt--p" type="button">Personalizado</button>
+    </div>
+    <div class="rb-barra__dir">
+      <button class="rb-bt rb-bt--p" type="button"><svg class="i i-14" aria-hidden="true"><use href="#i-filtro"/></svg>Todos os canais</button>
+      <button class="rb-bt rb-bt--p" type="button"><svg class="i i-14" aria-hidden="true"><use href="#i-atualizar"/></svg>Atualizar</button>
+      <button class="rb-bt rb-bt--p rb-bt--pri" type="button"><svg class="i i-14" aria-hidden="true"><use href="#i-arquivar"/></svg>Exportar</button>
+    </div>
+  </div>
+
+  <div class="rb-conteudo">
+    <div class="rb-msg rb-msg--info" style="margin-bottom:var(--e3)"><svg class="i" aria-hidden="true"><use href="#i-info"/></svg><span><b>Protótipo para revisão.</b> Todos os números, nomes e conversas desta tela são de demonstração — não representam operação real de nenhum cliente.</span></div>
+
+    <h2 class="rb-sr">Indicadores do dia</h2>
+    <div class="rb-grade rb-g-kpi" style="margin-bottom:var(--e4)"><article class="rb-kpi" style="--rb-kpi-cor:#2ee879">
+  <p class="rb-kpi__rot"><svg class="i i-14" aria-hidden="true"><use href="#i-caixa"/></svg>Em atendimento</p>
+  <p class="rb-kpi__v num">127</p>
+  <svg class="rb-kpi__spark" width="112" height="28" viewBox="0 0 112 28" aria-hidden="true"><path d="M0.0 23.5 L18.7 18.0 L37.3 26.0 L56.0 10.6 L74.7 14.9 L93.3 6.9 L112.0 2.0 L112.0 28 L0 28 Z" fill="#2ee879" opacity=".13"/><path d="M0.0 23.5 L18.7 18.0 L37.3 26.0 L56.0 10.6 L74.7 14.9 L93.3 6.9 L112.0 2.0" fill="none" stroke="#2ee879" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="112.0" cy="2.0" r="2.8" fill="#2ee879"/></svg>
+  <div class="rb-kpi__pe">
+    <span class="rb-kpi__d rb-kpi__d--sobe"><svg class="i" style="width:11px;height:11px" aria-hidden="true"><use href="#i-seta-c"/></svg>+14</span>
+    <span class="rb-kpi__ctx">vs. ontem · fila viva agora</span>
+  </div>
+</article><article class="rb-kpi" style="--rb-kpi-cor:#ffb020">
+  <p class="rb-kpi__rot"><svg class="i i-14" aria-hidden="true"><use href="#i-relogio"/></svg>Aguardando resposta</p>
+  <p class="rb-kpi__v num">23</p>
+  <svg class="rb-kpi__spark" width="112" height="28" viewBox="0 0 112 28" aria-hidden="true"><path d="M0.0 22.6 L18.7 17.4 L37.3 26.0 L56.0 12.3 L74.7 19.1 L93.3 8.9 L112.0 2.0 L112.0 28 L0 28 Z" fill="#ffb020" opacity=".13"/><path d="M0.0 22.6 L18.7 17.4 L37.3 26.0 L56.0 12.3 L74.7 19.1 L93.3 8.9 L112.0 2.0" fill="none" stroke="#ffb020" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="112.0" cy="2.0" r="2.8" fill="#ffb020"/></svg>
+  <div class="rb-kpi__pe">
+    <span class="rb-kpi__d rb-kpi__d--cai"><svg class="i" style="width:11px;height:11px" aria-hidden="true"><use href="#i-seta-c"/></svg>+9</span>
+    <span class="rb-kpi__ctx">vs. ontem · a mais antiga há 14 min</span>
+  </div>
+</article><article class="rb-kpi" style="--rb-kpi-cor:#2ee879">
+  <p class="rb-kpi__rot"><svg class="i i-14" aria-hidden="true"><use href="#i-visto2"/></svg>Resolvidas hoje</p>
+  <p class="rb-kpi__v num">341</p>
+  <svg class="rb-kpi__spark" width="112" height="28" viewBox="0 0 112 28" aria-hidden="true"><path d="M0.0 26.0 L18.7 18.4 L37.3 23.0 L56.0 10.5 L74.7 14.8 L93.3 8.2 L112.0 2.0 L112.0 28 L0 28 Z" fill="#2ee879" opacity=".13"/><path d="M0.0 26.0 L18.7 18.4 L37.3 23.0 L56.0 10.5 L74.7 14.8 L93.3 8.2 L112.0 2.0" fill="none" stroke="#2ee879" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="112.0" cy="2.0" r="2.8" fill="#2ee879"/></svg>
+  <div class="rb-kpi__pe">
+    <span class="rb-kpi__d rb-kpi__d--sobe"><svg class="i" style="width:11px;height:11px" aria-hidden="true"><use href="#i-seta-c"/></svg>+6%</span>
+    <span class="rb-kpi__ctx">vs. ontem · meta do dia: 320</span>
+  </div>
+</article><article class="rb-kpi" style="--rb-kpi-cor:#2ee879">
+  <p class="rb-kpi__rot"><svg class="i i-14" aria-hidden="true"><use href="#i-raio"/></svg>1ª resposta (média)</p>
+  <p class="rb-kpi__v num">2<small>min 08s</small></p>
+  <svg class="rb-kpi__spark" width="112" height="28" viewBox="0 0 112 28" aria-hidden="true"><path d="M0.0 2.0 L18.7 6.9 L37.3 10.8 L56.0 11.9 L74.7 16.5 L93.3 18.6 L112.0 26.0 L112.0 28 L0 28 Z" fill="#2ee879" opacity=".13"/><path d="M0.0 2.0 L18.7 6.9 L37.3 10.8 L56.0 11.9 L74.7 16.5 L93.3 18.6 L112.0 26.0" fill="none" stroke="#2ee879" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="112.0" cy="26.0" r="2.8" fill="#2ee879"/></svg>
+  <div class="rb-kpi__pe">
+    <span class="rb-kpi__d rb-kpi__d--sobe"><svg class="i" style="width:11px;height:11px" aria-hidden="true"><use href="#i-seta-b"/></svg>−41s</span>
+    <span class="rb-kpi__ctx">vs. ontem · meta: até 3 min</span>
+  </div>
+</article><article class="rb-kpi" style="--rb-kpi-cor:#ffb020">
+  <p class="rb-kpi__rot"><svg class="i i-14" aria-hidden="true"><use href="#i-relogio"/></svg>Resolução (média)</p>
+  <p class="rb-kpi__v num">1<small>h 24min</small></p>
+  <svg class="rb-kpi__spark" width="112" height="28" viewBox="0 0 112 28" aria-hidden="true"><path d="M0.0 26.0 L18.7 16.8 L37.3 22.3 L56.0 9.4 L74.7 14.9 L93.3 11.2 L112.0 2.0 L112.0 28 L0 28 Z" fill="#ffb020" opacity=".13"/><path d="M0.0 26.0 L18.7 16.8 L37.3 22.3 L56.0 9.4 L74.7 14.9 L93.3 11.2 L112.0 2.0" fill="none" stroke="#ffb020" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="112.0" cy="2.0" r="2.8" fill="#ffb020"/></svg>
+  <div class="rb-kpi__pe">
+    <span class="rb-kpi__d rb-kpi__d--cai"><svg class="i" style="width:11px;height:11px" aria-hidden="true"><use href="#i-seta-c"/></svg>+7min</span>
+    <span class="rb-kpi__ctx">vs. ontem · meta: até 1h 30min</span>
+  </div>
+</article><article class="rb-kpi" style="--rb-kpi-cor:#2ee879">
+  <p class="rb-kpi__rot"><svg class="i i-14" aria-hidden="true"><use href="#i-estrela"/></svg>Satisfação (CSAT)</p>
+  <p class="rb-kpi__v num">4,7<small>/5</small></p>
+  <svg class="rb-kpi__spark" width="112" height="28" viewBox="0 0 112 28" aria-hidden="true"><path d="M0.0 26.0 L18.7 14.0 L37.3 26.0 L56.0 2.0 L74.7 14.0 L93.3 14.0 L112.0 14.0 L112.0 28 L0 28 Z" fill="#2ee879" opacity=".13"/><path d="M0.0 26.0 L18.7 14.0 L37.3 26.0 L56.0 2.0 L74.7 14.0 L93.3 14.0 L112.0 14.0" fill="none" stroke="#2ee879" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="112.0" cy="14.0" r="2.8" fill="#2ee879"/></svg>
+  <div class="rb-kpi__pe">
+    <span class="rb-kpi__d rb-kpi__d--neutro"><svg class="i" style="width:11px;height:11px" aria-hidden="true"><use href="#i-seta-d"/></svg>estável</span>
+    <span class="rb-kpi__ctx">612 respostas em 30 dias</span>
+  </div>
+</article></div>
+
+    <div class="rb-grade rb-g-principal" style="margin-bottom:var(--e4)">
+
+      <section class="rb-card">
+        <div class="rb-card__topo">
+          <div><h3>Conversas abertas por hora</h3>
+            <p>A linha cheia é hoje. A tracejada é a média das últimas 14 quintas-feiras.</p></div>
+          <div class="rb-card__dir"><span class="rb-selo rb-selo--prazo">
+            <svg class="i" aria-hidden="true"><use href="#i-seta-c"/></svg>+11% vs. a média</span></div>
+        </div>
+        <svg class="rb-cx" viewBox="0 0 760 236" role="img" aria-label="Conversas abertas por hora. Hoje: pico de 71 às 14 horas. A linha tracejada cinza é a média das últimas 14 semanas do mesmo dia."><line class="grade" x1="44" y1="206.0" x2="748" y2="206.0"/><text class="eixo" x="36" y="209.5" text-anchor="end">0</text><line class="grade" x1="44" y1="158.5" x2="748" y2="158.5"/><text class="eixo" x="36" y="162.0" text-anchor="end">20</text><line class="grade" x1="44" y1="111.0" x2="748" y2="111.0"/><text class="eixo" x="36" y="114.5" text-anchor="end">40</text><line class="grade" x1="44" y1="63.5" x2="748" y2="63.5"/><text class="eixo" x="36" y="67.0" text-anchor="end">60</text><line class="grade" x1="44" y1="16.0" x2="748" y2="16.0"/><text class="eixo" x="36" y="19.5" text-anchor="end">80</text><text class="eixo" x="44.0" y="227" text-anchor="middle">00h</text><text class="eixo" x="135.8" y="227" text-anchor="middle">03h</text><text class="eixo" x="227.7" y="227" text-anchor="middle">06h</text><text class="eixo" x="319.5" y="227" text-anchor="middle">09h</text><text class="eixo" x="411.3" y="227" text-anchor="middle">12h</text><text class="eixo" x="503.1" y="227" text-anchor="middle">15h</text><text class="eixo" x="595.0" y="227" text-anchor="middle">18h</text><text class="eixo" x="686.8" y="227" text-anchor="middle">21h</text><path d="M44.0 198.9 L74.6 201.2 L105.2 203.6 L135.8 203.6 L166.4 201.2 L197.0 194.1 L227.7 179.9 L258.3 146.6 L288.9 115.8 L319.5 82.5 L350.1 70.6 L380.7 84.9 L411.3 101.5 L441.9 68.2 L472.5 58.8 L503.1 70.6 L533.7 92.0 L564.3 122.9 L595.0 153.8 L625.6 172.8 L656.2 182.2 L686.8 189.4 L717.4 194.1 L748.0 198.9" fill="none" stroke="#5d7580" stroke-width="2" stroke-dasharray="5 4" stroke-linejoin="round"/><path d="M44.0 201.2 L74.6 203.6 L105.2 206.0 L135.8 206.0 L166.4 203.6 L197.0 198.9 L227.7 184.6 L258.3 153.8 L288.9 108.6 L319.5 68.2 L350.1 56.4 L380.7 77.8 L411.3 94.4 L441.9 49.2 L472.5 37.4 L503.1 54.0 L533.7 82.5 L564.3 115.8 L595.0 149.0 L625.6 170.4 L656.2 184.6 L686.8 191.8 L717.4 196.5 L748.0 198.9 L748.0 206 L44 206 Z" fill="#2ee879" opacity=".10"/><path d="M44.0 201.2 L74.6 203.6 L105.2 206.0 L135.8 206.0 L166.4 203.6 L197.0 198.9 L227.7 184.6 L258.3 153.8 L288.9 108.6 L319.5 68.2 L350.1 56.4 L380.7 77.8 L411.3 94.4 L441.9 49.2 L472.5 37.4 L503.1 54.0 L533.7 82.5 L564.3 115.8 L595.0 149.0 L625.6 170.4 L656.2 184.6 L686.8 191.8 L717.4 196.5 L748.0 198.9" fill="none" stroke="#2ee879" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/><circle cx="472.5" cy="37.4" r="4.2" fill="#2ee879" stroke="#082532" stroke-width="2"/><text class="rot" x="472.5" y="26.4" text-anchor="middle">71 às 14h</text><rect x="28.7" y="16" width="30.6" height="190" fill="transparent"><title>00h — hoje: 2 · média de 14 dias: 3</title></rect><rect x="59.3" y="16" width="30.6" height="190" fill="transparent"><title>01h — hoje: 1 · média de 14 dias: 2</title></rect><rect x="89.9" y="16" width="30.6" height="190" fill="transparent"><title>02h — hoje: 0 · média de 14 dias: 1</title></rect><rect x="120.5" y="16" width="30.6" height="190" fill="transparent"><title>03h — hoje: 0 · média de 14 dias: 1</title></rect><rect x="151.1" y="16" width="30.6" height="190" fill="transparent"><title>04h — hoje: 1 · média de 14 dias: 2</title></rect><rect x="181.7" y="16" width="30.6" height="190" fill="transparent"><title>05h — hoje: 3 · média de 14 dias: 5</title></rect><rect x="212.3" y="16" width="30.6" height="190" fill="transparent"><title>06h — hoje: 9 · média de 14 dias: 11</title></rect><rect x="243.0" y="16" width="30.6" height="190" fill="transparent"><title>07h — hoje: 22 · média de 14 dias: 25</title></rect><rect x="273.6" y="16" width="30.6" height="190" fill="transparent"><title>08h — hoje: 41 · média de 14 dias: 38</title></rect><rect x="304.2" y="16" width="30.6" height="190" fill="transparent"><title>09h — hoje: 58 · média de 14 dias: 52</title></rect><rect x="334.8" y="16" width="30.6" height="190" fill="transparent"><title>10h — hoje: 63 · média de 14 dias: 57</title></rect><rect x="365.4" y="16" width="30.6" height="190" fill="transparent"><title>11h — hoje: 54 · média de 14 dias: 51</title></rect><rect x="396.0" y="16" width="30.6" height="190" fill="transparent"><title>12h — hoje: 47 · média de 14 dias: 44</title></rect><rect x="426.6" y="16" width="30.6" height="190" fill="transparent"><title>13h — hoje: 66 · média de 14 dias: 58</title></rect><rect x="457.2" y="16" width="30.6" height="190" fill="transparent"><title>14h — hoje: 71 · média de 14 dias: 62</title></rect><rect x="487.8" y="16" width="30.6" height="190" fill="transparent"><title>15h — hoje: 64 · média de 14 dias: 57</title></rect><rect x="518.4" y="16" width="30.6" height="190" fill="transparent"><title>16h — hoje: 52 · média de 14 dias: 48</title></rect><rect x="549.0" y="16" width="30.6" height="190" fill="transparent"><title>17h — hoje: 38 · média de 14 dias: 35</title></rect><rect x="579.7" y="16" width="30.6" height="190" fill="transparent"><title>18h — hoje: 24 · média de 14 dias: 22</title></rect><rect x="610.3" y="16" width="30.6" height="190" fill="transparent"><title>19h — hoje: 15 · média de 14 dias: 14</title></rect><rect x="640.9" y="16" width="30.6" height="190" fill="transparent"><title>20h — hoje: 9 · média de 14 dias: 10</title></rect><rect x="671.5" y="16" width="30.6" height="190" fill="transparent"><title>21h — hoje: 6 · média de 14 dias: 7</title></rect><rect x="702.1" y="16" width="30.6" height="190" fill="transparent"><title>22h — hoje: 4 · média de 14 dias: 5</title></rect><rect x="732.7" y="16" width="30.6" height="190" fill="transparent"><title>23h — hoje: 3 · média de 14 dias: 3</title></rect></svg>
+        <div class="rb-legenda">
+          <span><i style="background:#2ee879"></i>Hoje</span>
+          <span><i style="background:#5d7580"></i>Média de 14 quintas-feiras (tracejada)</span>
+        </div>
+      </section>
+
+      <section class="rb-card">
+        <div class="rb-card__topo">
+          <div><h3>Volume por canal</h3><p>Conversas iniciadas nos últimos 30 dias.</p></div>
+        </div>
+        <div class="rb-bar">
+  <span class="rb-bar__r"><span class="rb-pt rb-pt--whatsapp"></span><svg class="i i-14" aria-hidden="true"><use href="#i-whatsapp"/></svg>WhatsApp</span>
+  <div class="rb-bar__t"><div class="rb-bar__f" style="width:100.0%;background:#2ee879"><span class="rb-sr">1284</span></div></div>
+  <span class="rb-bar__v">1.284<span style="color:var(--rb-muted);font-weight:400"> · 56%</span></span>
+</div><div class="rb-bar">
+  <span class="rb-bar__r"><span class="rb-pt rb-pt--instagram"></span><svg class="i i-14" aria-hidden="true"><use href="#i-instagram"/></svg>Instagram</span>
+  <div class="rb-bar__t"><div class="rb-bar__f" style="width:32.1%;background:#26c377"><span class="rb-sr">412</span></div></div>
+  <span class="rb-bar__v">412<span style="color:var(--rb-muted);font-weight:400"> · 18%</span></span>
+</div><div class="rb-bar">
+  <span class="rb-bar__r"><span class="rb-pt rb-pt--webchat"></span><svg class="i i-14" aria-hidden="true"><use href="#i-webchat"/></svg>Chat do site</span>
+  <div class="rb-bar__t"><div class="rb-bar__f" style="width:20.9%;background:#23b46f"><span class="rb-sr">268</span></div></div>
+  <span class="rb-bar__v">268<span style="color:var(--rb-muted);font-weight:400"> · 12%</span></span>
+</div><div class="rb-bar">
+  <span class="rb-bar__r"><span class="rb-pt rb-pt--email"></span><svg class="i i-14" aria-hidden="true"><use href="#i-email"/></svg>E-mail</span>
+  <div class="rb-bar__t"><div class="rb-bar__f" style="width:13.5%;background:#20a566"><span class="rb-sr">173</span></div></div>
+  <span class="rb-bar__v">173<span style="color:var(--rb-muted);font-weight:400"> · 8%</span></span>
+</div><div class="rb-bar">
+  <span class="rb-bar__r"><span class="rb-pt rb-pt--messenger"></span><svg class="i i-14" aria-hidden="true"><use href="#i-messenger"/></svg>Messenger</span>
+  <div class="rb-bar__t"><div class="rb-bar__f" style="width:7.5%;background:#1b8f59"><span class="rb-sr">96</span></div></div>
+  <span class="rb-bar__v">96<span style="color:var(--rb-muted);font-weight:400"> · 4%</span></span>
+</div><div class="rb-bar">
+  <span class="rb-bar__r"><span class="rb-pt rb-pt--telegram"></span><svg class="i i-14" aria-hidden="true"><use href="#i-telegram"/></svg>Telegram</span>
+  <div class="rb-bar__t"><div class="rb-bar__f" style="width:3.2%;background:#1b8f59"><span class="rb-sr">41</span></div></div>
+  <span class="rb-bar__v">41<span style="color:var(--rb-muted);font-weight:400"> · 2%</span></span>
+</div>
+        <div class="rb-msg rb-msg--info" style="margin-top:var(--e3);font-size:12px">
+          <svg class="i i-16" aria-hidden="true"><use href="#i-info"/></svg>
+          <span>O WhatsApp responde por <b>56%</b> do volume. Uma indisponibilidade nele para
+                mais da metade do atendimento — vale ter o plano pronto.</span>
+        </div>
+      </section>
+    </div>
+
+    <div class="rb-grade rb-g2" style="margin-bottom:var(--e4)">
+
+      <section class="rb-card">
+        <div class="rb-card__topo">
+          <div><h3>Filas agora</h3><p>Quem está esperando, e há quanto tempo.</p></div>
+          <div class="rb-card__dir"><a href="conversas.html" class="rb-bt rb-bt--p">Abrir a caixa</a></div>
+        </div>
+        <div class="rb-tabw"><table class="rb-tab">
+          <caption class="rb-sr">Filas de atendimento, com quantidade em espera e maior tempo de espera</caption>
+          <thead><tr><th scope="col">Fila</th><th scope="col" class="dir">Na espera</th>
+            <th scope="col" class="dir">Espera mais antiga</th><th scope="col" class="dir">Prazo</th></tr></thead>
+          <tbody><tr>
+  <td><span style="display:flex;align-items:center;gap:9px"><svg class="i i-16" style="color:var(--rb-muted)" aria-hidden="true"><use href="#i-fila"/></svg><b>Comercial</b></span></td>
+  <td class="dir num">18</td><td class="dir num">2m 10s</td>
+  <td class="dir"><span class="rb-selo rb-selo--prazo"><svg class="i" aria-hidden="true"><use href="#i-visto"/></svg>No prazo</span></td>
+</tr><tr>
+  <td><span style="display:flex;align-items:center;gap:9px"><svg class="i i-16" style="color:var(--rb-muted)" aria-hidden="true"><use href="#i-ajustes"/></svg><b>Suporte técnico</b></span></td>
+  <td class="dir num">34</td><td class="dir num">6m 44s</td>
+  <td class="dir"><span class="rb-selo rb-selo--risco"><svg class="i" aria-hidden="true"><use href="#i-alerta"/></svg>Em risco</span></td>
+</tr><tr>
+  <td><span style="display:flex;align-items:center;gap:9px"><svg class="i i-16" style="color:var(--rb-muted)" aria-hidden="true"><use href="#i-cartao"/></svg><b>Financeiro</b></span></td>
+  <td class="dir num">7</td><td class="dir num">1m 32s</td>
+  <td class="dir"><span class="rb-selo rb-selo--prazo"><svg class="i" aria-hidden="true"><use href="#i-visto"/></svg>No prazo</span></td>
+</tr><tr>
+  <td><span style="display:flex;align-items:center;gap:9px"><svg class="i i-16" style="color:var(--rb-muted)" aria-hidden="true"><use href="#i-estrela"/></svg><b>Pós-venda</b></span></td>
+  <td class="dir num">11</td><td class="dir num">3m 05s</td>
+  <td class="dir"><span class="rb-selo rb-selo--prazo"><svg class="i" aria-hidden="true"><use href="#i-visto"/></svg>No prazo</span></td>
+</tr><tr>
+  <td><span style="display:flex;align-items:center;gap:9px"><svg class="i i-16" style="color:var(--rb-muted)" aria-hidden="true"><use href="#i-alerta"/></svg><b>Sem fila definida</b></span></td>
+  <td class="dir num">5</td><td class="dir num">21m 18s</td>
+  <td class="dir"><span class="rb-selo rb-selo--estourado"><svg class="i" aria-hidden="true"><use href="#i-alerta"/></svg>Estourado</span></td>
+</tr></tbody>
+        </table></div>
+      </section>
+
+      <section class="rb-card">
+        <div class="rb-card__topo">
+          <div><h3>Prazo de primeira resposta</h3><p>Das 341 conversas de hoje.</p></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:var(--e3)">
+          <div class="rb-med">
+            <div class="rb-med__l"><span>Respondidas em até 3 minutos</span><b class="num">88%</b></div>
+            <div class="rb-med__t"><div class="rb-med__b" style="width:88%;background:#2ee879"></div></div>
+          </div>
+          <div class="rb-med">
+            <div class="rb-med__l"><span>Entre 3 e 10 minutos</span><b class="num">9%</b></div>
+            <div class="rb-med__t"><div class="rb-med__b" style="width:9%;background:#ffb020"></div></div>
+          </div>
+          <div class="rb-med">
+            <div class="rb-med__l"><span>Acima de 10 minutos</span><b class="num">3%</b></div>
+            <div class="rb-med__t"><div class="rb-med__b" style="width:3%;background:#ff5c5c"></div></div>
+          </div>
+        </div>
+        <div class="rb-card__topo" style="margin:var(--e4) 0 var(--e2)">
+          <div><h3 style="font-size:13px">Assuntos mais frequentes</h3></div>
+        </div>
+        <div class="rb-bar">
+  <span class="rb-bar__r"><svg class="i i-14" style="color:var(--rb-muted)" aria-hidden="true"><use href="#i-etiqueta"/></svg>Segunda via de boleto</span>
+  <div class="rb-bar__t"><div class="rb-bar__f" style="width:100%;background:#26c377"></div></div>
+  <span class="rb-bar__v">312</span>
+</div><div class="rb-bar">
+  <span class="rb-bar__r"><svg class="i i-14" style="color:var(--rb-muted)" aria-hidden="true"><use href="#i-etiqueta"/></svg>Prazo de entrega</span>
+  <div class="rb-bar__t"><div class="rb-bar__f" style="width:77%;background:#26c377"></div></div>
+  <span class="rb-bar__v">241</span>
+</div><div class="rb-bar">
+  <span class="rb-bar__r"><svg class="i i-14" style="color:var(--rb-muted)" aria-hidden="true"><use href="#i-etiqueta"/></svg>Suporte a acesso</span>
+  <div class="rb-bar__t"><div class="rb-bar__f" style="width:60%;background:#26c377"></div></div>
+  <span class="rb-bar__v">188</span>
+</div><div class="rb-bar">
+  <span class="rb-bar__r"><svg class="i i-14" style="color:var(--rb-muted)" aria-hidden="true"><use href="#i-etiqueta"/></svg>Orçamento</span>
+  <div class="rb-bar__t"><div class="rb-bar__f" style="width:49%;background:#26c377"></div></div>
+  <span class="rb-bar__v">154</span>
+</div><div class="rb-bar">
+  <span class="rb-bar__r"><svg class="i i-14" style="color:var(--rb-muted)" aria-hidden="true"><use href="#i-etiqueta"/></svg>Troca ou devolução</span>
+  <div class="rb-bar__t"><div class="rb-bar__f" style="width:31%;background:#26c377"></div></div>
+  <span class="rb-bar__v">97</span>
+</div><div class="rb-bar">
+  <span class="rb-bar__r"><svg class="i i-14" style="color:var(--rb-muted)" aria-hidden="true"><use href="#i-etiqueta"/></svg>Reclamação</span>
+  <div class="rb-bar__t"><div class="rb-bar__f" style="width:20%;background:#26c377"></div></div>
+  <span class="rb-bar__v">63</span>
+</div>
+      </section>
+    </div>
+
+    <section class="rb-card">
+      <div class="rb-card__topo">
+        <div><h3>Equipe de atendimento</h3>
+          <p>Hoje, por atendente. A coluna de prazo é a fatia respondida dentro da meta de 3 minutos.</p></div>
+        <div class="rb-card__dir">
+          <button class="rb-bt rb-bt--p" type="button"><svg class="i i-14" aria-hidden="true"><use href="#i-filtro"/></svg>Por time</button>
+        </div>
+      </div>
+      <div class="rb-tabw"><table class="rb-tab">
+        <caption class="rb-sr">Desempenho por atendente</caption>
+        <thead><tr><th scope="col">Atendente</th><th scope="col" class="dir">Atendidas</th>
+          <th scope="col" class="dir">1ª resposta</th><th scope="col" class="dir">CSAT</th>
+          <th scope="col" class="dir">Dentro do prazo</th><th scope="col" class="dir">Situação</th></tr></thead>
+        <tbody><tr>
+  <td><span style="display:flex;align-items:center;gap:9px">
+    <span class="rb-av rb-av--p">AB<span class="rb-av__st rb-pt--on" style="width:9px;height:9px"></span></span>
+    <b>Ana Beatriz Correia</b></span></td>
+  <td class="dir num">148</td><td class="dir num">1m 12s</td><td class="dir num">4,9</td>
+  <td class="dir"><span style="display:inline-flex;align-items:center;gap:8px;justify-content:flex-end">
+    <span style="width:52px;height:6px;border-radius:99px;background:var(--rb-surface-alt);overflow:hidden;display:inline-block">
+      <span style="display:block;height:100%;width:96%;background:#2ee879;border-radius:99px"></span></span>
+    <b class="num" style="min-width:34px">96%</b></span></td>
+  <td class="dir"><span class="rb-selo rb-selo--prazo"><svg class="i" aria-hidden="true"><use href="#i-visto"/></svg>No prazo</span></td>
+</tr><tr>
+  <td><span style="display:flex;align-items:center;gap:9px">
+    <span class="rb-av rb-av--p">RN<span class="rb-av__st rb-pt--on" style="width:9px;height:9px"></span></span>
+    <b>Rafael Nunes</b></span></td>
+  <td class="dir num">131</td><td class="dir num">1m 48s</td><td class="dir num">4,8</td>
+  <td class="dir"><span style="display:inline-flex;align-items:center;gap:8px;justify-content:flex-end">
+    <span style="width:52px;height:6px;border-radius:99px;background:var(--rb-surface-alt);overflow:hidden;display:inline-block">
+      <span style="display:block;height:100%;width:92%;background:#2ee879;border-radius:99px"></span></span>
+    <b class="num" style="min-width:34px">92%</b></span></td>
+  <td class="dir"><span class="rb-selo rb-selo--prazo"><svg class="i" aria-hidden="true"><use href="#i-visto"/></svg>No prazo</span></td>
+</tr><tr>
+  <td><span style="display:flex;align-items:center;gap:9px">
+    <span class="rb-av rb-av--p">JP<span class="rb-av__st rb-pt--on" style="width:9px;height:9px"></span></span>
+    <b>Juliana Prado</b></span></td>
+  <td class="dir num">119</td><td class="dir num">2m 04s</td><td class="dir num">4,8</td>
+  <td class="dir"><span style="display:inline-flex;align-items:center;gap:8px;justify-content:flex-end">
+    <span style="width:52px;height:6px;border-radius:99px;background:var(--rb-surface-alt);overflow:hidden;display:inline-block">
+      <span style="display:block;height:100%;width:89%;background:#23b46f;border-radius:99px"></span></span>
+    <b class="num" style="min-width:34px">89%</b></span></td>
+  <td class="dir"><span class="rb-selo rb-selo--neutro"><svg class="i" aria-hidden="true"><use href="#i-relogio"/></svg>Aceitável</span></td>
+</tr><tr>
+  <td><span style="display:flex;align-items:center;gap:9px">
+    <span class="rb-av rb-av--p">ML<span class="rb-av__st rb-pt--aus" style="width:9px;height:9px"></span></span>
+    <b>Marcos Vinícius Leal</b></span></td>
+  <td class="dir num">96</td><td class="dir num">3m 21s</td><td class="dir num">4,5</td>
+  <td class="dir"><span style="display:inline-flex;align-items:center;gap:8px;justify-content:flex-end">
+    <span style="width:52px;height:6px;border-radius:99px;background:var(--rb-surface-alt);overflow:hidden;display:inline-block">
+      <span style="display:block;height:100%;width:74%;background:#ffb020;border-radius:99px"></span></span>
+    <b class="num" style="min-width:34px">74%</b></span></td>
+  <td class="dir"><span class="rb-selo rb-selo--risco"><svg class="i" aria-hidden="true"><use href="#i-alerta"/></svg>Em risco</span></td>
+</tr><tr>
+  <td><span style="display:flex;align-items:center;gap:9px">
+    <span class="rb-av rb-av--p">CR<span class="rb-av__st rb-pt--on" style="width:9px;height:9px"></span></span>
+    <b>Camila Rocha</b></span></td>
+  <td class="dir num">88</td><td class="dir num">2m 47s</td><td class="dir num">4,7</td>
+  <td class="dir"><span style="display:inline-flex;align-items:center;gap:8px;justify-content:flex-end">
+    <span style="width:52px;height:6px;border-radius:99px;background:var(--rb-surface-alt);overflow:hidden;display:inline-block">
+      <span style="display:block;height:100%;width:85%;background:#23b46f;border-radius:99px"></span></span>
+    <b class="num" style="min-width:34px">85%</b></span></td>
+  <td class="dir"><span class="rb-selo rb-selo--neutro"><svg class="i" aria-hidden="true"><use href="#i-relogio"/></svg>Aceitável</span></td>
+</tr><tr>
+  <td><span style="display:flex;align-items:center;gap:9px">
+    <span class="rb-av rb-av--p">DS<span class="rb-av__st rb-pt--off" style="width:9px;height:9px"></span></span>
+    <b>Diego Sampaio</b></span></td>
+  <td class="dir num">52</td><td class="dir num">5m 09s</td><td class="dir num">4,2</td>
+  <td class="dir"><span style="display:inline-flex;align-items:center;gap:8px;justify-content:flex-end">
+    <span style="width:52px;height:6px;border-radius:99px;background:var(--rb-surface-alt);overflow:hidden;display:inline-block">
+      <span style="display:block;height:100%;width:61%;background:#ffb020;border-radius:99px"></span></span>
+    <b class="num" style="min-width:34px">61%</b></span></td>
+  <td class="dir"><span class="rb-selo rb-selo--risco"><svg class="i" aria-hidden="true"><use href="#i-alerta"/></svg>Em risco</span></td>
+</tr></tbody>
+      </table></div>
+    </section>
+
+  </div>
+</main>
+</div>
+</body>
+</html>

@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Caixa de entrada — Ragnabot | Ragnatela IoT Solutions</title>
+<meta name="description" content="Caixa de entrada omnichannel do Ragnabot.">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#03151f">
+<link rel="icon" href="assets/marca/icone-marca-192.png" sizes="192x192" type="image/png">
+<link rel="apple-touch-icon" href="assets/marca/icone-marca-180.png">
+<link rel="stylesheet" href="assets/rb-base.css">
+<style>
+/* ── A CAIXA DE ENTRADA — densidade de OPERACAO ──────────────────────────────
+   Tres paineis: lista (fixa), conversa (elastica) e contato (some cedo).
+   O que encolhe primeiro e o que menos custa: o painel do contato. */
+.cx{display:grid; grid-template-columns:352px minmax(0,1fr) 296px; flex:1; min-height:0;}
+/* ⚠️ min-height:0 em CADA nivel, ate a coluna. Item de grade/flex nasce com
+   min-height:auto e se recusa a ficar menor que o conteudo — sem isto a rolagem
+   interna dos paineis nunca entra em acao e o corpo inteiro e que estica. */
+.cx__col{min-height:0;}
+.cx__col{min-width:0; display:flex; flex-direction:column; border-right:1px solid var(--rb-borda);}
+.cx__col:last-child{border-right:none;}
+
+/* ferramentas da lista */
+.cx-ferr{display:flex; align-items:center; gap:8px; padding:10px 12px;
+  background:var(--rb-lateral); border-bottom:1px solid var(--rb-borda); flex-wrap:wrap;}
+.cx-busca{display:flex; align-items:center; gap:8px; height:34px; padding:0 11px; flex:1; min-width:150px;
+  border:1px solid var(--rb-borda-campo); border-radius:var(--rb-r-campo); background:var(--rb-surface-alt);}
+.cx-busca .i{color:var(--rb-muted);}
+.cx-busca input{border:none; background:none; outline:none; color:var(--rb-heading);
+  font-size:13px; width:100%; font-family:inherit; min-width:0;}
+.cx-busca input::placeholder{color:var(--rb-muted); opacity:1;}
+.cx-busca:focus-within{border-color:var(--rb-green); box-shadow:0 0 0 3px rgba(46,232,121,.16);}
+
+/* item da lista — 3 linhas fixas para o olho varrer em coluna */
+.cx-lista{overflow-y:auto; flex:1; min-height:0;}
+.cx-conv{display:grid; grid-template-columns:auto minmax(0,1fr); gap:11px;
+  padding:11px 13px; border-bottom:1px solid rgba(111,231,255,.10); cursor:pointer; position:relative;}
+.cx-conv:hover{background:var(--rb-surface-alt);}
+.cx-conv--on{background:var(--rb-surface); }
+.cx-conv--on::before{content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--rb-green);}
+.cx-conv--nao .cx-conv__n{color:var(--rb-heading);}
+.cx-conv__l1{display:flex; align-items:center; gap:7px;}
+.cx-conv__n{font-size:13px; font-weight:700; color:var(--rb-text); overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap; min-width:0;}
+.cx-conv__h{margin-left:auto; font-size:10.5px; color:var(--rb-muted); flex:none; font-variant-numeric:tabular-nums;}
+.cx-conv__p{font-size:12px; color:var(--rb-muted); line-height:1.45; margin-top:2px;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;}
+.cx-conv__l3{display:flex; align-items:center; gap:6px; margin-top:6px; flex-wrap:wrap;}
+.cx-conv__ct{margin-left:auto; min-width:18px; height:18px; padding:0 5px; border-radius:var(--rb-r-pill);
+  background:var(--rb-green); color:var(--rb-on-green); font-size:10.5px; font-weight:700;
+  display:grid; place-items:center; flex:none;}
+
+/* cabecalho da conversa */
+.cx-topo{display:flex; align-items:center; gap:11px; padding:11px 16px;
+  background:var(--rb-lateral); border-bottom:1px solid var(--rb-borda); flex-wrap:wrap;}
+.cx-topo__n{font-size:14.5px; font-weight:700; color:var(--rb-heading); font-family:'Poppins',sans-serif;}
+.cx-topo__s{font-size:11.5px; color:var(--rb-muted); display:flex; align-items:center; gap:7px; flex-wrap:wrap;}
+.cx-topo__d{margin-left:auto; display:flex; gap:7px; align-items:center; flex-wrap:wrap;}
+
+/* fio da conversa */
+.cx-fio{flex:1; min-height:0; overflow-y:auto; padding:18px 16px; display:flex; flex-direction:column; gap:12px;
+  background:var(--rb-bg);}
+.cx-dia{align-self:center; font-size:10.5px; font-weight:700; letter-spacing:.8px; text-transform:uppercase;
+  color:var(--rb-muted); background:var(--rb-surface); border:1px solid var(--rb-borda);
+  padding:3px 12px; border-radius:var(--rb-r-pill);}
+.cx-b{max-width:min(78%,560px); display:flex; flex-direction:column; gap:4px;}
+.cx-b__c{padding:10px 13px; border-radius:12px; font-size:13.5px; line-height:1.6;}
+.cx-b__m{font-size:10.5px; color:var(--rb-muted); display:flex; align-items:center; gap:5px;}
+.cx-b--ent{align-self:flex-start;}
+.cx-b--ent .cx-b__c{background:var(--rb-surface); border:1px solid var(--rb-borda);
+  color:var(--rb-text); border-bottom-left-radius:4px;}
+.cx-b--sai{align-self:flex-end;}
+.cx-b--sai .cx-b__c{background:#0f3f2b; border:1px solid rgba(46,232,121,.34);
+  color:#e6fbef; border-bottom-right-radius:4px;}
+.cx-b--sai .cx-b__m{justify-content:flex-end;}
+/* ⚠️ NOTA INTERNA — o cliente NAO ve. Ela se distingue por QUATRO sinais somados,
+   nunca so pela cor: fundo ambar, borda tracejada, icone e o rotulo escrito. */
+.cx-b--nota{align-self:stretch; max-width:100%;}
+.cx-b--nota .cx-b__c{background:rgba(255,196,107,.10); border:1px dashed var(--rb-aviso);
+  color:#ffdfa8; border-radius:var(--rb-r-campo);}
+.cx-b--nota .cx-nota__t{display:flex; align-items:center; gap:6px; font-size:10.5px; font-weight:700;
+  letter-spacing:.7px; text-transform:uppercase; color:var(--rb-aviso); margin-bottom:5px;}
+.cx-b--sis{align-self:center; font-size:11.5px; color:var(--rb-muted); display:flex;
+  align-items:center; gap:6px; background:var(--rb-surface-alt); border:1px solid var(--rb-borda);
+  padding:5px 12px; border-radius:var(--rb-r-pill); max-width:100%;}
+
+/* redacao */
+.cx-red{border-top:1px solid var(--rb-borda); background:var(--rb-lateral);}
+.cx-red__abas{display:flex; gap:2px; padding:0 12px; border-bottom:1px solid var(--rb-borda);}
+.cx-ab{display:flex; align-items:center; gap:7px; padding:9px 13px; font-size:13px; font-weight:700;
+  color:var(--rb-muted); background:none; border:none; border-bottom:2px solid transparent;
+  margin-bottom:-1px; cursor:pointer;}
+.cx-ab:hover{color:var(--rb-text);}
+.cx-ab--on{color:var(--rb-heading); border-bottom-color:var(--rb-green);}
+.cx-ab--nota.cx-ab--on{color:var(--rb-aviso); border-bottom-color:var(--rb-aviso);}
+.cx-red__cx{padding:11px 14px 12px;}
+.cx-red{flex:none;}
+/* o campo inteiro muda de cor no modo nota: nao da para digitar sem perceber */
+.cx-red--nota{background:rgba(255,196,107,.07); box-shadow:inset 3px 0 0 var(--rb-aviso);}
+.cx-red__av{display:flex; align-items:center; gap:7px; font-size:11.5px; font-weight:700;
+  color:var(--rb-aviso); margin-bottom:9px;}
+.cx-red textarea{width:100%; min-height:64px; resize:vertical; border-radius:var(--rb-r-campo);
+  background:var(--rb-surface-alt); border:1px solid var(--rb-borda-campo); color:var(--rb-heading);
+  font-size:16px; font-family:inherit; padding:11px 13px; line-height:1.6;}
+.cx-red--nota textarea{border-color:var(--rb-aviso); background:rgba(255,196,107,.06);}
+.cx-red textarea:focus{outline:none; border-color:var(--rb-green); box-shadow:0 0 0 3px rgba(46,232,121,.18);}
+.cx-red--nota textarea:focus{border-color:var(--rb-aviso); box-shadow:0 0 0 3px rgba(255,196,107,.20);}
+.cx-red__pe{display:flex; align-items:center; gap:6px; margin-top:10px; flex-wrap:wrap;}
+.cx-fer{width:34px; height:34px; display:grid; place-items:center; border-radius:var(--rb-r-botao);
+  border:1px solid transparent; background:none; color:var(--rb-muted); cursor:pointer;}
+.cx-fer:hover{background:var(--rb-surface-alt); color:var(--rb-heading);}
+.cx-red__env{margin-left:auto; display:flex; gap:8px; align-items:center;}
+.rb-bt--nota{background:var(--rb-aviso); border-color:var(--rb-aviso); color:#3a2a04;}
+.rb-bt--nota:hover{background:#ffb84a; border-color:#ffb84a; color:#3a2a04;}
+
+/* painel do contato */
+.cx-lat{overflow-y:auto; min-height:0; padding:16px 15px 26px; display:flex; flex-direction:column; gap:16px;
+  background:var(--rb-lateral);}
+.cx-lat h3{font-size:10.5px; letter-spacing:1.1px; text-transform:uppercase; color:#7d97a3; margin-bottom:8px;}
+.cx-dado{display:flex; gap:9px; padding:6px 0; font-size:12.5px;}
+.cx-dado .i{color:var(--rb-muted); margin-top:2px;}
+.cx-dado b{display:block; color:var(--rb-heading); font-weight:700; font-size:12.5px;}
+.cx-dado span{display:block; color:var(--rb-muted); font-size:11px;}
+.cx-tags{display:flex; flex-wrap:wrap; gap:6px;}
+.cx-tag{display:inline-flex; align-items:center; gap:5px; padding:3px 9px; border-radius:var(--rb-r-pill);
+  font-size:11px; font-weight:700; background:var(--rb-surface-alt); border:1px solid var(--rb-borda-campo);
+  color:var(--rb-text);}
+
+/* ── Responsivo: os tres paineis nao cabem. A ordem de sacrificio e deliberada —
+      primeiro some o contato (consulta), depois a lista vira a propria tela. ── */
+@media (max-width:1280px){ .cx{grid-template-columns:330px minmax(0,1fr);} .cx__lat{display:none;} }
+/* Em tela estreita as acoes secundarias viram so icone: o rotulo delas custava uma
+   SEGUNDA LINHA no cabecalho, e cada linha ali sai do fio da conversa, que e o que
+   a pessoa veio ler. A acao principal ("Resolver") mantem o rotulo. */
+@media (max-width:1200px){
+  .cx-topo__d .rb-bt:not(.rb-bt--pri){font-size:0; gap:0; padding:0 10px;}
+  .cx-topo__d .rb-bt:not(.rb-bt--pri) .i{width:16px; height:16px;}
+  .cx-red__pe span{display:none;}
+  .cx-red__av{font-size:11px; margin-bottom:7px;}
+}
+@media (max-width:900px){
+  .cx{grid-template-columns:minmax(0,1fr);}
+  .cx__lista{display:none;}          /* no celular, ou se ve a lista ou a conversa */
+  .cx-fio{padding:14px 12px;}
+  .cx-b{max-width:88%;}
+}
+</style>
+</head>
+<body>
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true" focusable="false"><defs>
+<symbol id="i-caixa" viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-12.3 7.6L3 21l1.5-5.4A8.5 8.5 0 1 1 21 12Z"/></symbol>
+<symbol id="i-painel" viewBox="0 0 24 24"><rect x="3" y="3" width="7.5" height="8.5" rx="1.6"/><rect x="13.5" y="3" width="7.5" height="5" rx="1.6"/><rect x="3" y="14.5" width="7.5" height="6.5" rx="1.6"/><rect x="13.5" y="11" width="7.5" height="10" rx="1.6"/></symbol>
+<symbol id="i-contatos" viewBox="0 0 24 24"><path d="M16 20v-1.6A3.4 3.4 0 0 0 12.6 15H6.4A3.4 3.4 0 0 0 3 18.4V20"/><circle cx="9.5" cy="8" r="3.4"/><path d="M21 20v-1.6a3.4 3.4 0 0 0-2.6-3.3M15.5 4.8a3.4 3.4 0 0 1 0 6.4"/></symbol>
+<symbol id="i-relatorio" viewBox="0 0 24 24"><path d="M4 20V10M9.3 20V4M14.7 20v-7M20 20V7"/></symbol>
+<symbol id="i-campanha" viewBox="0 0 24 24"><path d="M3 10v4a1 1 0 0 0 1 1h3l5 4V5L7 9H4a1 1 0 0 0-1 1Z"/><path d="M17 9a4 4 0 0 1 0 6M19.8 6.2a8 8 0 0 1 0 11.6"/></symbol>
+<symbol id="i-ajustes" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.1"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7.5 19.4l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 3.6 14H3.5a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10 3.6V3.5a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7h.1a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.2.8Z"/></symbol>
+<symbol id="i-busca" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.9-3.9"/></symbol>
+<symbol id="i-filtro" viewBox="0 0 24 24"><path d="M3 5h18l-7 8.2V20l-4-2.2v-4.6L3 5Z"/></symbol>
+<symbol id="i-enviar" viewBox="0 0 24 24"><path d="M21.5 3 10.8 13.7M21.5 3l-6.8 18.5-3.9-7.8-7.8-3.9L21.5 3Z"/></symbol>
+<symbol id="i-nota" viewBox="0 0 24 24"><path d="M14 3H6.5A1.5 1.5 0 0 0 5 4.5v15A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V8l-5-5Z"/><path d="M14 3v5h5M8.6 13h6.8M8.6 16.6h4.2"/></symbol>
+<symbol id="i-anexo" viewBox="0 0 24 24"><path d="M20.4 11.5 12.2 19.7a5 5 0 0 1-7.1-7.1l8.2-8.2a3.3 3.3 0 1 1 4.7 4.7l-8.2 8.2a1.7 1.7 0 1 1-2.4-2.4l7.6-7.5"/></symbol>
+<symbol id="i-rosto" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8.4 14.4a4.4 4.4 0 0 0 7.2 0"/><path d="M9 9.4h.01M15 9.4h.01"/></symbol>
+<symbol id="i-etiqueta" viewBox="0 0 24 24"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0l-7.2-7.2A2 2 0 0 1 2.8 12V4.8A2 2 0 0 1 4.8 2.8H12a2 2 0 0 1 1.4.6l7.2 7.2a2 2 0 0 1 0 2.8Z"/><path d="M7.5 7.5h.01"/></symbol>
+<symbol id="i-time" viewBox="0 0 24 24"><path d="M17 20v-1.8a3.2 3.2 0 0 0-3.2-3.2H7.2A3.2 3.2 0 0 0 4 18.2V20"/><circle cx="10.5" cy="8" r="3.2"/><path d="M20 20v-1.8a3.2 3.2 0 0 0-2.4-3.1"/></symbol>
+<symbol id="i-usuario" viewBox="0 0 24 24"><path d="M19 20v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7.5" r="3.6"/></symbol>
+<symbol id="i-robo" viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="12" rx="2.6"/><path d="M12 8V4.6M9 14h.01M15 14h.01M9.6 17.4h4.8M2.5 12.5v3M21.5 12.5v3"/><circle cx="12" cy="3.4" r="1.2"/></symbol>
+<symbol id="i-relogio" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 6.8V12l3.4 2"/></symbol>
+<symbol id="i-visto" viewBox="0 0 24 24"><path d="m4.5 12.5 5 5 10-11"/></symbol>
+<symbol id="i-visto2" viewBox="0 0 24 24"><path d="m1.5 12.8 4.4 4.4L14.8 7.6M9.6 13.6l3.2 3.6 9-9.6"/></symbol>
+<symbol id="i-alerta" viewBox="0 0 24 24"><path d="M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3l-8.5-14.4a2 2 0 0 0-3.4 0Z"/><path d="M12 9.4v4.2M12 17.4h.01"/></symbol>
+<symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4.4M12 8.2h.01"/></symbol>
+<symbol id="i-seta-c" viewBox="0 0 24 24"><path d="m6 14 6-6 6 6"/></symbol>
+<symbol id="i-seta-b" viewBox="0 0 24 24"><path d="m6 10 6 6 6-6"/></symbol>
+<symbol id="i-seta-d" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+<symbol id="i-seta-e" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></symbol>
+<symbol id="i-mais" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="i-menu" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></symbol>
+<symbol id="i-sair" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></symbol>
+<symbol id="i-sino" viewBox="0 0 24 24"><path d="M18 8.6a6 6 0 1 0-12 0c0 6.4-2.5 8.4-2.5 8.4h17S18 15 18 8.6Z"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></symbol>
+<symbol id="i-cadeado" viewBox="0 0 24 24"><rect x="4" y="10.4" width="16" height="10.6" rx="2.2"/><path d="M7.8 10.4V7a4.2 4.2 0 1 1 8.4 0v3.4"/></symbol>
+<symbol id="i-chave" viewBox="0 0 24 24"><circle cx="7.6" cy="16.4" r="3.6"/><path d="m10.2 13.8 8.4-8.4M16.4 7.6l2.2 2.2M14.2 9.8l2.2 2.2"/></symbol>
+<symbol id="i-empresa" viewBox="0 0 24 24"><path d="M3 21h18M5 21V6.2a1.2 1.2 0 0 1 1.2-1.2h6.6A1.2 1.2 0 0 1 14 6.2V21M14 21V11h4.8A1.2 1.2 0 0 1 20 12.2V21"/><path d="M8 9h3M8 13h3M8 17h3M17 15h.01M17 18h.01"/></symbol>
+<symbol id="i-cartao" viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="14" rx="2.2"/><path d="M2.5 10h19"/></symbol>
+<symbol id="i-raio" viewBox="0 0 24 24"><path d="M13.4 2 4 13.6h6.4L10 22l9.4-11.6H13L13.4 2Z"/></symbol>
+<symbol id="i-responder" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h9.5a6.5 6.5 0 0 1 6.5 6.5V20"/></symbol>
+<symbol id="i-estrela" viewBox="0 0 24 24"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2-5.5-2.9-5.5 2.9 1-6.2L3 9.6l6.2-.9L12 3Z"/></symbol>
+<symbol id="i-arquivar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="4.4" rx="1.4"/><path d="M4.6 8.4V19a1.6 1.6 0 0 0 1.6 1.6h11.6a1.6 1.6 0 0 0 1.6-1.6V8.4M10 12.6h4"/></symbol>
+<symbol id="i-telefone" viewBox="0 0 24 24"><path d="M21.6 16.9v2.8a1.9 1.9 0 0 1-2 1.9 18.6 18.6 0 0 1-8.1-2.9 18.3 18.3 0 0 1-5.6-5.6A18.6 18.6 0 0 1 3 4.9a1.9 1.9 0 0 1 1.9-2h2.8a1.9 1.9 0 0 1 1.9 1.6c.1 1 .4 1.9.7 2.8a1.9 1.9 0 0 1-.4 2l-1.2 1.2a15 15 0 0 0 5.6 5.6l1.2-1.2a1.9 1.9 0 0 1 2-.4c.9.3 1.8.6 2.8.7a1.9 1.9 0 0 1 1.6 1.9Z"/></symbol>
+<symbol id="i-whatsapp" viewBox="0 0 24 24"><path d="M20.5 11.7a8.4 8.4 0 0 1-12.2 7.5L3.5 20.5l1.4-4.7a8.4 8.4 0 1 1 15.6-4.1Z"/><path d="M9.2 9.1c-.2 1.6 1.1 3.4 1.9 4.2s2.6 2 4.2 1.8"/></symbol>
+<symbol id="i-instagram" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="5.2"/><circle cx="12" cy="12" r="3.8"/><path d="M17.2 6.9h.01"/></symbol>
+<symbol id="i-messenger" viewBox="0 0 24 24"><path d="M12 2.8c-5.1 0-9.2 3.8-9.2 8.6a8.3 8.3 0 0 0 3.4 6.6v3.2l3.2-1.7a10 10 0 0 0 2.6.4c5.1 0 9.2-3.8 9.2-8.5S17.1 2.8 12 2.8Z"/><path d="m7.1 13.6 2.7-2.8 2 2 2.9-2.9-2.6 2.8-2-2-3 2.9Z"/></symbol>
+<symbol id="i-telegram" viewBox="0 0 24 24"><path d="M21.4 4.3 2.9 11.2l4.8 1.6 1.8 5.6 2.6-2.9 4.6 3.4 4.7-14.6Z"/><path d="m7.7 12.8 10.4-6.4-8.6 8"/></symbol>
+<symbol id="i-email" viewBox="0 0 24 24"><rect x="2.6" y="4.6" width="18.8" height="14.8" rx="2.2"/><path d="m3.4 6.4 8.6 6 8.6-6"/></symbol>
+<symbol id="i-webchat" viewBox="0 0 24 24"><rect x="2.6" y="3.4" width="18.8" height="14" rx="2.4"/><path d="M2.6 7.6h18.8M8 20.6h8M12 17.4v3.2M6 5.6h.01M8.4 5.6h.01"/></symbol>
+<symbol id="i-fila" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h9"/><circle cx="18.5" cy="18" r="2.4"/></symbol>
+<symbol id="i-pausa" viewBox="0 0 24 24"><path d="M9.5 4.5v15M14.5 4.5v15"/></symbol>
+<symbol id="i-lixo" viewBox="0 0 24 24"><path d="M3.8 6.2h16.4M8.6 6.2V4.6A1.6 1.6 0 0 1 10.2 3h3.6a1.6 1.6 0 0 1 1.6 1.6v1.6M18 6.2V20a1.6 1.6 0 0 1-1.6 1.6H7.6A1.6 1.6 0 0 1 6 20V6.2"/></symbol>
+<symbol id="i-copiar" viewBox="0 0 24 24"><rect x="8.4" y="8.4" width="12.6" height="12.6" rx="2.2"/><path d="M5.6 15.6H4.4A1.4 1.4 0 0 1 3 14.2V4.4A1.4 1.4 0 0 1 4.4 3h9.8a1.4 1.4 0 0 1 1.4 1.4v1.2"/></symbol>
+<symbol id="i-atualizar" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 3.5V10h-6.5"/></symbol>
+<symbol id="i-ligar" viewBox="0 0 24 24"><path d="M12 3v9"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></symbol>
+<symbol id="i-globo" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3.2 12h17.6M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18Z"/></symbol>
+<symbol id="i-olho" viewBox="0 0 24 24"><path d="M2 12s3.6-6.6 10-6.6S22 12 22 12s-3.6 6.6-10 6.6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.9"/></symbol>
+<symbol id="i-olho-off" viewBox="0 0 24 24"><path d="M10.6 6.6A9.6 9.6 0 0 1 12 6.5c6.4 0 10 5.5 10 5.5a17 17 0 0 1-3.3 3.9M6.4 7.9A16.6 16.6 0 0 0 2 12s3.6 5.5 10 5.5a9.9 9.9 0 0 0 3.5-.6M3 3l18 18M9.9 9.9a3 3 0 0 0 4.2 4.2"/></symbol>
+</defs></svg>
+<div class="rb-brilhos" aria-hidden="true"></div>
+<div class="rb-app rb-denso rb-app--tela">
+<nav class="rb-trilho" aria-label="Navegação principal">
+  <a class="rb-trilho__marca" href="dashboard.html" aria-label="Ragnabot — início">
+    <img src="assets/marca/icone-marca-192.png" alt="" width="34" height="34"></a>
+  <a class="rb-tri rb-tri--on" href="conversas.html" aria-current="page"><span class="rb-tri__sino num">7</span><svg class="i i-22" aria-hidden="true"><use href="#i-caixa"/></svg>Caixa</a><a class="rb-tri" href="dashboard.html"><svg class="i i-22" aria-hidden="true"><use href="#i-painel"/></svg>Painel</a><a class="rb-tri" href="#"><svg class="i i-22" aria-hidden="true"><use href="#i-contatos"/></svg>Contatos</a><a class="rb-tri" href="#"><svg class="i i-22" aria-hidden="true"><use href="#i-campanha"/></svg>Campanhas</a><a class="rb-tri" href="#"><svg class="i i-22" aria-hidden="true"><use href="#i-relatorio"/></svg>Relatórios</a><a class="rb-tri" href="configuracoes.html"><svg class="i i-22" aria-hidden="true"><use href="#i-ajustes"/></svg>Ajustes</a>
+  <div class="rb-trilho__pe">
+    <button class="rb-tri" type="button"><svg class="i i-22" aria-hidden="true"><use href="#i-sino"/></svg>Avisos</button>
+    <span class="rb-av" title="Emmanuel Castro — administrador">EC<span class="rb-av__st rb-pt--on"></span></span>
+  </div>
+</nav>
+<aside class="rb-sec rb-sec--recolhe" aria-label="Filtros da caixa de entrada">
+  <div class="rb-sec__topo"><h2>Caixa de entrada</h2><p>Conta: Ragnatela IoT Solutions</p></div>
+  <div class="rb-sec__lista">
+    <p class="rb-grp">Minha visão</p>
+    <a class="rb-it rb-it--on" href="#" aria-current="page"><svg class="i" aria-hidden="true"><use href="#i-caixa"/></svg>Atribuídas a mim<span class="rb-it__n num">7</span></a>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-rosto"/></svg>Menções<span class="rb-it__n num">2</span></a>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-fila"/></svg>Não atribuídas<span class="rb-it__n num">14</span></a>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-arquivar"/></svg>Resolvidas</a>
+    <p class="rb-grp">Canais conectados</p>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-whatsapp"/></svg>WhatsApp<span class="rb-it__n num">31</span></a>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-instagram"/></svg>Instagram<span class="rb-it__n num">9</span></a>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-webchat"/></svg>Chat do site<span class="rb-it__n num">6</span></a>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-email"/></svg>E-mail<span class="rb-it__n num">4</span></a>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-messenger"/></svg>Messenger<span class="rb-it__n num">3</span></a>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-telegram"/></svg>Telegram<span class="rb-it__n num">1</span></a>
+    <p class="rb-grp">Filas</p>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-fila"/></svg>Comercial<span class="rb-it__n num">18</span></a>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-ajustes"/></svg>Suporte técnico<span class="rb-it__n num">34</span></a>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-cartao"/></svg>Financeiro<span class="rb-it__n num">7</span></a>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-estrela"/></svg>Pós-venda<span class="rb-it__n num">11</span></a>
+    <p class="rb-grp">Etiquetas</p>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-etiqueta"/></svg>Entrega atrasada<span class="rb-it__n num">12</span></a>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-etiqueta"/></svg>Segunda via<span class="rb-it__n num">8</span></a>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-etiqueta"/></svg>Cliente novo<span class="rb-it__n num">5</span></a>
+  </div>
+  <div class="rb-sec__pe"><button class="rb-usr" type="button">
+  <span class="rb-av rb-av--p">EC<span class="rb-av__st rb-pt--on" style="width:9px;height:9px"></span></span>
+  <span style="min-width:0">
+    <span class="rb-usr__n">Emmanuel Castro</span>
+    <span class="rb-usr__e">Administrador da conta</span>
+  </span>
+  <svg class="i i-16" style="margin-left:auto;color:var(--rb-muted)" aria-hidden="true"><use href="#i-seta-c"/></svg>
+</button></div>
+</aside>
+<main class="rb-corpo">
+  <div class="cx">
+
+    <!-- ─── LISTA ─────────────────────────────────────────────────────────── -->
+    <section class="cx__col cx__lista" aria-label="Conversas">
+      <div class="cx-ferr">
+        <label class="cx-busca">
+          <svg class="i i-16" aria-hidden="true"><use href="#i-busca"/></svg>
+          <span class="rb-sr">Buscar conversa</span>
+          <input type="search" placeholder="Buscar por nome, telefone ou texto">
+        </label>
+        <button class="cx-fer" type="button" aria-label="Filtrar"><svg class="i i-16" aria-hidden="true"><use href="#i-filtro"/></svg></button>
+      </div>
+      <div class="cx-ferr" style="border-bottom:1px solid var(--rb-borda);padding:8px 12px">
+        <button class="rb-bt rb-bt--p" type="button" aria-pressed="true" style="border-color:var(--rb-green);color:var(--rb-heading)">Abertas <span class="num">7</span></button>
+        <button class="rb-bt rb-bt--p" type="button">Pendentes <span class="num">3</span></button>
+        <button class="rb-bt rb-bt--p" type="button">Resolvidas</button>
+      </div>
+      <div class="cx-lista"><article class="cx-conv cx-conv--on cx-conv--nao" tabindex="0">
+  <span class="rb-av">PA<span class="rb-av__st rb-pt--whatsapp"></span></span>
+  <div style="min-width:0">
+    <div class="cx-conv__l1">
+      <span class="cx-conv__n">Patrícia Amorim</span>
+      <span class="cx-conv__h">09:12</span>
+    </div>
+    <p class="cx-conv__p">É que trabalho fora e não queria perder a entrega de novo.</p>
+    <div class="cx-conv__l3">
+      <span class="rb-selo rb-selo--whatsapp"><svg class="i" aria-hidden="true"><use href="#i-whatsapp"/></svg>WhatsApp</span>
+      <span class="rb-selo rb-selo--prazo"><svg class="i" aria-hidden="true"><use href="#i-visto"/></svg>No prazo</span>
+      <span class="cx-conv__ct num">2</span>
+    </div>
+  </div>
+</article>
+<article class="cx-conv cx-conv--nao" tabindex="0">
+  <span class="rb-av">CM<span class="rb-av__st rb-pt--instagram"></span></span>
+  <div style="min-width:0">
+    <div class="cx-conv__l1">
+      <span class="cx-conv__n">Carlos Eduardo Mendes</span>
+      <span class="cx-conv__h">09:08</span>
+    </div>
+    <p class="cx-conv__p">vcs entregam pra Bahia? qual o prazo?</p>
+    <div class="cx-conv__l3">
+      <span class="rb-selo rb-selo--instagram"><svg class="i" aria-hidden="true"><use href="#i-instagram"/></svg>Instagram</span>
+      <span class="rb-selo rb-selo--prazo"><svg class="i" aria-hidden="true"><use href="#i-visto"/></svg>No prazo</span>
+      <span class="cx-conv__ct num">1</span>
+    </div>
+  </div>
+</article>
+<article class="cx-conv cx-conv--nao" tabindex="0">
+  <span class="rb-av">FL<span class="rb-av__st rb-pt--webchat"></span></span>
+  <div style="min-width:0">
+    <div class="cx-conv__l1">
+      <span class="cx-conv__n">Fernanda Lima</span>
+      <span class="cx-conv__h">08:54</span>
+    </div>
+    <p class="cx-conv__p">Não consigo entrar no sistema, aparece “credenciais inválidas”.</p>
+    <div class="cx-conv__l3">
+      <span class="rb-selo rb-selo--webchat"><svg class="i" aria-hidden="true"><use href="#i-webchat"/></svg>Chat do site</span>
+      <span class="rb-selo rb-selo--risco"><svg class="i" aria-hidden="true"><use href="#i-alerta"/></svg>Em risco</span>
+      <span class="cx-conv__ct num">4</span>
+    </div>
+  </div>
+</article>
+<article class="cx-conv" tabindex="0">
+  <span class="rb-av">RT<span class="rb-av__st rb-pt--email"></span></span>
+  <div style="min-width:0">
+    <div class="cx-conv__l1">
+      <span class="cx-conv__n">Roberto Tavares</span>
+      <span class="cx-conv__h">08:31</span>
+    </div>
+    <p class="cx-conv__p">Segue em anexo a nota fiscal para conferência do faturamento de agosto.</p>
+    <div class="cx-conv__l3">
+      <span class="rb-selo rb-selo--email"><svg class="i" aria-hidden="true"><use href="#i-email"/></svg>E-mail</span>
+      <span class="rb-selo rb-selo--prazo"><svg class="i" aria-hidden="true"><use href="#i-visto"/></svg>No prazo</span>
+      
+    </div>
+  </div>
+</article>
+<article class="cx-conv" tabindex="0">
+  <span class="rb-av">JN<span class="rb-av__st rb-pt--whatsapp"></span></span>
+  <div style="min-width:0">
+    <div class="cx-conv__l1">
+      <span class="cx-conv__n">Juliana Nakamura</span>
+      <span class="cx-conv__h">08:15</span>
+    </div>
+    <p class="cx-conv__p">Bom dia! Gostaria de saber sobre o orçamento que pedi na segunda.</p>
+    <div class="cx-conv__l3">
+      <span class="rb-selo rb-selo--whatsapp"><svg class="i" aria-hidden="true"><use href="#i-whatsapp"/></svg>WhatsApp</span>
+      <span class="rb-selo rb-selo--risco"><svg class="i" aria-hidden="true"><use href="#i-alerta"/></svg>Em risco</span>
+      
+    </div>
+  </div>
+</article>
+<article class="cx-conv cx-conv--nao" tabindex="0">
+  <span class="rb-av">MR<span class="rb-av__st rb-pt--messenger"></span></span>
+  <div style="min-width:0">
+    <div class="cx-conv__l1">
+      <span class="cx-conv__n">Marcos Antônio Ribeiro</span>
+      <span class="cx-conv__h">07:58</span>
+    </div>
+    <p class="cx-conv__p">ainda estou esperando resposta sobre a troca</p>
+    <div class="cx-conv__l3">
+      <span class="rb-selo rb-selo--messenger"><svg class="i" aria-hidden="true"><use href="#i-messenger"/></svg>Messenger</span>
+      <span class="rb-selo rb-selo--estourado"><svg class="i" aria-hidden="true"><use href="#i-alerta"/></svg>Estourado</span>
+      <span class="cx-conv__ct num">3</span>
+    </div>
+  </div>
+</article>
+<article class="cx-conv" tabindex="0">
+  <span class="rb-av">AF<span class="rb-av__st rb-pt--telegram"></span></span>
+  <div style="min-width:0">
+    <div class="cx-conv__l1">
+      <span class="cx-conv__n">Aline Ferraz</span>
+      <span class="cx-conv__h">07:40</span>
+    </div>
+    <p class="cx-conv__p">Obrigada, resolvido! Podem encerrar.</p>
+    <div class="cx-conv__l3">
+      <span class="rb-selo rb-selo--telegram"><svg class="i" aria-hidden="true"><use href="#i-telegram"/></svg>Telegram</span>
+      <span class="rb-selo rb-selo--prazo"><svg class="i" aria-hidden="true"><use href="#i-visto"/></svg>No prazo</span>
+      
+    </div>
+  </div>
+</article></div>
+    </section>
+
+    <!-- ─── CONVERSA ──────────────────────────────────────────────────────── -->
+    <section class="cx__col" aria-label="Conversa com Patrícia Amorim">
+      <header class="cx-topo">
+        <span class="rb-av rb-av--g">PA<span class="rb-av__st rb-pt--whatsapp"></span></span>
+        <div style="min-width:0">
+          <p class="cx-topo__n">Patrícia Amorim</p>
+          <p class="cx-topo__s">
+            <span class="rb-selo rb-selo--whatsapp"><svg class="i" aria-hidden="true"><use href="#i-whatsapp"/></svg>WhatsApp</span>
+            <span>+55 11 9••••-4471</span><span>·</span><span>Fila: Pós-venda</span>
+          </p>
+        </div>
+        <div class="cx-topo__d">
+          <button class="rb-bt rb-bt--p" type="button"><svg class="i i-14" aria-hidden="true"><use href="#i-usuario"/></svg>Rafael N.</button>
+          <button class="rb-bt rb-bt--p" type="button"><svg class="i i-14" aria-hidden="true"><use href="#i-etiqueta"/></svg>Etiquetar</button>
+          <button class="rb-bt rb-bt--p" type="button"><svg class="i i-14" aria-hidden="true"><use href="#i-relogio"/></svg>Adiar</button>
+          <button class="rb-bt rb-bt--p rb-bt--pri" type="button"><svg class="i i-14" aria-hidden="true"><use href="#i-visto"/></svg>Resolver</button>
+        </div>
+      </header>
+
+      <div class="cx-fio"><p class="cx-dia">Ontem</p>
+<div class="cx-b cx-b--ent">
+  <div class="cx-b__c">Boa tarde! Comprei na semana passada e o pedido consta como enviado, mas o código de rastreio não atualiza desde terça. Consigo uma posição?</div>
+  <p class="cx-b__m"><svg class="i" style="width:11px;height:11px" aria-hidden="true"><use href="#i-whatsapp"/></svg>Patrícia · 16:42</p>
+</div>
+<p class="cx-b--sis"><svg class="i i-14" aria-hidden="true"><use href="#i-robo"/></svg><span>Conversa atribuída automaticamente à fila <b>Pós-venda</b> pela regra “Assunto: entrega”. · 16:42</span></p>
+<div class="cx-b cx-b--sai">
+  <div class="cx-b__c">Boa tarde, Patrícia! Já estou verificando aqui com a transportadora. Me dá dois minutinhos, por favor.</div>
+  <p class="cx-b__m">Rafael Nunes · 16:44
+     <svg class="i" style="width:13px;height:13px;color:var(--rb-ok)" aria-hidden="true"><use href="#i-visto2"/></svg>
+     <span class="rb-sr">lida</span></p>
+</div>
+<div class="cx-b cx-b--nota">
+  <div class="cx-b__c">
+    <p class="cx-nota__t"><svg class="i" style="width:12px;height:12px" aria-hidden="true"><use href="#i-nota"/></svg>
+       Nota interna — o cliente não vê</p>
+    Rastreio parado desde 26/08 na unidade de triagem. Já é o terceiro caso desta semana pela mesma transportadora — vale abrir chamado com eles em vez de tratar caso a caso.
+  </div>
+  <p class="cx-b__m">Rafael Nunes · 16:47</p>
+</div>
+<div class="cx-b cx-b--sai">
+  <div class="cx-b__c">Patrícia, localizei: o pacote está na unidade de triagem e a transportadora registrou atraso na rota. A nova previsão de entrega é <b>sexta-feira, 29/08</b>. Vou acompanhar e te aviso assim que sair para entrega.</div>
+  <p class="cx-b__m">Rafael Nunes · 16:51
+     <svg class="i" style="width:13px;height:13px;color:var(--rb-ok)" aria-hidden="true"><use href="#i-visto2"/></svg>
+     <span class="rb-sr">lida</span></p>
+</div>
+<p class="cx-dia">Hoje</p>
+<div class="cx-b cx-b--ent">
+  <div class="cx-b__c">Perfeito, obrigada pelo retorno! Só uma dúvida: preciso estar em casa para receber?</div>
+  <p class="cx-b__m"><svg class="i" style="width:11px;height:11px" aria-hidden="true"><use href="#i-whatsapp"/></svg>Patrícia · 09:12</p>
+</div>
+<div class="cx-b cx-b--ent">
+  <div class="cx-b__c">É que trabalho fora e não queria perder a entrega de novo.</div>
+  <p class="cx-b__m"><svg class="i" style="width:11px;height:11px" aria-hidden="true"><use href="#i-whatsapp"/></svg>Patrícia · 09:12</p>
+</div></div>
+
+      <!-- ⚠️ A redacao esta no modo NOTA INTERNA de proposito: e o estado que precisa
+           ser inconfundivel. Ele se anuncia por QUATRO sinais somados — a aba ambar,
+           a faixa lateral, o campo tingido e a frase escrita. Nunca so pela cor. -->
+      <div class="cx-red">
+        <div class="cx-red__abas" role="tablist">
+          <button class="cx-ab" role="tab" aria-selected="false" type="button">
+            <svg class="i i-16" aria-hidden="true"><use href="#i-responder"/></svg>Responder</button>
+          <button class="cx-ab cx-ab--nota cx-ab--on" role="tab" aria-selected="true" type="button">
+            <svg class="i i-16" aria-hidden="true"><use href="#i-nota"/></svg>Nota interna</button>
+          <button class="cx-ab" role="tab" aria-selected="false" type="button">
+            <svg class="i i-16" aria-hidden="true"><use href="#i-raio"/></svg>Resposta rápida</button>
+        </div>
+        <div class="cx-red__cx cx-red--nota">
+          <p class="cx-red__av">
+            <svg class="i i-16" aria-hidden="true"><use href="#i-cadeado"/></svg>
+            Isto fica só para a equipe. A cliente não recebe e não vê esta mensagem.
+          </p>
+          <label class="rb-sr" for="cx-txt">Nota interna</label>
+          <textarea id="cx-txt" placeholder="Escreva a nota para a equipe. Use @ para chamar alguém.">Confirmar com a transportadora se a entrega exige assinatura do titular — a cliente trabalha fora. Se exigir, oferecer redirecionamento para o endereço comercial.</textarea>
+          <div class="cx-red__pe">
+            <button class="cx-fer" type="button" aria-label="Anexar arquivo"><svg class="i i-20" aria-hidden="true"><use href="#i-anexo"/></svg></button>
+            <button class="cx-fer" type="button" aria-label="Inserir emoji"><svg class="i i-20" aria-hidden="true"><use href="#i-rosto"/></svg></button>
+            <button class="cx-fer" type="button" aria-label="Mencionar alguém da equipe"><svg class="i i-20" aria-hidden="true"><use href="#i-time"/></svg></button>
+            <div class="cx-red__env">
+              <span style="font-size:11px;color:var(--rb-muted)">Ctrl + Enter para salvar</span>
+              <button class="rb-bt rb-bt--nota" type="button">
+                <svg class="i i-16" aria-hidden="true"><use href="#i-nota"/></svg>Salvar nota</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── CONTATO ───────────────────────────────────────────────────────── -->
+    <aside class="cx__col cx__lat cx-lat" aria-label="Dados do contato">
+      <div style="display:flex;align-items:center;gap:11px">
+        <span class="rb-av rb-av--g">PA</span>
+        <div style="min-width:0">
+          <p style="font-size:14px;font-weight:700;color:var(--rb-heading);font-family:'Poppins',sans-serif">Patrícia Amorim</p>
+          <p style="font-size:11.5px;color:var(--rb-muted)">Cliente desde março de 2025</p>
+        </div>
+      </div>
+
+      <div>
+        <h3>Contato</h3>
+        <div class="cx-dado"><svg class="i i-16" aria-hidden="true"><use href="#i-telefone"/></svg>
+          <span><b>+55 11 9••••-4471</b><span>WhatsApp verificado</span></span></div>
+        <div class="cx-dado"><svg class="i i-16" aria-hidden="true"><use href="#i-email"/></svg>
+          <span><b>p•••••@exemplo.com.br</b><span>E-mail principal</span></span></div>
+        <div class="cx-dado"><svg class="i i-16" aria-hidden="true"><use href="#i-globo"/></svg>
+          <span><b>São Paulo — SP</b><span>Fuso: UTC−3</span></span></div>
+      </div>
+
+      <div>
+        <h3>Etiquetas</h3>
+        <div class="cx-tags">
+          <span class="cx-tag"><span class="rb-pt" style="background:#ffc46b"></span>Entrega atrasada</span>
+          <span class="cx-tag"><span class="rb-pt" style="background:#7cf0a8"></span>Cliente recorrente</span>
+          <button class="cx-tag" type="button"><svg class="i" style="width:11px;height:11px" aria-hidden="true"><use href="#i-mais"/></svg>Adicionar</button>
+        </div>
+      </div>
+
+      <div>
+        <h3>Esta conversa</h3>
+        <div class="cx-dado"><svg class="i i-16" aria-hidden="true"><use href="#i-relogio"/></svg>
+          <span><b>Aberta há 17h 12min</b><span>1ª resposta em 2min 04s</span></span></div>
+        <div class="cx-dado"><svg class="i i-16" aria-hidden="true"><use href="#i-fila"/></svg>
+          <span><b>Pós-venda</b><span>Atribuída por regra automática</span></span></div>
+        <div class="cx-dado"><svg class="i i-16" aria-hidden="true"><use href="#i-usuario"/></svg>
+          <span><b>Rafael Nunes</b><span>Responsável</span></span></div>
+      </div>
+
+      <div>
+        <h3>Conversas anteriores</h3>
+        <div class="cx-dado"><svg class="i i-16" aria-hidden="true"><use href="#i-caixa"/></svg>
+          <span><b>4 conversas</b><span>Última: 12/08 · resolvida · CSAT 5</span></span></div>
+      </div>
+
+      <div class="rb-msg rb-msg--info" style="font-size:12px">
+        <svg class="i i-16" aria-hidden="true"><use href="#i-info"/></svg>
+        <span>Dados de demonstração. Telefone e e-mail aparecem mascarados nesta prévia.</span>
+      </div>
+    </aside>
+
+  </div>
+</main>
+</div>
+</body>
+</html>

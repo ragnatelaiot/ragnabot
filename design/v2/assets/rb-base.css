@@ -1,0 +1,475 @@
+/* ═══════════════════════════════════════════════════════════════════════════════
+   RAGNABOT — SISTEMA VISUAL                                            28/08/2026
+   Autor: agente site-ragnatela.   Estado: PARA REVISÃO DO NOC — não publicado.
+
+   DE ONDE VEM: herda a espinha de marca já aprovada pelo dono —
+     · 96-IDENTIDADE-PAINEL-CLIENTE.md  (tokens, tela de entrada, estados)
+     · 97-IDENTIDADE-NOC-IA.md          (severidade, densidade de operação)
+     · 95-MOLDE-LANDING-SERVICO.md      (paleta do site, raio, ritmo)
+   Nada aqui é gosto novo: é a mesma paleta do site, com prefixo próprio (--rb-).
+
+   A DECISÃO QUE GOVERNA O ARQUIVO — uma paleta, DUAS densidades.
+     O painel do cliente otimiza RECONHECIMENTO (minutos de uso).
+     O NOC otimiza DENSIDADE (oito horas de uso).
+     O Ragnabot é os dois: a entrada, o painel e as configurações são visitados por
+     minutos; a caixa de entrada é onde o atendente passa o expediente inteiro.
+     Por isso NÃO se troca a matiz entre as telas (isso leria como dois produtos):
+     troca-se a ESCALA. Densidade se ganha no espaçamento, nunca apertando fonte.
+       .rb-app            → densidade de apresentação (entrada, painel, ajustes)
+       .rb-app.rb-denso   → densidade de operação     (caixa de entrada)
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Fontes do site, auto-hospedadas. Nada de CDN: fonte de terceiro vaza o IP do
+      visitante e atrasa a pintura — e este é um produto de uma empresa que vende
+      privacidade. ─────────────────────────────────────────────────────────────── */
+@font-face{font-family:'Open Sans';font-style:normal;font-weight:400;font-display:swap;src:url('fontes/opensans-latin.woff2') format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;}
+@font-face{font-family:'Open Sans';font-style:normal;font-weight:400;font-display:swap;src:url('fontes/opensans-latinext.woff2') format('woff2');unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;}
+@font-face{font-family:'Open Sans';font-style:normal;font-weight:700;font-display:swap;src:url('fontes/opensans-latin.woff2') format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;}
+@font-face{font-family:'Open Sans';font-style:normal;font-weight:700;font-display:swap;src:url('fontes/opensans-latinext.woff2') format('woff2');unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;}
+@font-face{font-family:'Poppins';font-style:normal;font-weight:400;font-display:swap;src:url('fontes/poppins-400-latin.woff2') format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;}
+@font-face{font-family:'Poppins';font-style:normal;font-weight:700;font-display:swap;src:url('fontes/poppins-700-latin.woff2') format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;}
+@font-face{font-family:'Poppins';font-style:normal;font-weight:700;font-display:swap;src:url('fontes/poppins-700-latinext.woff2') format('woff2');unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;}
+
+/* ══ TOKENS ══════════════════════════════════════════════════════════════════════
+   Todo valor de cor deste sistema mora AQUI. Cor literal dentro de componente é o
+   que impede trocar a identidade sem caçar string — foi o defeito que a 96 §7.3
+   nomeia. Cada par (fundo + texto) foi medido junto: /_prova/medir-contraste.py */
+:root{
+  /* superfícies — os mesmos nomes do site, para o vocabulário ser um só */
+  --rb-bg:#03151f;            /* fundo da aplicação            título 17,80:1 */
+  --rb-surface:#082532;       /* cartão                        título 15,23:1 */
+  --rb-surface-alt:#0d2f3f;   /* campo, linha alternada        título 13,46:1 */
+  --rb-lateral:#061e29;       /* trilho e painel de navegação  título 16,42:1 */
+  --rb-elevado:#12394b;       /* menu suspenso, item ativo */
+
+  /* bordas — dois papéis DIFERENTES, e é por isso que são dois tokens.
+     A decorativa agrupa (o cartão); a de controle IDENTIFICA um componente e a
+     WCAG 1.4.11 cobra 3:1 dela. Um token só servindo aos dois falha no que importa. */
+  --rb-borda:rgba(111,231,255,.26);
+  --rb-borda-forte:rgba(111,231,255,.40);
+  --rb-borda-campo:rgba(111,231,255,.46);   /* 3,73:1 no cartão · 3,29:1 no campo */
+
+  /* texto */
+  --rb-heading:#f5fbff;
+  --rb-text:#bad0d9;
+  --rb-muted:#8faab4;         /* 6,49:1 no cartão — é a cor de rótulo e de hora */
+
+  /* ação */
+  --rb-green:#2ee879;
+  --rb-green-hover:#26d46c;
+  --rb-cyan:#37dff7;
+  --rb-on-green:#03151f;      /* texto SOBRE o verde. NUNCA branco: dá 1,62:1 */
+
+  /* estado */
+  --rb-erro:#ff8a8a; --rb-aviso:#ffc46b; --rb-ok:#7cf0a8;
+
+  /* forma */
+  --rb-r-card:12px; --rb-r-campo:8px; --rb-r-botao:6px; --rb-r-pill:999px;
+
+  /* profundidade em três degraus, cada um com significado. Sem sombra, cartão é
+     retângulo pintado e tudo vive no mesmo plano. */
+  --rb-e1:0 1px 2px rgba(0,0,0,.34);
+  --rb-e2:0 10px 26px rgba(0,0,0,.52), 0 1px 0 rgba(255,255,255,.045);
+  --rb-e3:0 24px 64px rgba(0,0,0,.55);
+
+  /* escala de espaçamento FECHADA. Valor fora dela é defeito, não ajuste fino. */
+  --e1:6px; --e2:10px; --e3:16px; --e4:22px; --e5:30px; --e6:44px;
+
+  /* densidade — o único grupo que muda entre as duas escalas */
+  --rb-linha:44px;            /* altura de linha de lista/tabela */
+  --rb-pad-card:22px;
+  --rb-fs:14px;
+
+  --rb-trilho:78px; --rb-sec:248px;
+}
+/* densidade de OPERAÇÃO: a caixa de entrada precisa de muitas linhas na tela.
+   Repare que a fonte NÃO encolhe — só o respiro. */
+.rb-denso{ --rb-linha:36px; --rb-pad-card:16px; }
+
+/* rampa sequencial de UMA matiz (magnitude). Verificada: o degrau mais escuro
+   ainda rende 3,88:1 contra o cartão — marca que ninguém enxerga não é marca. */
+:root{ --rb-g1:#1b8f59; --rb-g2:#20a566; --rb-g3:#23b46f; --rb-g4:#26c377; --rb-g5:#2ee879; }
+
+/* ══ BASE ════════════════════════════════════════════════════════════════════ */
+*,*::before,*::after{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  background:var(--rb-bg); color:var(--rb-text);
+  font-family:'Open Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+  font-size:var(--rb-fs); line-height:1.55;
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  overflow-x:hidden;  /* rolagem horizontal é defeito, não recurso */
+}
+h1,h2,h3,h4{font-family:'Poppins',system-ui,sans-serif;font-weight:700;color:var(--rb-heading);margin:0;letter-spacing:-.3px;}
+p{margin:0;}
+a{color:var(--rb-green);text-decoration:none;}
+a:hover{text-decoration:underline;}
+img,svg{max-width:100%;}
+button{font-family:inherit;}
+.mono,.num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum";}
+.rb-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;}
+
+/* Foco visível — ciano da marca, 9,89:1 sobre o cartão. Nunca outline:none sozinho. */
+:where(a,button,input,select,textarea,[tabindex]):focus-visible{
+  outline:3px solid var(--rb-cyan); outline-offset:2px; border-radius:4px;
+}
+
+/* ══ ÍCONES ══════════════════════════════════════════════════════════════════
+   Traço, herdam currentColor, tamanho por token. ⛔ Emoji como ícone de interface
+   é proibido (96 §7.6): renderiza diferente em cada sistema, não herda cor e o
+   leitor de tela lê o nome do emoji no meio da frase. */
+.i{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-width:1.7;
+   stroke-linecap:round;stroke-linejoin:round;display:inline-block;vertical-align:-3px;}
+.i-14{width:14px;height:14px;} .i-16{width:16px;height:16px;}
+.i-20{width:20px;height:20px;} .i-22{width:22px;height:22px;} .i-28{width:28px;height:28px;}
+
+/* ══ CASCA DA APLICAÇÃO ══════════════════════════════════════════════════════ */
+.rb-app{display:flex;min-height:100vh;min-height:100dvh;background:var(--rb-bg);}
+/* ── Modificador de TELA CHEIA, para a caixa de entrada ───────────────────────
+   Sem ele o painel cresce com o conteudo, a rolagem interna nunca entra em acao e
+   as colunas terminam em alturas diferentes no meio da tela. Numa caixa de entrada
+   quem rola e CADA painel, nunca a pagina. */
+.rb-app--tela{height:100vh;height:100dvh;min-height:0;overflow:hidden;}
+.rb-app--tela .rb-corpo{min-height:0;overflow:hidden;}
+.rb-app--tela .rb-sec{height:auto;align-self:stretch;}
+@media (max-width:900px){
+  /* no celular a rolagem volta a ser da pagina: barra de enderecos e teclado
+     virtual brigam com 100vh e o campo de texto acaba escondido embaixo deles */
+  .rb-app--tela{height:auto;min-height:100vh;overflow:visible;}
+  .rb-app--tela .rb-corpo{overflow:visible;}
+}
+.rb-brilhos{position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:
+    radial-gradient(58vmax 40vmax at 6% -10%, rgba(46,232,121,.055), transparent 62%),
+    radial-gradient(50vmax 38vmax at 106% 110%, rgba(55,223,247,.045), transparent 62%);}
+
+/* [1] TRILHO — a navegação primária. Ícone + rótulo curto: ícone sozinho obriga a
+       decorar, e quem usa o produto uma vez por semana não decora. */
+.rb-trilho{width:var(--rb-trilho);flex:none;background:var(--rb-lateral);
+  border-right:1px solid var(--rb-borda);display:flex;flex-direction:column;
+  align-items:center;padding:14px 0 10px;gap:4px;position:sticky;top:0;height:100vh;z-index:20;}
+.rb-trilho__marca{margin-bottom:12px;display:block;}
+.rb-trilho__marca img{width:34px;height:34px;display:block;border-radius:8px;}
+.rb-tri{width:64px;padding:8px 2px 6px;border-radius:10px;display:flex;flex-direction:column;
+  align-items:center;gap:4px;color:var(--rb-muted);border:none;background:none;cursor:pointer;
+  font-size:9.5px;font-weight:700;letter-spacing:.2px;text-align:center;line-height:1.15;position:relative;}
+.rb-tri:hover{background:rgba(255,255,255,.045);color:var(--rb-text);text-decoration:none;}
+.rb-tri--on{background:rgba(46,232,121,.12);color:var(--rb-heading);}
+.rb-tri--on .i{color:var(--rb-green);}
+.rb-tri--on::before{content:"";position:absolute;left:-8px;top:9px;bottom:9px;width:3px;
+  border-radius:0 3px 3px 0;background:var(--rb-green);}
+.rb-tri__sino{position:absolute;top:5px;right:9px;min-width:16px;height:16px;padding:0 4px;
+  border-radius:var(--rb-r-pill);background:var(--rb-erro);color:#2a0606;font-size:9.5px;
+  font-weight:700;display:grid;place-items:center;line-height:1;}
+.rb-trilho__pe{margin-top:auto;display:flex;flex-direction:column;align-items:center;gap:8px;}
+
+/* [2] PAINEL SECUNDÁRIO — o contexto da seção ativa (filas, times, etiquetas…). */
+.rb-sec{width:var(--rb-sec);flex:none;background:var(--rb-lateral);
+  border-right:1px solid var(--rb-borda);display:flex;flex-direction:column;
+  position:sticky;top:0;height:100vh;z-index:15;}
+.rb-sec__topo{padding:16px 16px 12px;border-bottom:1px solid rgba(111,231,255,.10);}
+.rb-sec__topo h2{font-size:16px;line-height:1.25;}
+.rb-sec__topo p{font-size:11.5px;color:var(--rb-muted);margin-top:3px;}
+.rb-sec__lista{flex:1;overflow-y:auto;padding:8px 10px 14px;}
+.rb-grp{font-size:9.5px;letter-spacing:1.1px;text-transform:uppercase;color:#7d97a3;
+  font-weight:700;padding:14px 8px 6px;}
+.rb-it{display:flex;align-items:center;gap:10px;padding:8px 9px;border-radius:var(--rb-r-campo);
+  color:var(--rb-text);font-size:13.5px;font-weight:600;position:relative;cursor:pointer;}
+.rb-it:hover{background:rgba(255,255,255,.045);text-decoration:none;}
+.rb-it .i{color:#7fa0ad;}
+.rb-it--on{background:rgba(46,232,121,.11);color:var(--rb-heading);}
+.rb-it--on .i{color:var(--rb-green);}
+.rb-it--on::before{content:"";position:absolute;left:-10px;top:7px;bottom:7px;width:3px;
+  border-radius:0 3px 3px 0;background:var(--rb-green);}
+.rb-it__n{margin-left:auto;font-size:11.5px;font-weight:700;color:var(--rb-muted);
+  background:var(--rb-surface);border-radius:var(--rb-r-pill);padding:1px 7px;min-width:22px;text-align:center;}
+.rb-it--on .rb-it__n{color:var(--rb-heading);}
+.rb-sec__pe{border-top:1px solid var(--rb-borda);padding:10px;}
+
+/* [3] CORPO */
+.rb-corpo{flex:1;min-width:0;display:flex;flex-direction:column;position:relative;z-index:1;}
+.rb-barra{display:flex;align-items:center;gap:var(--e2);padding:12px 24px;background:var(--rb-lateral);
+  border-bottom:1px solid var(--rb-borda);flex-wrap:wrap;position:sticky;top:0;z-index:10;}
+.rb-barra h1{font-size:19px;line-height:1.2;}
+.rb-barra__sub{font-size:12px;color:var(--rb-muted);}
+.rb-barra__dir{margin-left:auto;display:flex;align-items:center;gap:var(--e2);flex-wrap:wrap;}
+.rb-conteudo{padding:var(--e4) 24px var(--e6);width:100%;max-width:1360px;}
+
+/* CAPA DE SEÇÃO — foto real com véu. Usada só onde a página é de APRESENTAÇÃO.
+   ⛔ Nunca atrás de tabela densa: textura sob dado é ruído (97 §1). */
+.rb-capa{position:relative;padding:26px 24px 22px;border-bottom:1px solid var(--rb-borda);
+  background:
+    linear-gradient(90deg, rgba(1,15,25,.96) 0%, rgba(2,25,38,.86) 52%, rgba(2,20,31,.52) 100%),
+    url('fotos/ragnabot-capa.webp') center/cover no-repeat;}
+.rb-capa__ol{font-size:10.5px;letter-spacing:1.7px;text-transform:uppercase;font-weight:700;
+  color:var(--rb-green);margin-bottom:5px;}
+.rb-capa h1{font-size:25px;color:#fff;}
+.rb-capa p{font-size:13.5px;color:rgba(255,255,255,.88);margin-top:5px;max-width:62ch;}
+
+/* ══ CARTÃO ══════════════════════════════════════════════════════════════════
+   Fundo SÓLIDO. Sem backdrop-filter e sem fundo semitransparente onde há texto:
+   o contraste passaria a depender do que estivesse atrás e ninguém conseguiria
+   afirmar o resultado lendo a regra. */
+.rb-card{background:var(--rb-surface);border:1px solid var(--rb-borda);
+  border-radius:var(--rb-r-card);box-shadow:var(--rb-e1);padding:var(--rb-pad-card);}
+.rb-card--e2{box-shadow:var(--rb-e2);}
+.rb-card__topo{display:flex;align-items:flex-start;gap:var(--e2);margin-bottom:var(--e3);}
+.rb-card__topo h3{font-size:14.5px;}
+.rb-card__topo p{font-size:11.5px;color:var(--rb-muted);margin-top:2px;}
+.rb-card__topo .rb-card__dir{margin-left:auto;display:flex;gap:8px;align-items:center;}
+.rb-grade{display:grid;gap:var(--e3);}
+/* ⚠️ min(100%, X) e o minmax(0,…) abaixo NAO sao capricho: sem eles a trilha nunca
+   encolhe abaixo do conteudo (item de grade tem min-width:auto) e uma tabela larga
+   empurra a PAGINA inteira para o lado. Foi assim que nasceu a rolagem horizontal
+   de 538px medida em 360px de largura. */
+.rb-grade > *{min-width:0;}
+.rb-g4{grid-template-columns:repeat(auto-fit,minmax(min(100%,215px),1fr));}
+/* grade dos indicadores: 300px de trilha para os seis azulejos fecharem 3+3 no
+   monitor. Com 215px eles fechavam 4+2 e a segunda fila ficava pela metade. */
+.rb-g-kpi{grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));}
+.rb-g3{grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));}
+.rb-g2{grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));}
+/* grade principal do painel: o grafico manda, o cartao de apoio acompanha.
+   ⚠️ minmax(0,…) e obrigatorio — item de grade tem min-width:auto por padrao e
+   se recusa a encolher abaixo do conteudo, que e como nasce rolagem horizontal. */
+.rb-g-principal{grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);}
+@media (max-width:1080px){ .rb-g-principal{grid-template-columns:1fr;} }
+
+/* ══ AZULEJO DE INDICADOR (KPI) ══════════════════════════════════════════════
+   Um número atual + a variação + a mini-série. É a forma certa para "um valor
+   único com tendência" — um gráfico de uma barra só seria pior. */
+.rb-kpi{background:var(--rb-surface);border:1px solid var(--rb-borda);
+  border-radius:var(--rb-r-card);box-shadow:var(--rb-e1);padding:16px 18px 14px;
+  display:flex;flex-direction:column;gap:8px;position:relative;overflow:hidden;}
+.rb-kpi::after{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--rb-kpi-cor,var(--rb-green));opacity:.85;}
+.rb-kpi__rot{display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:700;
+  letter-spacing:.4px;text-transform:uppercase;color:var(--rb-muted);}
+.rb-kpi__rot .i{color:var(--rb-kpi-cor,var(--rb-green));}
+.rb-kpi__v{font-family:'Poppins',sans-serif;font-weight:700;font-size:32px;line-height:1;
+  color:var(--rb-heading);letter-spacing:-1px;}
+.rb-kpi__v small{font-size:15px;font-weight:700;color:var(--rb-muted);margin-left:3px;letter-spacing:0;}
+.rb-kpi__pe{display:flex;align-items:center;gap:8px;margin-top:auto;}
+.rb-kpi__d{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:700;
+  padding:2px 7px;border-radius:var(--rb-r-pill);white-space:nowrap;flex:none;}
+/* ⚠️ A variação leva SETA além da cor: quem não distingue verde de vermelho perde
+   o sinal se ele for só cor (§15 do manual). */
+.rb-kpi__d--sobe{background:#0d3d24;color:#c6f5d8;}
+.rb-kpi__d--cai{background:#5c1414;color:#ffd9d9;}
+.rb-kpi__d--neutro{background:#2b3840;color:#dfe6ea;}
+.rb-kpi__ctx{font-size:11px;color:var(--rb-muted);line-height:1.35;min-width:0;}
+.rb-kpi__spark{margin-top:2px;display:block;}
+
+/* ══ MEDIDOR (uma razão contra um limite) ════════════════════════════════════ */
+.rb-med{display:flex;flex-direction:column;gap:6px;}
+.rb-med__t{height:8px;border-radius:var(--rb-r-pill);background:var(--rb-surface-alt);overflow:hidden;}
+.rb-med__b{height:100%;border-radius:var(--rb-r-pill);background:var(--rb-g4);}
+.rb-med__l{display:flex;justify-content:space-between;font-size:11.5px;color:var(--rb-muted);}
+.rb-med__l b{color:var(--rb-heading);}
+
+/* ══ SELOS ═══════════════════════════════════════════════════════════════════
+   Todo selo carrega TRÊS coisas — cor-sinal, par fundo+texto medido, e a FORMA
+   (ícone e rótulo escrito). Nunca só a cor. */
+.rb-selo{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:var(--rb-r-pill);
+  font-size:11px;font-weight:700;line-height:1.5;white-space:nowrap;}
+.rb-selo .i{width:12px;height:12px;stroke-width:2;}
+.rb-selo--whatsapp {background:#0d3d24;color:#c6f5d8;}
+.rb-selo--instagram{background:#4a1636;color:#ffd4ec;}
+.rb-selo--messenger{background:#123049;color:#cfe6ff;}
+.rb-selo--telegram {background:#0d3444;color:#c9eef8;}
+.rb-selo--email    {background:#4a3608;color:#ffe7bd;}
+.rb-selo--webchat  {background:#2c2450;color:#ded4ff;}
+.rb-selo--estourado{background:#5c1414;color:#ffd9d9;}
+.rb-selo--risco    {background:#5a3d08;color:#ffe0a8;}
+.rb-selo--prazo    {background:#0d3d24;color:#c6f5d8;}
+.rb-selo--neutro   {background:#2b3840;color:#dfe6ea;}
+/* o PONTO é a cor-sinal do canal; ele nunca aparece sozinho */
+.rb-pt{width:8px;height:8px;border-radius:50%;flex:none;display:inline-block;}
+.rb-pt--whatsapp{background:#25d366;} .rb-pt--instagram{background:#e15aa8;}
+.rb-pt--messenger{background:#4aa8ff;} .rb-pt--telegram{background:#37dff7;}
+.rb-pt--email{background:#ffc46b;}     .rb-pt--webchat{background:#b8a3ff;}
+.rb-pt--on{background:#7cf0a8;} .rb-pt--aus{background:#ffc46b;} .rb-pt--off{background:#8fa3ad;}
+
+/* ══ BOTÕES ══════════════════════════════════════════════════════════════════ */
+.rb-bt{display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  min-height:38px;padding:0 15px;border-radius:var(--rb-r-botao);
+  font-size:13.5px;font-weight:700;cursor:pointer;border:1px solid var(--rb-borda-campo);
+  background:var(--rb-surface-alt);color:var(--rb-heading);transition:background .12s,border-color .12s;}
+.rb-bt:hover{background:var(--rb-elevado);border-color:var(--rb-borda-forte);text-decoration:none;}
+.rb-bt--pri{background:var(--rb-green);border-color:var(--rb-green);color:var(--rb-on-green);}
+.rb-bt--pri:hover{background:var(--rb-green-hover);border-color:var(--rb-green-hover);color:var(--rb-on-green);}
+.rb-bt--pri[aria-busy="true"]{opacity:.7;}
+.rb-bt--fant{background:none;border-color:transparent;color:var(--rb-text);}
+.rb-bt--fant:hover{background:rgba(255,255,255,.05);border-color:transparent;}
+.rb-bt--perigo{background:none;border-color:rgba(255,138,138,.5);color:var(--rb-erro);}
+.rb-bt--perigo:hover{background:rgba(255,138,138,.12);border-color:var(--rb-erro);}
+.rb-bt--g{min-height:48px;padding:0 22px;font-size:15px;width:100%;}
+.rb-bt--p{min-height:32px;padding:0 11px;font-size:12.5px;}
+.rb-bt:disabled{background:var(--rb-surface-alt);border-color:var(--rb-borda);
+  color:var(--rb-muted);cursor:not-allowed;}
+/* alvo de toque ≥44px no celular — no dedo, 38px erra */
+@media (pointer:coarse){ .rb-bt{min-height:44px;} .rb-bt--p{min-height:38px;} }
+
+/* ══ CAMPOS ══════════════════════════════════════════════════════════════════
+   16px é PISO, não escolha: abaixo disso o iOS dá zoom ao focar e desloca a tela. */
+.rb-campo{display:flex;flex-direction:column;gap:7px;margin-bottom:var(--e3);}
+.rb-rot{font-size:13px;font-weight:600;color:var(--rb-text);}
+.rb-rot span{color:var(--rb-muted);font-weight:400;}
+.rb-dica{font-size:12px;color:var(--rb-muted);line-height:1.5;}
+.rb-ent{position:relative;display:flex;align-items:center;}
+.rb-ent > .i{position:absolute;left:13px;color:var(--rb-muted);pointer-events:none;}
+.rb-in{width:100%;min-height:46px;padding:0 14px;border-radius:var(--rb-r-campo);
+  background:var(--rb-surface-alt);border:1px solid var(--rb-borda-campo);
+  color:var(--rb-heading);font-size:16px;font-family:inherit;}
+.rb-ent > .i + .rb-in{padding-left:42px;}
+.rb-in::placeholder{color:var(--rb-muted);opacity:1;}
+.rb-in:focus{outline:none;border-color:var(--rb-green);box-shadow:0 0 0 3px rgba(46,232,121,.18);}
+.rb-in:focus-visible{outline:3px solid var(--rb-cyan);outline-offset:2px;}
+.rb-in[aria-invalid="true"]{border-color:var(--rb-erro);}
+.rb-in:disabled{background:var(--rb-surface);color:var(--rb-muted);cursor:not-allowed;}
+textarea.rb-in{padding:12px 14px;min-height:96px;resize:vertical;line-height:1.6;}
+select.rb-in{appearance:none;cursor:pointer;padding-right:38px;
+  background-image:linear-gradient(45deg,transparent 50%,#8faab4 50%),linear-gradient(135deg,#8faab4 50%,transparent 50%);
+  background-position:calc(100% - 19px) 21px,calc(100% - 14px) 21px;background-size:5px 5px,5px 5px;background-repeat:no-repeat;}
+.rb-ent__acao{position:absolute;right:6px;background:none;border:none;color:var(--rb-muted);
+  cursor:pointer;padding:8px;border-radius:6px;display:grid;place-items:center;}
+.rb-ent__acao:hover{color:var(--rb-heading);background:rgba(255,255,255,.06);}
+/* preenchimento automático do navegador não pode devolver o campo branco */
+.rb-in:-webkit-autofill,.rb-in:-webkit-autofill:hover,.rb-in:-webkit-autofill:focus{
+  -webkit-text-fill-color:var(--rb-heading);
+  -webkit-box-shadow:0 0 0 1000px var(--rb-surface-alt) inset;caret-color:var(--rb-heading);}
+
+/* interruptor */
+.rb-sw{display:flex;align-items:flex-start;gap:12px;padding:12px 0;cursor:pointer;}
+.rb-sw__t{width:40px;height:23px;border-radius:var(--rb-r-pill);background:var(--rb-surface-alt);
+  border:1px solid var(--rb-borda-campo);position:relative;flex:none;margin-top:1px;transition:background .14s;}
+.rb-sw__t::after{content:"";position:absolute;left:2px;top:2px;width:17px;height:17px;border-radius:50%;
+  background:var(--rb-muted);transition:transform .14s,background .14s;}
+.rb-sw--on .rb-sw__t{background:rgba(46,232,121,.24);border-color:var(--rb-green);}
+.rb-sw--on .rb-sw__t::after{transform:translateX(17px);background:var(--rb-green);}
+.rb-sw__l{font-size:13.5px;font-weight:600;color:var(--rb-heading);}
+.rb-sw__d{font-size:12px;color:var(--rb-muted);line-height:1.5;margin-top:2px;}
+
+/* cartão de escolha (rádio) — o estado NUNCA é só a cor: há borda, fundo e o visto */
+.rb-esc{display:flex;align-items:flex-start;gap:11px;padding:13px 14px;border-radius:var(--rb-r-campo);
+  border:1px solid var(--rb-borda-campo);background:var(--rb-surface-alt);cursor:pointer;}
+.rb-esc:hover{border-color:var(--rb-borda-forte);}
+.rb-esc--on{border-color:var(--rb-green);background:rgba(46,232,121,.10);}
+.rb-esc--on .rb-esc__ck{color:var(--rb-green);}
+.rb-esc__ck{margin-left:auto;color:transparent;}
+.rb-esc b{display:block;font-size:13.5px;color:var(--rb-heading);}
+.rb-esc span{display:block;font-size:12px;color:var(--rb-muted);margin-top:2px;}
+
+/* ══ ABAS ════════════════════════════════════════════════════════════════════ */
+.rb-abas{display:flex;gap:2px;border-bottom:1px solid var(--rb-borda);margin-bottom:var(--e4);
+  overflow-x:auto;scrollbar-width:none;}
+.rb-abas::-webkit-scrollbar{display:none;}
+.rb-aba{padding:10px 14px;font-size:13.5px;font-weight:700;color:var(--rb-muted);
+  border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;
+  margin-bottom:-1px;white-space:nowrap;}
+.rb-aba:hover{color:var(--rb-text);}
+.rb-aba--on{color:var(--rb-heading);border-bottom-color:var(--rb-green);}
+
+/* ══ TABELA ══════════════════════════════════════════════════════════════════ */
+.rb-tabw{overflow-x:auto;border-radius:var(--rb-r-card);}
+table.rb-tab{width:100%;border-collapse:collapse;font-size:13px;}
+.rb-tab th{text-align:left;font-size:10.5px;letter-spacing:.7px;text-transform:uppercase;
+  color:var(--rb-muted);font-weight:700;padding:9px 12px;background:var(--rb-lateral);
+  border-bottom:1px solid var(--rb-borda);white-space:nowrap;}
+.rb-tab td{padding:0 12px;height:var(--rb-linha);border-bottom:1px solid rgba(111,231,255,.10);
+  color:var(--rb-text);vertical-align:middle;}
+.rb-tab tbody tr:hover td{background:var(--rb-surface-alt);}
+.rb-tab tbody tr:last-child td{border-bottom:none;}
+.rb-tab .dir{text-align:right;} .rb-tab b{color:var(--rb-heading);}
+
+/* ══ AVATAR ══════════════════════════════════════════════════════════════════ */
+.rb-av{width:34px;height:34px;border-radius:10px;flex:none;display:grid;place-items:center;
+  background:linear-gradient(150deg,#12655a,#0a3a44);color:var(--rb-ok);
+  font-family:'Poppins',sans-serif;font-weight:700;font-size:12px;position:relative;}
+.rb-av--p{width:26px;height:26px;font-size:10px;border-radius:8px;}
+.rb-av--g{width:44px;height:44px;font-size:15px;border-radius:12px;}
+.rb-av__st{position:absolute;right:-2px;bottom:-2px;width:11px;height:11px;border-radius:50%;
+  border:2px solid var(--rb-lateral);}
+
+/* ══ USUÁRIO NO RODAPÉ DA NAVEGAÇÃO ══════════════════════════════════════════ */
+.rb-usr{display:flex;align-items:center;gap:10px;padding:8px;width:100%;text-align:left;
+  border:1px solid var(--rb-borda);border-radius:var(--rb-r-campo);
+  background:var(--rb-surface);cursor:pointer;color:inherit;}
+.rb-usr:hover{background:var(--rb-surface-alt);}
+.rb-usr__n{font-size:12.5px;font-weight:700;color:var(--rb-heading);line-height:1.25;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.rb-usr__e{font-size:10.5px;color:var(--rb-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+/* ══ AVISOS ══════════════════════════════════════════════════════════════════ */
+.rb-msg{display:flex;gap:10px;padding:12px 14px;border-radius:var(--rb-r-campo);font-size:13px;line-height:1.55;}
+.rb-msg .i{margin-top:1px;}
+.rb-msg--erro{background:rgba(255,138,138,.12);border-left:3px solid var(--rb-erro);color:var(--rb-erro);}
+.rb-msg--aviso{background:rgba(255,196,107,.12);border-left:3px solid var(--rb-aviso);color:var(--rb-aviso);}
+.rb-msg--ok{background:rgba(124,240,168,.12);border-left:3px solid var(--rb-ok);color:var(--rb-ok);}
+.rb-msg--info{background:var(--rb-surface-alt);border:1px solid var(--rb-borda);color:var(--rb-text);}
+.rb-msg b{color:inherit;}
+
+/* ══ GRÁFICO ═════════════════════════════════════════════════════════════════
+   SVG à mão, sem biblioteca. Grade recessiva, eixo em cor de apoio, marcas finas. */
+.rb-cx{width:100%;height:auto;display:block;overflow:visible;}
+.rb-cx text{font-family:'Open Sans',sans-serif;font-variant-numeric:tabular-nums;}
+.rb-cx .grade{stroke:rgba(111,231,255,.14);stroke-width:1;}
+.rb-cx .eixo{fill:#8faab4;font-size:10.5px;}
+.rb-cx .marca{fill:var(--rb-g4);}
+.rb-cx .rot{fill:#f5fbff;font-size:11px;font-weight:700;}
+.rb-legenda{display:flex;flex-wrap:wrap;gap:10px 16px;margin-top:12px;font-size:11.5px;color:var(--rb-text);}
+.rb-legenda span{display:inline-flex;align-items:center;gap:6px;}
+.rb-legenda i{width:10px;height:10px;border-radius:3px;display:inline-block;}
+
+/* barra horizontal com rótulo — a forma certa para categoria de nome longo */
+.rb-bar{display:grid;grid-template-columns:minmax(96px,auto) 1fr minmax(64px,auto);
+  align-items:center;gap:12px;padding:7px 0;}
+.rb-bar__r{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--rb-text);}
+.rb-bar__t{height:14px;background:var(--rb-surface-alt);border-radius:4px;overflow:hidden;}
+.rb-bar__f{height:100%;border-radius:4px;background:var(--rb-g4);}
+.rb-bar__v{font-size:12.5px;font-weight:700;color:var(--rb-heading);text-align:right;font-variant-numeric:tabular-nums;}
+
+/* ══ ESTADO VAZIO ════════════════════════════════════════════════════════════ */
+.rb-vazio{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:10px;padding:52px 24px;text-align:center;color:var(--rb-muted);}
+.rb-vazio .i{width:34px;height:34px;color:#4f6d79;}
+.rb-vazio b{font-size:14.5px;color:var(--rb-heading);font-family:'Poppins',sans-serif;}
+.rb-vazio p{font-size:12.5px;max-width:44ch;}
+
+/* ══ RESPONSIVO ══════════════════════════════════════════════════════════════
+   Regra da casa: zero rolagem horizontal em qualquer largura. Tabela e gráfico
+   rolam DENTRO do próprio quadro, nunca empurrando a página. */
+.rb-mob{display:none;}
+@media (max-width:1180px){
+  .rb-sec{--rb-sec:212px;}
+}
+@media (max-width:900px){
+  /* o trilho vira barra inferior — a mão alcança o pé da tela, não o topo */
+  .rb-app{flex-direction:column;padding-bottom:62px;}
+  .rb-trilho{position:fixed;bottom:0;left:0;right:0;top:auto;width:100%;height:62px;
+    flex-direction:row;justify-content:space-around;align-items:center;padding:4px 2px;
+    border-right:none;border-top:1px solid var(--rb-borda-forte);gap:0;
+    box-shadow:0 -6px 18px rgba(0,0,0,.4);}
+  .rb-trilho__marca,.rb-trilho__pe{display:none;}
+  .rb-tri{width:auto;flex:1;max-width:76px;padding:5px 2px;}
+  .rb-tri--on::before{left:50%;transform:translateX(-50%);top:-4px;bottom:auto;width:22px;height:3px;border-radius:0 0 3px 3px;}
+  .rb-sec{position:static;width:100%;height:auto;border-right:none;
+    border-bottom:1px solid var(--rb-borda);}
+  .rb-sec__lista{max-height:none;}
+  .rb-sec--recolhe .rb-sec__lista{display:none;}
+  .rb-conteudo{padding:var(--e3) 16px var(--e5);}
+  .rb-barra{padding:10px 16px;}
+  .rb-capa{padding:18px 16px 16px;}
+  .rb-capa h1{font-size:20px;}
+  .rb-mob{display:block;}
+  .rb-desk{display:none !important;}
+}
+@media (max-width:560px){
+  .rb-g4,.rb-g3,.rb-g2,.rb-g-principal,.rb-g-kpi{grid-template-columns:minmax(0,1fr);}
+  .rb-kpi__v{font-size:27px;}
+  .rb-barra h1{font-size:17px;}
+  .rb-bar{grid-template-columns:1fr;gap:4px;}
+  .rb-bar__v{text-align:left;}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001ms !important;transition-duration:.001ms !important;}
+}

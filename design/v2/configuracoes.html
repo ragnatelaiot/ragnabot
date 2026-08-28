@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Configurações — Ragnabot | Ragnatela IoT Solutions</title>
+<meta name="description" content="Configurações do Ragnabot: canais, filas, times, automação e cobrança.">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#03151f">
+<link rel="icon" href="assets/marca/icone-marca-192.png" sizes="192x192" type="image/png">
+<link rel="apple-touch-icon" href="assets/marca/icone-marca-180.png">
+<link rel="stylesheet" href="assets/rb-base.css">
+<style>
+.cfg{max-width:940px;}
+.cfg section{margin-bottom:var(--e5);}
+.cfg h2{font-size:17px; margin-bottom:4px;}
+.cfg .cfg__ap{font-size:13px; color:var(--rb-muted); margin-bottom:var(--e3); max-width:70ch; line-height:1.6;}
+.cfg__lin{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:var(--e3);}
+@media (max-width:760px){ .cfg__lin{grid-template-columns:minmax(0,1fr);} }
+
+/* cartao de canal conectado */
+.cn{display:flex; gap:12px; padding:15px; border-radius:var(--rb-r-card);
+  background:var(--rb-surface); border:1px solid var(--rb-borda); box-shadow:var(--rb-e1);}
+.cn__ic{width:40px; height:40px; border-radius:11px; display:grid; place-items:center; flex:none;}
+.cn__c{min-width:0; flex:1;}
+.cn__t{display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
+.cn__n{font-size:14px; font-weight:700; color:var(--rb-heading); font-family:'Poppins',sans-serif;}
+.cn__d{font-size:12px; color:var(--rb-muted); margin-top:3px; line-height:1.5;}
+.cn__m{display:flex; gap:14px; margin-top:10px; flex-wrap:wrap;}
+.cn__m div{font-size:11px; color:var(--rb-muted);}
+.cn__m b{display:block; font-size:13px; color:var(--rb-heading); font-variant-numeric:tabular-nums;}
+.cn__a{display:flex; gap:6px; margin-top:12px; flex-wrap:wrap;}
+
+/* zona de risco: separada por FORMA e por posicao, nunca so por cor */
+.cfg__risco{border:1px solid rgba(255,138,138,.42); border-radius:var(--rb-r-card);
+  background:rgba(255,138,138,.055); padding:var(--rb-pad-card);}
+.cfg__risco h3{font-size:14.5px; color:var(--rb-erro);}
+</style>
+</head>
+<body>
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true" focusable="false"><defs>
+<symbol id="i-caixa" viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-12.3 7.6L3 21l1.5-5.4A8.5 8.5 0 1 1 21 12Z"/></symbol>
+<symbol id="i-painel" viewBox="0 0 24 24"><rect x="3" y="3" width="7.5" height="8.5" rx="1.6"/><rect x="13.5" y="3" width="7.5" height="5" rx="1.6"/><rect x="3" y="14.5" width="7.5" height="6.5" rx="1.6"/><rect x="13.5" y="11" width="7.5" height="10" rx="1.6"/></symbol>
+<symbol id="i-contatos" viewBox="0 0 24 24"><path d="M16 20v-1.6A3.4 3.4 0 0 0 12.6 15H6.4A3.4 3.4 0 0 0 3 18.4V20"/><circle cx="9.5" cy="8" r="3.4"/><path d="M21 20v-1.6a3.4 3.4 0 0 0-2.6-3.3M15.5 4.8a3.4 3.4 0 0 1 0 6.4"/></symbol>
+<symbol id="i-relatorio" viewBox="0 0 24 24"><path d="M4 20V10M9.3 20V4M14.7 20v-7M20 20V7"/></symbol>
+<symbol id="i-campanha" viewBox="0 0 24 24"><path d="M3 10v4a1 1 0 0 0 1 1h3l5 4V5L7 9H4a1 1 0 0 0-1 1Z"/><path d="M17 9a4 4 0 0 1 0 6M19.8 6.2a8 8 0 0 1 0 11.6"/></symbol>
+<symbol id="i-ajustes" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.1"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7.5 19.4l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 3.6 14H3.5a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10 3.6V3.5a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7h.1a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.2.8Z"/></symbol>
+<symbol id="i-busca" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.9-3.9"/></symbol>
+<symbol id="i-filtro" viewBox="0 0 24 24"><path d="M3 5h18l-7 8.2V20l-4-2.2v-4.6L3 5Z"/></symbol>
+<symbol id="i-enviar" viewBox="0 0 24 24"><path d="M21.5 3 10.8 13.7M21.5 3l-6.8 18.5-3.9-7.8-7.8-3.9L21.5 3Z"/></symbol>
+<symbol id="i-nota" viewBox="0 0 24 24"><path d="M14 3H6.5A1.5 1.5 0 0 0 5 4.5v15A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V8l-5-5Z"/><path d="M14 3v5h5M8.6 13h6.8M8.6 16.6h4.2"/></symbol>
+<symbol id="i-anexo" viewBox="0 0 24 24"><path d="M20.4 11.5 12.2 19.7a5 5 0 0 1-7.1-7.1l8.2-8.2a3.3 3.3 0 1 1 4.7 4.7l-8.2 8.2a1.7 1.7 0 1 1-2.4-2.4l7.6-7.5"/></symbol>
+<symbol id="i-rosto" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8.4 14.4a4.4 4.4 0 0 0 7.2 0"/><path d="M9 9.4h.01M15 9.4h.01"/></symbol>
+<symbol id="i-etiqueta" viewBox="0 0 24 24"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0l-7.2-7.2A2 2 0 0 1 2.8 12V4.8A2 2 0 0 1 4.8 2.8H12a2 2 0 0 1 1.4.6l7.2 7.2a2 2 0 0 1 0 2.8Z"/><path d="M7.5 7.5h.01"/></symbol>
+<symbol id="i-time" viewBox="0 0 24 24"><path d="M17 20v-1.8a3.2 3.2 0 0 0-3.2-3.2H7.2A3.2 3.2 0 0 0 4 18.2V20"/><circle cx="10.5" cy="8" r="3.2"/><path d="M20 20v-1.8a3.2 3.2 0 0 0-2.4-3.1"/></symbol>
+<symbol id="i-usuario" viewBox="0 0 24 24"><path d="M19 20v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7.5" r="3.6"/></symbol>
+<symbol id="i-robo" viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="12" rx="2.6"/><path d="M12 8V4.6M9 14h.01M15 14h.01M9.6 17.4h4.8M2.5 12.5v3M21.5 12.5v3"/><circle cx="12" cy="3.4" r="1.2"/></symbol>
+<symbol id="i-relogio" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 6.8V12l3.4 2"/></symbol>
+<symbol id="i-visto" viewBox="0 0 24 24"><path d="m4.5 12.5 5 5 10-11"/></symbol>
+<symbol id="i-visto2" viewBox="0 0 24 24"><path d="m1.5 12.8 4.4 4.4L14.8 7.6M9.6 13.6l3.2 3.6 9-9.6"/></symbol>
+<symbol id="i-alerta" viewBox="0 0 24 24"><path d="M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3l-8.5-14.4a2 2 0 0 0-3.4 0Z"/><path d="M12 9.4v4.2M12 17.4h.01"/></symbol>
+<symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4.4M12 8.2h.01"/></symbol>
+<symbol id="i-seta-c" viewBox="0 0 24 24"><path d="m6 14 6-6 6 6"/></symbol>
+<symbol id="i-seta-b" viewBox="0 0 24 24"><path d="m6 10 6 6 6-6"/></symbol>
+<symbol id="i-seta-d" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+<symbol id="i-seta-e" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></symbol>
+<symbol id="i-mais" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="i-menu" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></symbol>
+<symbol id="i-sair" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></symbol>
+<symbol id="i-sino" viewBox="0 0 24 24"><path d="M18 8.6a6 6 0 1 0-12 0c0 6.4-2.5 8.4-2.5 8.4h17S18 15 18 8.6Z"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></symbol>
+<symbol id="i-cadeado" viewBox="0 0 24 24"><rect x="4" y="10.4" width="16" height="10.6" rx="2.2"/><path d="M7.8 10.4V7a4.2 4.2 0 1 1 8.4 0v3.4"/></symbol>
+<symbol id="i-chave" viewBox="0 0 24 24"><circle cx="7.6" cy="16.4" r="3.6"/><path d="m10.2 13.8 8.4-8.4M16.4 7.6l2.2 2.2M14.2 9.8l2.2 2.2"/></symbol>
+<symbol id="i-empresa" viewBox="0 0 24 24"><path d="M3 21h18M5 21V6.2a1.2 1.2 0 0 1 1.2-1.2h6.6A1.2 1.2 0 0 1 14 6.2V21M14 21V11h4.8A1.2 1.2 0 0 1 20 12.2V21"/><path d="M8 9h3M8 13h3M8 17h3M17 15h.01M17 18h.01"/></symbol>
+<symbol id="i-cartao" viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="14" rx="2.2"/><path d="M2.5 10h19"/></symbol>
+<symbol id="i-raio" viewBox="0 0 24 24"><path d="M13.4 2 4 13.6h6.4L10 22l9.4-11.6H13L13.4 2Z"/></symbol>
+<symbol id="i-responder" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h9.5a6.5 6.5 0 0 1 6.5 6.5V20"/></symbol>
+<symbol id="i-estrela" viewBox="0 0 24 24"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2-5.5-2.9-5.5 2.9 1-6.2L3 9.6l6.2-.9L12 3Z"/></symbol>
+<symbol id="i-arquivar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="4.4" rx="1.4"/><path d="M4.6 8.4V19a1.6 1.6 0 0 0 1.6 1.6h11.6a1.6 1.6 0 0 0 1.6-1.6V8.4M10 12.6h4"/></symbol>
+<symbol id="i-telefone" viewBox="0 0 24 24"><path d="M21.6 16.9v2.8a1.9 1.9 0 0 1-2 1.9 18.6 18.6 0 0 1-8.1-2.9 18.3 18.3 0 0 1-5.6-5.6A18.6 18.6 0 0 1 3 4.9a1.9 1.9 0 0 1 1.9-2h2.8a1.9 1.9 0 0 1 1.9 1.6c.1 1 .4 1.9.7 2.8a1.9 1.9 0 0 1-.4 2l-1.2 1.2a15 15 0 0 0 5.6 5.6l1.2-1.2a1.9 1.9 0 0 1 2-.4c.9.3 1.8.6 2.8.7a1.9 1.9 0 0 1 1.6 1.9Z"/></symbol>
+<symbol id="i-whatsapp" viewBox="0 0 24 24"><path d="M20.5 11.7a8.4 8.4 0 0 1-12.2 7.5L3.5 20.5l1.4-4.7a8.4 8.4 0 1 1 15.6-4.1Z"/><path d="M9.2 9.1c-.2 1.6 1.1 3.4 1.9 4.2s2.6 2 4.2 1.8"/></symbol>
+<symbol id="i-instagram" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="5.2"/><circle cx="12" cy="12" r="3.8"/><path d="M17.2 6.9h.01"/></symbol>
+<symbol id="i-messenger" viewBox="0 0 24 24"><path d="M12 2.8c-5.1 0-9.2 3.8-9.2 8.6a8.3 8.3 0 0 0 3.4 6.6v3.2l3.2-1.7a10 10 0 0 0 2.6.4c5.1 0 9.2-3.8 9.2-8.5S17.1 2.8 12 2.8Z"/><path d="m7.1 13.6 2.7-2.8 2 2 2.9-2.9-2.6 2.8-2-2-3 2.9Z"/></symbol>
+<symbol id="i-telegram" viewBox="0 0 24 24"><path d="M21.4 4.3 2.9 11.2l4.8 1.6 1.8 5.6 2.6-2.9 4.6 3.4 4.7-14.6Z"/><path d="m7.7 12.8 10.4-6.4-8.6 8"/></symbol>
+<symbol id="i-email" viewBox="0 0 24 24"><rect x="2.6" y="4.6" width="18.8" height="14.8" rx="2.2"/><path d="m3.4 6.4 8.6 6 8.6-6"/></symbol>
+<symbol id="i-webchat" viewBox="0 0 24 24"><rect x="2.6" y="3.4" width="18.8" height="14" rx="2.4"/><path d="M2.6 7.6h18.8M8 20.6h8M12 17.4v3.2M6 5.6h.01M8.4 5.6h.01"/></symbol>
+<symbol id="i-fila" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h9"/><circle cx="18.5" cy="18" r="2.4"/></symbol>
+<symbol id="i-pausa" viewBox="0 0 24 24"><path d="M9.5 4.5v15M14.5 4.5v15"/></symbol>
+<symbol id="i-lixo" viewBox="0 0 24 24"><path d="M3.8 6.2h16.4M8.6 6.2V4.6A1.6 1.6 0 0 1 10.2 3h3.6a1.6 1.6 0 0 1 1.6 1.6v1.6M18 6.2V20a1.6 1.6 0 0 1-1.6 1.6H7.6A1.6 1.6 0 0 1 6 20V6.2"/></symbol>
+<symbol id="i-copiar" viewBox="0 0 24 24"><rect x="8.4" y="8.4" width="12.6" height="12.6" rx="2.2"/><path d="M5.6 15.6H4.4A1.4 1.4 0 0 1 3 14.2V4.4A1.4 1.4 0 0 1 4.4 3h9.8a1.4 1.4 0 0 1 1.4 1.4v1.2"/></symbol>
+<symbol id="i-atualizar" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 3.5V10h-6.5"/></symbol>
+<symbol id="i-ligar" viewBox="0 0 24 24"><path d="M12 3v9"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></symbol>
+<symbol id="i-globo" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3.2 12h17.6M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18Z"/></symbol>
+<symbol id="i-olho" viewBox="0 0 24 24"><path d="M2 12s3.6-6.6 10-6.6S22 12 22 12s-3.6 6.6-10 6.6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.9"/></symbol>
+<symbol id="i-olho-off" viewBox="0 0 24 24"><path d="M10.6 6.6A9.6 9.6 0 0 1 12 6.5c6.4 0 10 5.5 10 5.5a17 17 0 0 1-3.3 3.9M6.4 7.9A16.6 16.6 0 0 0 2 12s3.6 5.5 10 5.5a9.9 9.9 0 0 0 3.5-.6M3 3l18 18M9.9 9.9a3 3 0 0 0 4.2 4.2"/></symbol>
+</defs></svg>
+<div class="rb-brilhos" aria-hidden="true"></div>
+<div class="rb-app">
+<nav class="rb-trilho" aria-label="Navegação principal">
+  <a class="rb-trilho__marca" href="dashboard.html" aria-label="Ragnabot — início">
+    <img src="assets/marca/icone-marca-192.png" alt="" width="34" height="34"></a>
+  <a class="rb-tri" href="conversas.html"><span class="rb-tri__sino num">7</span><svg class="i i-22" aria-hidden="true"><use href="#i-caixa"/></svg>Caixa</a><a class="rb-tri" href="dashboard.html"><svg class="i i-22" aria-hidden="true"><use href="#i-painel"/></svg>Painel</a><a class="rb-tri" href="#"><svg class="i i-22" aria-hidden="true"><use href="#i-contatos"/></svg>Contatos</a><a class="rb-tri" href="#"><svg class="i i-22" aria-hidden="true"><use href="#i-campanha"/></svg>Campanhas</a><a class="rb-tri" href="#"><svg class="i i-22" aria-hidden="true"><use href="#i-relatorio"/></svg>Relatórios</a><a class="rb-tri rb-tri--on" href="configuracoes.html" aria-current="page"><svg class="i i-22" aria-hidden="true"><use href="#i-ajustes"/></svg>Ajustes</a>
+  <div class="rb-trilho__pe">
+    <button class="rb-tri" type="button"><svg class="i i-22" aria-hidden="true"><use href="#i-sino"/></svg>Avisos</button>
+    <span class="rb-av" title="Emmanuel Castro — administrador">EC<span class="rb-av__st rb-pt--on"></span></span>
+  </div>
+</nav>
+<aside class="rb-sec rb-sec--recolhe" aria-label="Seções de configuração">
+  <div class="rb-sec__topo"><h2>Configurações</h2><p>Conta: Ragnatela IoT Solutions</p></div>
+  <div class="rb-sec__lista">
+    <p class="rb-grp">A conta</p>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-empresa"/></svg>Dados da empresa</a>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-usuario"/></svg>Agentes<span class="rb-it__n num">12</span></a>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-time"/></svg>Times<span class="rb-it__n num">4</span></a>
+    <p class="rb-grp">Atendimento</p>
+    <a class="rb-it rb-it--on" href="#" aria-current="page"><svg class="i" aria-hidden="true"><use href="#i-globo"/></svg>Canais<span class="rb-it__n num">6</span></a>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-fila"/></svg>Filas</a>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-etiqueta"/></svg>Etiquetas</a>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-raio"/></svg>Respostas rápidas</a>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-relogio"/></svg>Horário e ausência</a>
+    <p class="rb-grp">Inteligência</p>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-robo"/></svg>Automação</a>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-estrela"/></svg>Pesquisa de satisfação</a>
+    <p class="rb-grp">Administração</p>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-cadeado"/></svg>Segurança e acesso</a>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-cartao"/></svg>Plano e cobrança</a>
+    <a class="rb-it" href="#"><svg class="i" aria-hidden="true"><use href="#i-arquivar"/></svg>Registro de auditoria</a>
+  </div>
+  <div class="rb-sec__pe"><button class="rb-usr" type="button">
+  <span class="rb-av rb-av--p">EC<span class="rb-av__st rb-pt--on" style="width:9px;height:9px"></span></span>
+  <span style="min-width:0">
+    <span class="rb-usr__n">Emmanuel Castro</span>
+    <span class="rb-usr__e">Administrador da conta</span>
+  </span>
+  <svg class="i i-16" style="margin-left:auto;color:var(--rb-muted)" aria-hidden="true"><use href="#i-seta-c"/></svg>
+</button></div>
+</aside>
+<main class="rb-corpo">
+
+  <header class="rb-capa">
+    <p class="rb-capa__ol">Configurações · Atendimento</p>
+    <h1>Canais conectados</h1>
+    <p>Cada canal é uma porta de entrada. Aqui você liga, testa e desliga — e vê, sem abrir
+       chamado, qual deles está com problema.</p>
+  </header>
+
+  <div class="rb-barra">
+    <span class="rb-barra__sub">6 canais ativos · 1 precisa de atenção</span>
+    <div class="rb-barra__dir">
+      <button class="rb-bt rb-bt--p" type="button"><svg class="i i-14" aria-hidden="true"><use href="#i-atualizar"/></svg>Testar todos</button>
+      <button class="rb-bt rb-bt--p rb-bt--pri" type="button"><svg class="i i-14" aria-hidden="true"><use href="#i-mais"/></svg>Conectar canal</button>
+    </div>
+  </div>
+
+  <div class="rb-conteudo cfg">
+    <div class="rb-msg rb-msg--info" style="margin-bottom:var(--e3)"><svg class="i" aria-hidden="true"><use href="#i-info"/></svg><span><b>Protótipo para revisão.</b> Todos os números, nomes e conversas desta tela são de demonstração — não representam operação real de nenhum cliente.</span></div>
+
+    <div class="rb-msg rb-msg--aviso" style="margin-bottom:var(--e4)">
+      <svg class="i" aria-hidden="true"><use href="#i-alerta"/></svg>
+      <span><b>O token da página do Messenger expira em 14 dias.</b> Quando ele expira, as
+        mensagens param de entrar e ninguém é avisado do outro lado — o cliente acha que
+        você ignorou. Renove antes do dia 11.</span>
+    </div>
+
+    <section>
+      <h2>Canais em operação</h2>
+      <p class="cfg__ap">Os números são dos últimos 30 dias. “Última sincronização” é o momento em
+        que o canal confirmou que está recebendo — não é o horário da última mensagem.</p>
+      <div class="rb-grade rb-g2"><article class="cn">
+  <span class="cn__ic" style="background:#0d3d24;color:#25d366"><svg class="i i-20" aria-hidden="true"><use href="#i-whatsapp"/></svg></span>
+  <div class="cn__c">
+    <div class="cn__t">
+      <span class="cn__n">WhatsApp</span>
+      <span class="rb-selo rb-selo--prazo"><svg class="i" aria-hidden="true"><use href="#i-visto"/></svg>Conectado</span>
+    </div>
+    <p class="cn__d">Atendimento — API oficial<br>Número +55 98 3197-0997 · qualidade alta</p>
+    <div class="cn__m">
+      <div><b class="num">1.284</b>conversas em 30 dias</div>
+      <div><b class="num">há 12 s</b>última sincronização</div>
+    </div>
+    <div class="cn__a">
+      <button class="rb-bt rb-bt--p" type="button"><svg class="i i-14" aria-hidden="true"><use href="#i-ajustes"/></svg>Configurar</button>
+      <button class="rb-bt rb-bt--p" type="button"><svg class="i i-14" aria-hidden="true"><use href="#i-atualizar"/></svg>Testar</button>
+      <button class="rb-bt rb-bt--p rb-bt--fant" type="button">Desativar</button>
+    </div>
+  </div>
+</article>
+<article class="cn">
+  <span class="cn__ic" style="background:#4a1636;color:#e15aa8"><svg class="i i-20" aria-hidden="true"><use href="#i-instagram"/></svg></span>
+  <div class="cn__c">
+    <div class="cn__t">
+      <span class="cn__n">Instagram</span>
+      <span class="rb-selo rb-selo--prazo"><svg class="i" aria-hidden="true"><use href="#i-visto"/></svg>Conectado</span>
+    </div>
+    <p class="cn__d">Mensagens diretas do perfil<br>@ragnatelaiot · vinculado ao Gerenciador</p>
+    <div class="cn__m">
+      <div><b class="num">412</b>conversas em 30 dias</div>
+      <div><b class="num">há 40 s</b>última sincronização</div>
+    </div>
+    <div class="cn__a">
+      <button class="rb-bt rb-bt--p" type="button"><svg class="i i-14" aria-hidden="true"><use href="#i-ajustes"/></svg>Configurar</button>
+      <button class="rb-bt rb-bt--p" type="button"><svg class="i i-14" aria-hidden="true"><use href="#i-atualizar"/></svg>Testar</button>
+      <button class="rb-bt rb-bt--p rb-bt--fant" type="button">Desativar</button>
+    </div>
+  </div>
+</article>
+<article class="cn">
+  <span class="cn__ic" style="background:#2c2450;color:#b8a3ff"><svg class="i i-20" aria-hidden="true"><use href="#i-webchat"/></svg></span>
+  <div class="cn__c">
+    <div class="cn__t">
+      <span class="cn__n">Chat do site</span>
+      <span class="rb-selo rb-selo--prazo"><svg class="i" aria-hidden="true"><use href="#i-visto"/></svg>Conectado</span>
+    </div>
+    <p class="cn__d">Widget instalado em ragnatela.com.br<br>Aparece em todas as páginas, canto inferior direito</p>
+    <div class="cn__m">
+      <div><b class="num">268</b>conversas em 30 dias</div>
+      <div><b class="num">agora</b>última sincronização</div>
+    </div>
+    <div class="cn__a">
+      <button class="rb-bt rb-bt--p" type="button"><svg class="i i-14" aria-hidden="true"><use href="#i-ajustes"/></svg>Configurar</button>
+      <button class="rb-bt rb-bt--p" type="button"><svg class="i i-14" aria-hidden="true"><use href="#i-atualizar"/></svg>Testar</button>
+      <button class="rb-bt rb-bt--p rb-bt--fant" type="button">Desativar</button>
+    </div>
+  </div>
+</article>
+<article class="cn">
+  <span class="cn__ic" style="background:#4a3608;color:#ffc46b"><svg class="i i-20" aria-hidden="true"><use href="#i-email"/></svg></span>
+  <div class="cn__c">
+    <div class="cn__t">
+      <span class="cn__n">E-mail</span>
+      <span class="rb-selo rb-selo--prazo"><svg class="i" aria-hidden="true"><use href="#i-visto"/></svg>Conectado</span>
+    </div>
+    <p class="cn__d">atendimento@ragnatela.com.br<br>Encaminhamento ativo · SPF e DKIM conferidos</p>
+    <div class="cn__m">
+      <div><b class="num">173</b>conversas em 30 dias</div>
+      <div><b class="num">há 3 min</b>última sincronização</div>
+    </div>
+    <div class="cn__a">
+      <button class="rb-bt rb-bt--p" type="button"><svg class="i i-14" aria-hidden="true"><use href="#i-ajustes"/></svg>Configurar</button>
+      <button class="rb-bt rb-bt--p" type="button"><svg class="i i-14" aria-hidden="true"><use href="#i-atualizar"/></svg>Testar</button>
+      <button class="rb-bt rb-bt--p rb-bt--fant" type="button">Desativar</button>
+    </div>
+  </div>
+</article>
+<article class="cn">
+  <span class="cn__ic" style="background:#123049;color:#4aa8ff"><svg class="i i-20" aria-hidden="true"><use href="#i-messenger"/></svg></span>
+  <div class="cn__c">
+    <div class="cn__t">
+      <span class="cn__n">Messenger</span>
+      <span class="rb-selo rb-selo--risco"><svg class="i" aria-hidden="true"><use href="#i-alerta"/></svg>Renovação pendente</span>
+    </div>
+    <p class="cn__d">Página do Facebook<br>Token de página expira em 14 dias — renove para não interromper</p>
+    <div class="cn__m">
+      <div><b class="num">96</b>conversas em 30 dias</div>
+      <div><b class="num">há 1 min</b>última sincronização</div>
+    </div>
+    <div class="cn__a">
+      <button class="rb-bt rb-bt--p" type="button"><svg class="i i-14" aria-hidden="true"><use href="#i-ajustes"/></svg>Configurar</button>
+      <button class="rb-bt rb-bt--p" type="button"><svg class="i i-14" aria-hidden="true"><use href="#i-atualizar"/></svg>Testar</button>
+      <button class="rb-bt rb-bt--p rb-bt--fant" type="button">Desativar</button>
+    </div>
+  </div>
+</article>
+<article class="cn">
+  <span class="cn__ic" style="background:#0d3444;color:#37dff7"><svg class="i i-20" aria-hidden="true"><use href="#i-telegram"/></svg></span>
+  <div class="cn__c">
+    <div class="cn__t">
+      <span class="cn__n">Telegram</span>
+      <span class="rb-selo rb-selo--prazo"><svg class="i" aria-hidden="true"><use href="#i-visto"/></svg>Conectado</span>
+    </div>
+    <p class="cn__d">Robô @ragnatela_bot<br>Conectado por token do BotFather</p>
+    <div class="cn__m">
+      <div><b class="num">41</b>conversas em 30 dias</div>
+      <div><b class="num">há 8 s</b>última sincronização</div>
+    </div>
+    <div class="cn__a">
+      <button class="rb-bt rb-bt--p" type="button"><svg class="i i-14" aria-hidden="true"><use href="#i-ajustes"/></svg>Configurar</button>
+      <button class="rb-bt rb-bt--p" type="button"><svg class="i i-14" aria-hidden="true"><use href="#i-atualizar"/></svg>Testar</button>
+      <button class="rb-bt rb-bt--p rb-bt--fant" type="button">Desativar</button>
+    </div>
+  </div>
+</article></div>
+    </section>
+
+    <section>
+      <h2>Conectar um canal novo</h2>
+      <p class="cfg__ap">Escolha o tipo. Cada um pede informações diferentes, e a tela seguinte
+        mostra só o que aquele canal precisa.</p>
+      <div class="rb-grade rb-g3" style="margin-bottom:var(--e4)">
+        <label class="rb-esc rb-esc--on">
+          <svg class="i i-20" style="color:#25d366" aria-hidden="true"><use href="#i-whatsapp"/></svg>
+          <span><b>WhatsApp — API oficial</b><span>Número verificado, modelos de mensagem e envio ativo.</span></span>
+          <svg class="i i-20 rb-esc__ck" aria-hidden="true"><use href="#i-visto"/></svg>
+        </label>
+        <label class="rb-esc">
+          <svg class="i i-20" style="color:#e15aa8" aria-hidden="true"><use href="#i-instagram"/></svg>
+          <span><b>Instagram</b><span>Mensagens diretas e respostas a comentários.</span></span>
+          <svg class="i i-20 rb-esc__ck" aria-hidden="true"><use href="#i-visto"/></svg>
+        </label>
+        <label class="rb-esc">
+          <svg class="i i-20" style="color:#b8a3ff" aria-hidden="true"><use href="#i-webchat"/></svg>
+          <span><b>Chat do site</b><span>Um trecho de código no seu site, e pronto.</span></span>
+          <svg class="i i-20 rb-esc__ck" aria-hidden="true"><use href="#i-visto"/></svg>
+        </label>
+      </div>
+
+      <div class="rb-card">
+        <div class="rb-card__topo">
+          <div><h3>WhatsApp — API oficial</h3>
+            <p>Os dados vêm do Gerenciador de Negócios. Se algum campo não bater, a verificação falha.</p></div>
+        </div>
+
+        <div class="cfg__lin">
+          <div class="rb-campo">
+            <label class="rb-rot" for="c1">Nome da caixa de entrada</label>
+            <input class="rb-in" id="c1" type="text" value="Atendimento comercial">
+            <span class="rb-dica">É o nome que a sua equipe vê na lista de canais.</span>
+          </div>
+          <div class="rb-campo">
+            <label class="rb-rot" for="c2">Número de telefone</label>
+            <div class="rb-ent">
+              <svg class="i" aria-hidden="true"><use href="#i-telefone"/></svg>
+              <input class="rb-in" id="c2" type="tel" inputmode="tel" value="+55 98 3197-0997">
+            </div>
+            <span class="rb-dica">No formato internacional, com o código do país.</span>
+          </div>
+        </div>
+
+        <div class="cfg__lin">
+          <div class="rb-campo">
+            <label class="rb-rot" for="c3">Identificador da conta <span>(Business Account ID)</span></label>
+            <input class="rb-in" id="c3" type="text" value="13177468971082••" aria-invalid="true" aria-describedby="c3e">
+            <span class="rb-dica" id="c3e" style="color:var(--rb-erro);display:flex;gap:6px;align-items:flex-start">
+              <svg class="i i-14" style="margin-top:2px" aria-hidden="true"><use href="#i-alerta"/></svg>
+              Este identificador tem 15 dígitos e o esperado são 16. Confira no Gerenciador de Negócios.</span>
+          </div>
+          <div class="rb-campo">
+            <label class="rb-rot" for="c4">Token permanente</label>
+            <div class="rb-ent">
+              <svg class="i" aria-hidden="true"><use href="#i-chave"/></svg>
+              <input class="rb-in" id="c4" type="password" value="000000000000000000000000">
+              <button class="rb-ent__acao" type="button" aria-label="Mostrar o token">
+                <svg class="i i-20" aria-hidden="true"><use href="#i-olho"/></svg></button>
+            </div>
+            <span class="rb-dica">Guardamos criptografado. Ninguém da equipe consegue ler depois de salvo.</span>
+          </div>
+        </div>
+
+        <div class="cfg__lin">
+          <div class="rb-campo">
+            <label class="rb-rot" for="c5">Fila que recebe por padrão</label>
+            <select class="rb-in" id="c5">
+              <option>Comercial</option><option>Suporte técnico</option>
+              <option>Financeiro</option><option>Pós-venda</option>
+            </select>
+          </div>
+          <div class="rb-campo">
+            <label class="rb-rot" for="c6">Endereço do webhook <span>(gerado por nós)</span></label>
+            <div class="rb-ent">
+              <input class="rb-in" id="c6" type="text" value="https://chat.ragnabot.com.br/webhooks/wa/9f2c" disabled>
+              <button class="rb-ent__acao" type="button" aria-label="Copiar o endereço">
+                <svg class="i i-20" aria-hidden="true"><use href="#i-copiar"/></svg></button>
+            </div>
+            <span class="rb-dica">Cole este endereço no aplicativo da Meta. Não pode ser alterado.</span>
+          </div>
+        </div>
+
+        <hr style="border:none;border-top:1px solid var(--rb-borda);margin:var(--e3) 0">
+
+        <label class="rb-sw rb-sw--on">
+          <span class="rb-sw__t"></span>
+          <span><span class="rb-sw__l">Atribuir automaticamente ao atendente livre</span>
+            <span class="rb-sw__d">Distribui por rodízio entre quem está disponível na fila.</span></span>
+        </label>
+        <label class="rb-sw rb-sw--on">
+          <span class="rb-sw__t"></span>
+          <span><span class="rb-sw__l">Responder fora do horário</span>
+            <span class="rb-sw__d">Envia a mensagem de ausência e mantém a conversa na fila para o dia seguinte.</span></span>
+        </label>
+        <label class="rb-sw">
+          <span class="rb-sw__t"></span>
+          <span><span class="rb-sw__l">Pedir avaliação ao resolver</span>
+            <span class="rb-sw__d">Manda a pesquisa de satisfação assim que a conversa é encerrada.</span></span>
+        </label>
+
+        <div style="display:flex;gap:9px;margin-top:var(--e3);flex-wrap:wrap">
+          <button class="rb-bt rb-bt--pri" type="button"><svg class="i i-16" aria-hidden="true"><use href="#i-visto"/></svg>Salvar e testar</button>
+          <button class="rb-bt" type="button">Salvar como rascunho</button>
+          <button class="rb-bt rb-bt--fant" type="button">Cancelar</button>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Estados de campo</h2>
+      <p class="cfg__ap">Referência para quem for implementar. Cada estado tem o par de cores medido
+         em <code>_prova/medir-contraste.py</code> — nenhum foi escolhido no olho.</p>
+      <div class="rb-card">
+        <div class="rb-grade rb-g3">
+          <div class="rb-campo"><label class="rb-rot" for="e1">Repouso</label>
+            <input class="rb-in" id="e1" placeholder="Digite aqui"></div>
+          <div class="rb-campo"><label class="rb-rot" for="e2">Com conteúdo</label>
+            <input class="rb-in" id="e2" value="Suporte técnico"></div>
+          <div class="rb-campo"><label class="rb-rot" for="e3">Com erro</label>
+            <input class="rb-in" id="e3" value="suporte@" aria-invalid="true">
+            <span class="rb-dica" style="color:var(--rb-erro)">Falta o domínio do e-mail.</span></div>
+          <div class="rb-campo"><label class="rb-rot" for="e4">Desabilitado</label>
+            <input class="rb-in" id="e4" value="Definido pelo plano" disabled></div>
+          <div class="rb-campo"><label class="rb-rot" for="e5">Seleção</label>
+            <select class="rb-in" id="e5"><option>Todos os agentes</option><option>Só o meu time</option></select></div>
+          <div class="rb-campo"><label class="rb-rot" for="e6">Texto longo</label>
+            <textarea class="rb-in" id="e6" placeholder="Mensagem de ausência"></textarea></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="cfg__risco">
+        <div class="rb-card__topo">
+          <div><h3><svg class="i i-16" style="vertical-align:-3px" aria-hidden="true"><use href="#i-alerta"/></svg>
+            Desconectar um canal</h3>
+            <p style="color:var(--rb-text)">A conversa que já existe continua guardada. O que para é a
+              entrada de mensagens novas — e o cliente do outro lado não recebe aviso nenhum.</p></div>
+        </div>
+        <button class="rb-bt rb-bt--perigo" type="button">
+          <svg class="i i-16" aria-hidden="true"><use href="#i-lixo"/></svg>Desconectar este canal</button>
+      </div>
+    </section>
+
+  </div>
+</main>
+</div>
+</body>
+</html>
