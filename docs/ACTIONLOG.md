@@ -359,3 +359,38 @@ Backup: `chat002-ragnatela.bak-429-*`.
    barrar automação depois de dezenas de entradas — comportamento correto dele).
 3. **Fora do alcance do CSS:** ícone e `manifest.json` ainda com o nome de origem, `DEFAULT_LOCALE`,
    os 12 links para o site do fornecedor e **o anúncio com cupom da Amazon dentro de Campanhas**.
+
+## 2026-08-28 — Domínio oficial bot.ragnatela.com.br + entrada integrada (falta só o rebuild)
+
+### 🌐 bot.ragnatela.com.br — SUBDOMÍNIO OFICIAL, no ar
+DNS criado (CNAME → `dc01`, que sobrevive ao failover das CHRs) · certificado próprio emitido ·
+vhost = **cópia fiel** do anterior (tema, verificação, cache, freio, traduções) trocando só nome e
+certificado · **Ingress do k8s** passou a atender os dois nomes · `FRONTEND_URL` atualizado.
+**chat002 continua no ar redirecionando (301)** para não quebrar link ou favorito salvo.
+**Validado:** bot 200 · chat002 → 301 → bot · tema/verificação/carregamento no domínio novo ·
+vizinhança de clientes intacta (SISAC 302, painel 200, chat001 200).
+⚠️ **Ação do dono:** conferir se `bot.ragnatela.com.br` está na lista de domínios do widget Turnstile
+(Cloudflare → Turnstile → o site → Domains). Se não estiver, a verificação falha na tela.
+
+### ⏳ Percepção de lentidão — resolvida
+Tela de carregamento com a **marca e progresso de 0 a 100%** (`/carregando.js`), injetada pelo proxy
+e mostrada antes do pacote pesado. A espera é a mesma; a percepção muda — sem retorno visual,
+"esperar" vira "está lento". Some sozinha quando o painel desenha, com rede de segurança de 12 s.
+
+### 🔗 Entrada integrada (SSO) — CONSTRUÍDA, falta só o rebuild
+- **Platform App criado** no Ragnabot; token guardado em **Settings do NOC (cifrado)** — nunca no git.
+- `src/services/ragnabot-sso.service.js` — acha/cria o usuário e gera o endereço de entrada direta.
+- `src/routes/ragnabot-sso.routes.js` — `GET /status` e `POST /entrar`, **com trava de super user**
+  dentro do router (defesa em profundidade) e **auditoria** de cada entrada.
+- `frontend/src/pages/Atendimento.jsx` — a tela, com estado de indisponibilidade e o caminho manual.
+- `frontend/src/lib/api.js` · `App.jsx` (import lazy + rota) · `lib/access.js` (`/atendimento` =
+  **SUPERUSER**) · `Layout.jsx` (**botão no menu, só para super user**).
+- ⚠️ Detalhe que evita defeito clássico: a janela é aberta **antes** da chamada e só depois recebe o
+  endereço — abrir no retorno da promessa faria o navegador bloquear como janela automática, e o
+  usuário veria "nada acontece" ao clicar.
+- **Build validado em diretório separado** (`Atendimento-Cq_DlMbi.js` gerado, compila limpo);
+  **o `dist` de produção NÃO foi tocado**.
+
+### 🚧 PENDENTE: rebuild + reinício do NOC
+Só falta `npm run build` + `pm2 restart noc-agent` — **e isso exige zero sessão RDP/console ativa**
+(regra da casa). Até lá, o menu "Atendimento" não aparece para o dono.
