@@ -19,12 +19,13 @@ stringData:
   POSTGRES_PASSWORD: "<SENHA DO USUARIO chatwoot NO POSTGRES>"
   REDIS_URL: "redis://:<SENHA-REDIS>@172.17.20.132:6379"
   REDIS_PASSWORD: "<SENHA-REDIS>"
+  SMTP_PASSWORD: "<SENHA DA CONTA alerta@ragnatela.com.br>"
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata: { name: ragnabot-config, namespace: ragnabot }
 data:
-  FRONTEND_URL: "https://chat002.ragnatela.com.br"
+  FRONTEND_URL: "https://bot.ragnatela.com.br"   # dominio OFICIAL. Monta os links DENTRO dos e-mails (convite, senha)
   INSTALLATION_ENV: "kubernetes-ragnatela"
   RAILS_ENV: "production"
   NODE_ENV: "production"
@@ -38,6 +39,19 @@ data:
   ENABLE_ACCOUNT_SIGNUP: "false"   # fechado apos criar a conta 1 (SaaS: tenants criados pelo NOC)
   ACTIVE_STORAGE_SERVICE: "local"
   TRUSTED_PROXIES: "10.244.0.0/16,172.17.20.0/24,172.20.11.2"
+  # ── E-MAIL (ligado em 28/08/2026) ────────────────────────────────────────────
+  # Sem estas chaves NENHUM e-mail sai: nem convite de usuario, nem o canal de
+  # suporte por e-mail. A senha vive no Secret (SMTP_PASSWORD), nunca aqui.
+  SMTP_ADDRESS: "smtp.skymail.net.br"
+  SMTP_PORT: "465"
+  SMTP_SSL: "true"                    # 465 = TLS implicito
+  SMTP_ENABLE_STARTTLS_AUTO: "false"  # nao negociar STARTTLS numa porta que ja e TLS
+  SMTP_AUTHENTICATION: "login"
+  SMTP_DOMAIN: "ragnatela.com.br"
+  SMTP_USERNAME: "alerta@ragnatela.com.br"
+  SMTP_OPENSSL_VERIFY_MODE: "peer"
+  MAILER_SENDER_EMAIL: "Ragnabot <noreply@ragnatela.com.br>"
+  MAILER_INBOUND_EMAIL_DOMAIN: "ragnatela.com.br"
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -129,6 +143,14 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
+  # bot.ragnatela.com.br e o dominio OFICIAL; chat002 fica servido como legado
+  # ate a migracao terminar (link antigo em uso nao pode quebrar de um dia p/ o outro).
+  - host: bot.ragnatela.com.br
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend: { service: { name: ragnabot-web, port: { number: 3000 } } }
   - host: chat002.ragnatela.com.br
     http:
       paths:
