@@ -31,16 +31,21 @@
 > Vantagem: sobrevive a upgrade do Chatwoot e reverte em segundos. O token GHCR fica guardado
 > para quando quisermos ir além do que CSS alcança (ex.: reordenar componentes).
 
-## ETAPA 2 — Produção/segurança (P0 do blueprint)
+## ETAPA 2 — Produção/segurança (⏸️ ADIADA — decisão do dono 27/08)
+> **"deixe essa questão de banco como pendência para depois do projeto piloto pronto,
+> isso não é preocupação para agora"** — backup WORM, PITR e afins voltam à mesa DEPOIS do piloto.
+> Já feito nesta etapa: agente Zabbix instalado nas VMs 10603/10604 com verificações de
+> replicação (ping, in_recovery, standbys, lag, slots inativos, tamanho, Redis) — todas provadas
+> lendo valor real. Falta apenas registrar os hosts no servidor Zabbix (adiado junto).
 | # | item | estado |
 |---|---|---|
-| 2.1 | **Backup WORM (S3 Object Lock) dos bancos** — hoje RPO = ∞ para erro lógico | ⬜ CRÍTICO |
-| 2.2 | WAL archiving / PITR | ⬜ CRÍTICO |
-| 2.3 | **Zabbix nas VMs 10603/10604** (replicação, lag, disco) — hoje quebra é invisível | ⬜ CRÍTICO |
+| 2.1 | Backup WORM (S3 Object Lock) dos bancos | ⏸️ pós-piloto |
+| 2.2 | WAL archiving / PITR | ⏸️ pós-piloto |
+| 2.3 | Zabbix nas VMs de banco: **agente + verificações ✅**; registrar hosts no servidor | 🔧 parcial |
 | 2.4 | **Pin da imagem por digest** (hoje `:latest` = upgrade silencioso possível) | ⬜ ALTA |
 | 2.5 | Anexos para S3 (hoje PVC local: perda do nó = perda de mídia; anula HA) | ⬜ ALTA |
 | 2.6 | Fechar NodePort :30080/:30443 (hoje alcançável além do proxy) | ⬜ ALTA |
-| 2.7 | Ensaio de promoção do standby (failover PG) | ⬜ |
+| 2.7 | Ensaio de promoção do standby (failover PG) | ⏸️ pós-piloto |
 | 2.8 | Fase C do k8s: derrubar um nó com a plataforma no ar | ⬜ |
 | 2.9 | Trilha de auditoria por ação de atendente | ⬜ |
 | 2.10 | Runbook + capítulo chat002 no DR | ⬜ |
@@ -82,6 +87,36 @@
 | 6.3 | Alertas da plataforma no fluxo WhatsApp do NOC | ⬜ |
 | 6.4 | **Cluster "ragnabot"** no grupo Ragnatela do NOC | ⬜ |
 
+
+## ETAPA 8 — CLUSTER "RAGNABOT" NO NOC (ordem do dono 27/08 noite) 🔴 PRIORIDADE
+> "no ragnatela vai criar o primeiro cluster com o subgrupo chamado RAGNABOT, aí vai colocar todos
+> os servidores, questão de banco, espaço, quem é primário, a parte de atualização; pegue a
+> documentação que você tem para construir isso" — base: blueprint genérico do cluster SISAC.
+| # | item | estado |
+|---|---|---|
+| 8.1 | Criar subgrupo **RAGNABOT** dentro do grupo Ragnatela no NOC | ⬜ |
+| 8.2 | Cadastrar servidores: rgtk8s001/002/003 (nós k8s) + RGTPSTGSQL001/002 (bancos) | ⬜ |
+| 8.3 | Painel de banco: primário x standby, lag, espaço em disco | ⬜ |
+| 8.4 | Parte de atualização (versão/pin da imagem, janela) | ⬜ |
+| 8.5 | Baseado em `/ia/.claude/db-cluster-noc-blueprint.md` (espelho genérico) | ⬜ |
+
+## ETAPA 9 — FRONTEND PADRÃO OURO (ordem do dono) 🔴 PRIORIDADE MÁXIMA
+> "a entrada do ragnabot tem que ser padrão ouro conforme a entrada do painel ragnatela e da
+> ia.ragnatela; peça ao agente gerar imagens impactantes para fazer não só a tela de login mas
+> também toda estrutura de menus internas e de configurações, bem elegantes, funcionais, intuitivas"
+| # | item | estado |
+|---|---|---|
+| 9.1 | Login padrão ouro (referência: painel.ragnatela + ia.ragnatela) com imagem impactante | 🔧 agente |
+| 9.2 | **Menus internos** elegantes/intuitivos | ⬜ |
+| 9.3 | **Telas de configuração** elegantes | ⬜ |
+| 9.4 | Dashboard admin com indicadores (padrão painel-NOC) | ⬜ |
+| 9.5 | Tela de conversas (caixa omnichannel) | ⬜ |
+| 9.6 | Imagens geradas (impactantes, reais — não rústicas) | ⬜ |
+| 9.7 | Validação responsiva em navegador real | ⬜ |
+
+> 🎯 **META DO DONO: amanhã de manhã (28/08) o sistema tem que impactar** — restando apenas a
+> validação do número pela API oficial do WhatsApp (que depende dele).
+
 ## ETAPA 7 — Documentação
 | # | item | estado |
 |---|---|---|
@@ -98,8 +133,12 @@
 2. **Efibank**: credenciais/conta para a integração de cobrança (item 5.3).
 3. **Janela de deploy do NOC** (sem sessão RDP/console) para o item 6.1.
 
-## 🎯 Próximos passos meus (nesta ordem)
-1. Etapa 2.1–2.4 (backup WORM, Zabbix, pin) — protege o que já existe
-2. Etapa 3.1–3.3 (SMTP, criação de usuário com 2FA, export superadmin)
-3. Etapa 1.7–1.9 (PT-BR nos metas, ícones, dashboards)
-4. Etapa 6.4 (cluster ragnabot no NOC) e Etapa 7.3–7.4 (documentação e manual)
+## 🎯 Próximos passos meus (ordem ATUALIZADA — foco no PILOTO)
+1. **Frontend completo** (Etapa 1.9/1.10) — agente construindo login duas-colunas, dashboard
+   com indicadores e tela de conversas. É a prioridade nº 1 do dono.
+2. **Etapa 3** funcional: SMTP do NOC → criação de usuário com 2FA (QR + e-mail) →
+   export dos superadmins → inbox webchat → teste de isolamento multi-tenant.
+3. **Etapa 1.7–1.8**: metas em PT-BR, ícones PNG da marca.
+4. **Etapa 6.4** (cluster ragnabot no NOC) + **Etapa 7.3–7.4** (MD da estrutura e manual por menu).
+5. **Etapa 5** SaaS (planos, Efibank) — quando o piloto estiver de pé.
+6. ⏸️ Etapa 2 (banco/backup/DR) — **retomar depois do piloto**, por decisão do dono.

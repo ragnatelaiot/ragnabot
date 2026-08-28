@@ -71,3 +71,16 @@ absoluto — validar na Fase 3/7 que um agente só vê o que lhe cabe, inclusive
   Cor primaria + login "noite de vidro" exatos = imagem custom no GHCR (aguarda token write:packages do dono).
 - **Lentidao (corrigida):** puma 2 workers/5 threads + 2 replicas web; cache imutavel no navegador para
   assets Vite; proxy_cache+gzip no proxy (MISS 7s uma vez -> HIT 0,008s). Login repetido agora instantaneo.
+
+## 2026-08-27 (noite, cont.) — tema v1 no ar, reprovado; frontend v2 com o agente
+- **Tema v1 aplicado e NO AR** (CSS injetado pelo proxy via sub_filter, fora da imagem):
+  azul #2781f6 do Chatwoot → verde Ragnatela em todas as classes `.{bg,text,border,ring,outline}-n-brand`;
+  login com gradiente/teia/aurora/cartão de vidro por `body:has(input[type=password])`; favicon e
+  theme-color trocados. Reversível removendo o sub_filter do vhost.
+- ❌ **Dono REPROVOU** o resultado ("péssima, totalmente amadora"): ficou formulário centralizado
+  genérico. Referência dele = a tela de login do **painel do cliente** (duas colunas, imagem real de
+  datacenter, copy comercial, cartão de vidro com campos ícone-dentro). Frontend COMPLETO delegado ao
+  agente site-ragnatela (login + dashboard de indicadores + tela de conversas + tema.css + guia).
+- ⏸️ **Decisão do dono:** questões de **banco/backup/DR ficam para depois do piloto**. Nesta etapa
+  ficou feito o agente Zabbix nas VMs 10603/10604 + UserParameters de replicação (todos provados
+  lendo valor real: standbys=1, lag=0, slots_inativos=0, redis=1). Registrar hosts no servidor: adiado.
