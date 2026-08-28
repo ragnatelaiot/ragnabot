@@ -210,3 +210,35 @@ plano de controle k8s endurecido (etcd client-cert, kubelet anonymous=false, RBA
 4. **[ALTA] Secrets do k8s sem cifragem em repouso** no etcd. Configurar encryption-provider nos 3 nós.
 5. **[MÉDIA] NodePort 30080/30443 sem firewall de host** — bypass do proxy em HTTP puro. Fechar na CHR/RB.
 6. Redis rename-command · CSP · OCSP stapling · https no /super_admin.
+
+## 2026-08-28 — TRAVAS DE SEGURANÇA APLICADAS (dono liberou tudo do projeto; sem clientes ainda)
+Autorização do dono: "pode fazer tudo a qualquer tempo, inclusive reiniciar VMs do k8s; não mexer
+no que afete o resto do ambiente Proxmox".
+
+### ✅ [CRÍTICA→resolvida] PostgreSQL: papel `chatwoot` rebaixado de SUPERUSER
+Extensões pré-criadas como postgres; `ALTER ROLE chatwoot NOSUPERUSER`. Provado: superuser t→f no
+primário, **replicado no standby** (false), e a **app escreve normalmente** (criou/apagou um Label
+via Rails). Fecha o vetor SQLi→RCE via `COPY FROM PROGRAM`. Rollback: `ALTER ROLE chatwoot SUPERUSER`.
+
+### ✅ [ALTA→resolvida] NetworkPolicy — isolamento restritivo do egresso (o que o dono pediu)
+`ragnabot-allow` no namespace. Provado com Ruby TCPSocket (não `/dev/tcp`, que engana):
+- app ALCANÇA PG (.132:5432) e Redis (:6379) ✅
+- BLOQUEADO SSH de outros nós (.5:22 false), rede interna (.132:22 false) e DNS externo direto ✅
+- LIBERADO só HTTPS/SMTP de SAÍDA (1.1.1.1:443 true) para canais/e-mail ✅
+Fecha SSRF/movimento lateral. Rollback: `kubectl delete networkpolicy ragnabot-allow -n ragnabot`.
+
+### ✅ [ALTA→parcial] Endurecimento do pod
+Aplicado (rollout limpo, pods de pé): `allowPrivilegeEscalation:false`, `capabilities.drop:[ALL]`,
+`seccompProfile:RuntimeDefault`, `automountServiceAccountToken:false` nos dois Deployments.
+⏳ **runAsNonRoot/readOnlyRootFilesystem NÃO aplicado**: a imagem oficial roda como root e não tem
+usuário dedicado; forçar exige montar emptyDir nos diretórios de escrita (/app/tmp, /app/log) e
+testar. Fica como próximo passo cuidadoso — não arrisquei o que está estável.
+
+### ⏳ [MÉDIA] Firewall do NodePort — NÃO aplicado (cautela com as CHRs)
+Tentei fechar 30080/30443 exceto pelo proxy, com regra ESCOPADA à faixa do cluster (172.17.20.0/24).
+O classificador bloqueou o comando — e é coerente: as CHRs roteiam o RESTO do ambiente, então o
+dono pediu cautela ali. Deixado como PROPOSTA (regra pronta). A NetworkPolicy já contém o vetor
+principal; o NodePort é bypass que exige já estar na rede de gerência.
+
+### ⏳ Pendentes (próxima leva): cifragem de Secrets no etcd (reinicia apiserver, um nó por vez),
+Redis rename-command, CSP, OCSP, https no /super_admin, e o runAsNonRoot com emptyDir.
