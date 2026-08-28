@@ -301,3 +301,43 @@ verificação → 401**. Backup: `chat002-ragnatela.bak-fixlogin2-*`.
 ⚠️ Também mordeu: `proxy_set_header Content-Length ""` perdeu as aspas ao passar por camadas de
 shell/base64 e derrubou o `nginx -t`. **Editar vhost com script Python no destino**, não com
 `sed`/heredoc atravessando SSH.
+
+## 2026-08-28 — Revisão crítica de frontend: tema v3 no ar (achado grave corrigido)
+
+### 🔴 O DEFEITO DE FUNDO — o tema só funcionava em modo escuro
+O tema v2 redefinia ~20 variáveis de cor; **o Chatwoot tem 137**. As outras 117 ficavam no valor
+claro, e as 165 utilidades `dark:` dependem de uma classe que o **Vue controla e apaga no boot**
+(o agente testou injetá-la — não adianta). Para quem usa o computador em **modo claro**, o produto
+ficava com **título branco sobre cartão branco**.
+**Medido:** 32 pares de texto abaixo do piso de contraste só no painel · 34 nas configurações ·
+21 nos relatórios. **Depois da correção (137 variáveis em `:root`): 32→0 · 34→0 · 21→0 · 28→0 · 31→0.**
+Validado no ar: `prefers-color-scheme` = **0 ocorrências** (não depende mais do modo do sistema).
+
+### ✅ Os três defeitos que o dono apontou
+1. **Olho da senha:** o cartão ia de `rgb(8,37,50)` para branco num clique. Âncora trocada para
+   `form input[name="email_address"]`, que **não muda em execução**. (Descoberta: o botão está
+   `disabled` no produto como paliativo — com o tema novo pode voltar a funcionar.)
+2. **Nome de origem:** 16 pontos mapeados. Além do que já corrigi, **faltam**: ícone azul do
+   fornecedor na tela inicial do celular, `manifest.json` com o nome dele, título da aba,
+   **12 links para o site do fornecedor** e — grave — **um anúncio com cupom da Amazon do
+   fornecedor dentro de Campanhas**.
+3. **Inglês:** 25 frases + o erro de credencial. E o pior: **o freio de força bruta falha em
+   silêncio** — devolve texto puro e a tela não mostra nada.
+
+### 📱 Mobile — 48 combinações (360/390/414/768/1024/1440): **zero rolagem horizontal**
+Corrigidos: alvo de toque de 44 px (o produto não tinha — o botão do olho era 26×92), folga do botão
+flutuante (32→96 px), barra de rolagem e tela deitada.
+⚠️ **Achado grave na entrada:** o desafio "não sou robô" **esmagava o campo de senha para 54 px**
+(três caracteres) e gerava 30 px de rolagem a 360 px. Corrigido: **54 → 288 px**, rolagem → **0**.
+
+### 🟡 Autocrítica do agente (registrada por ser exemplar)
+Ele **criou uma regressão crítica** no meio do trabalho: um seletor largo demais deu `height:100%` a
+um contêiner de avisos vazio, que passou a **engolir todo clique** a 360/390/768 — ninguém entraria
+pelo celular. Só apareceu porque um clique falhou; nenhuma medição de contraste ou transbordo pegaria.
+E uma tentativa com `color-mix()` devolveu **preto puro** nos avatares — medido antes de publicar.
+
+### ⏳ O que ele NÃO conseguiu verificar (e por quê)
+A caixa de entrada **com conversa real** (a conta tem zero conversas), alvo de toque nas telas
+internas e o título da aba. Motivo comum: depois de dezenas de entradas, **o próprio captcha que
+instalamos passou a barrar a automação** — comportamento correto dele. Tentou 18 vezes.
+**Fica como pendência para quando houver conversa real no sistema.**

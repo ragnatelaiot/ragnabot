@@ -1,37 +1,53 @@
 /* ═══════════════════════════════════════════════════════════════════════════════
    TEMA RAGNABOT — camada de identidade sobre o Chatwoot 4.17.1
-   Ragnatela IoT Solutions · 28/08/2026 · agente site-ragnatela
-   Estado: PARA REVISÃO DO NOC. Substitui o /tema-ragnabot.css hoje no ar.
+   Ragnatela IoT Solutions · agente site-ragnatela
+   Gerado por _prova/gerar-tema.py — NÃO EDITE ESTE ARQUIVO, edite o gerador.
+   Revisão crítica de 28/08/2026: seis defeitos medidos no produto NO AR, corrigidos.
 
-   COMO ENTRA: injetado pelo proxy reverso (nginx sub_filter). Não exige rebuild
-   da imagem, sobrevive a upgrade do Chatwoot e é reversível em segundos. Por isso
-   é AUTOCONTIDO: as imagens vão como data URI, e não há nenhuma requisição externa.
+   COMO ENTRA: injetado pelo proxy reverso (nginx sub_filter, logo antes de
+   </head>). Não exige rebuild da imagem, sobrevive a upgrade do Chatwoot e e
+   reversível em segundos. Por isso é AUTOCONTIDO: as imagens vão como data URI,
+   e não há nenhuma requisição externa.
 
    ─────────────────────────────────────────────────────────────────────────────
-   O QUE MUDA EM RELAÇÃO À VERSÃO ANTERIOR — e cada item é um defeito medido, não
-   uma preferência:
+   O QUE MUDOU NESTA REVISÃO — cada item é um defeito MEDIDO no produto no ar,
+   não uma preferência:
 
-   1. A PALETA ERA OUTRA. A versão no ar usa #055508 / #2CC54E / #04150B. A paleta
-      aprovada do produto é a do site e da Área do Cliente: fundo #03151f, ação
-      #2ee879 (96-IDENTIDADE-PAINEL-CLIENTE §2). Lado a lado, liam-se como duas
-      empresas — que é exatamente o defeito que a especificação existe para evitar.
+   1. O PRODUTO SÓ FICAVA ESCURO PARA QUEM USA O SISTEMA EM MODO ESCURO.
+      As utilidades `dark:` do Chatwoot são 165 e TODAS dependem da classe
+      `.dark` no <html> — que o Vue coloca ou remove conforme a preferência do
+      usuário (medido: injetar a classe antes do arranque NÃO adianta, o Vue a
+      remove). Quem entrava com o sistema no claro recebia um híbrido: as
+      superfícies escuras da nossa escala com o TEXTO CLARO do Chatwoot por cima.
+      Medição: 32 pares de texto abaixo do piso de contraste no painel, 34 nas
+      configurações, 20 nos contatos. Título quase branco sobre cartão branco.
+      CAUSA: o tema redefinia ~20 variáveis; o Chatwoot tem 137. As outras 117
+      continuavam com o valor claro. CORREÇÃO: a escala completa, na seção 2.
 
-   2. CARTÃO DE VIDRO. A tela de entrada usava fundo translúcido com backdrop-filter.
-      É proibido onde há texto (96 §3.2 e §7.2): o contraste final passa a depender
-      do que estiver atrás, e ninguém consegue afirmar o resultado lendo a regra.
-      Aqui o cartão é COR SÓLIDA.
+   2. O TEMA DA ENTRADA SUMIA AO CLICAR NO OLHO DE "EXIBIR SENHA".
+      O seletor era `body:has(input[type="password"])`. Ao revelar a senha o Vue
+      troca o campo para `type="text"` e a regra inteira deixa de casar.
+      Medido: o cartão ia de rgb(8,37,50) para rgb(255,255,255) num clique.
+      CORREÇÃO: a âncora passa a ser o NOME do campo, que não muda em tempo de
+      execução — `form input[name="email_address"]`.
 
-   3. AURORA ANIMADA E MALHA DE HEXÁGONOS. Decoração que o site não tem, animada
-      para sempre, inclusive em celular fraco, numa tela onde a pessoa fica oito
-      segundos (96 §7.1). Saiu. No lugar entra o mesmo chão fotográfico do painel.
+   3. O MESMO SELETOR VAZAVA PARA DENTRO DO APLICATIVO.
+      "Configurações do Perfil" tem 4 campos de senha: o <body> virava grade de
+      duas colunas com a foto da tela de entrada por trás do painel, em TODAS as
+      larguras. A âncora nova não casa lá (medido em 7 rotas).
 
-   4. ERA UM FORMULÁRIO CENTRALIZADO. Agora é o leiaute de DUAS COLUNAS da casa:
-      foto real à esquerda com véu medido, cartão à direita.
+   4. A TELA DE REDEFINIR SENHA NUNCA FOI VESTIDA.
+      Ela não tem <main> e o cartão é o próprio <form> — a regra antiga não
+      alcançava. Ficava um cartão branco. Agora as duas formas são cobertas.
 
-   5. BRIGAVA CLASSE A CLASSE COM !important. Descobrimos que o Chatwoot monta as
-      superfícies por VARIÁVEIS CSS em canais RGB (--slate-1..12, --solid-*,
-      --alpha-*). Redefinindo a escala, o aplicativo INTEIRO se reveste — inclusive
-      telas que nunca abrimos. É por isso que este arquivo é mais curto e cobre mais.
+   5. NÃO HAVIA ALVO DE TOQUE MÍNIMO NO PRODUTO.
+      A regra de 44 px existia só nas maquetes. Em `pointer:coarse` ela agora
+      vale no aplicativo.
+
+   6. `prefers-reduced-motion` ACELERAVA A ANIMAÇÃO EM VEZ DE PARÁ-LA .
+      Zerar só a duração deixa a animação infinita (o girador de carregamento)
+      repetindo a cada 0,001 ms — pisca-pisca justamente para quem pediu menos
+      movimento. Falta a contagem de repetições.
    ═══════════════════════════════════════════════════════════════════════════════ */
 
 /* ── 1. TOKENS ─────────────────────────────────────────────────────────────── */
@@ -42,7 +58,7 @@
   --rb-green:#2ee879; --rb-green-hover:#26d46c; --rb-cyan:#37dff7; --rb-on-green:#03151f;
   --rb-erro:#ff8a8a; --rb-aviso:#ffc46b; --rb-ok:#7cf0a8;
   --rb-borda:rgba(111,231,255,.26); --rb-borda-campo:rgba(111,231,255,.46);
-  --rb-r-card:12px; --rb-r-campo:8px; --rb-r-botao:6px;
+  --rb-r-card:12px; --rb-r-campo:8px; --rb-r-botão:6px;
 
   /* As imagens vão como data URI porque este arquivo é injetado pelo proxy e não
      pode depender de nenhuma outra requisição. Declaradas como token e não coladas
@@ -54,46 +70,90 @@
 }
 
 /* ── 2. A ESCALA DO APLICATIVO ─────────────────────────────────────────────────
-   Esta é a parte que faz o trabalho pesado. O Chatwoot pinta tudo com
-   `rgb(var(--slate-N) / opacidade)`, no padrão Radix de 12 degraus. Trocando os
-   doze, o produto inteiro passa a falar a nossa língua sem uma linha de !important.
+   Esta e a parte que faz o trabalho pesado. O Chatwoot pinta tudo com
+   `rgb(var(--token) / opacidade)`. Trocando os tokens, o produto inteiro passa a
+   falar a nossa lingua sem uma linha de !important.
 
-   Os degraus NÃO são um degradê qualquer: cada faixa tem função, e os valores
-   saem dos tokens já aprovados. Contrastes medidos em _prova/medir-contraste.py.
-     1–2   fundo da aplicação            5–8   bordas
-     3–5   superfícies (cartão, campo)   9–10  ícone e texto de apoio
-                                         11–12 texto de leitura e título
+   ⚠️ AS 137, NÃO AS 20. Foi o defeito nº 1 desta revisão: o Chatwoot declara 137
+   variáveis em `:root` e as mesmas 137 em `.dark`. Redefinir só a família
+   `--slate-*` deixava as outras 117 no valor CLARO — e o produto só parecia certo
+   para quem usa o sistema operacional em modo escuro. Declarar TODAS em `:root`
+   torna o tema independente da classe `.dark`, que o Vue controla e nós não.
 
-   ⚠️ Declarado em `:root` E em `.dark` de propósito. O nosso produto é escuro, como
-   o NOC (97 §1.1) — e tema claro não se faz invertendo o fundo para ver o que
-   quebra: nasce como par completo (fundo E texto de cada componente) ou não nasce. */
+   Contrastes medidos em _prova/medir-contraste.py; a lista de tokens saiu do
+   produto no ar em _prova/medir-tokens.mjs, não de suposicao. */
 :root, .dark, html.dark{
-  --slate-1:  3 21 31;      /* #03151f — fundo         · título 17,80:1 */
-  --slate-2:  6 30 41;      /* #061e29 — navegação     · título 16,42:1 */
-  --slate-3:  8 37 50;      /* #082532 — cartão        · título 15,23:1 */
-  --slate-4: 13 47 63;      /* #0d2f3f — campo         · título 13,46:1 */
-  --slate-5: 18 57 75;      /* #12394b — elevado */
-  --slate-6: 24 68 88;      /* borda sutil */
-  --slate-7: 32 84 106;     /* borda */
-  --slate-8: 45 105 128;    /* borda forte (contorno de controle) */
-  --slate-9: 106 133 145;   /* ícone apagado */
-  --slate-10:143 170 180;   /* #8faab4 — apoio         · 6,49:1 no cartão */
-  --slate-11:186 208 217;   /* #bad0d9 — corpo         · 9,93:1 no cartão */
-  --slate-12:245 251 255;   /* #f5fbff — título        · 15,23:1 no cartão */
+  /* neutro da casa — fundo, superficie, borda, texto */
+  --slate-1:3 21 31; --slate-2:6 30 41; --slate-3:8 37 50; --slate-4:13 47 63; --slate-5:18 57 75;
+  --slate-6:24 68 88; --slate-7:32 84 106; --slate-8:45 105 128; --slate-9:106 133 145;
+  --slate-10:143 170 180; --slate-11:186 208 217; --slate-12:245 251 255;
+  /* segunda rampa neutra do Chatwoot, alinhada à mesma família */
+  --gray-1:3 21 31; --gray-2:6 30 41; --gray-3:8 37 50; --gray-4:13 47 63; --gray-5:18 57 75;
+  --gray-6:24 68 88; --gray-7:32 84 106; --gray-8:45 105 128; --gray-9:106 133 145;
+  --gray-10:128 155 165; --gray-11:166 190 200; --gray-12:245 251 255;
+  /* superfícies semânticas */
+  --background-color:3 21 31; --card-color:8 37 50; --surface-1:6 30 41; --surface-2:8 37 50;
+  --surface-active:18 57 75; --solid-1:6 30 41; --solid-2:8 37 50; --solid-3:13 47 63;
+  --solid-active:18 57 75; --solid-blue-2:8 37 50; --button-color:13 47 63;
+  --label-background:13 47 63;
+  /* bordas — fraca agrupa, forte identifica um controle (WCAG 1.4.11) */
+  --border-weak:24 68 88; --border-strong:45 105 128;
+  /* ação e estado — o verde, o âmbar e o vermelho da casa */
+  --teal-9:46 232 121; --teal-10:38 212 108; --teal-11:124 240 168; --teal-12:200 250 220;
+  --amber-9:255 176 32; --amber-11:255 196 107; --ruby-9:255 92 92; --ruby-11:255 138 138;
+  /* camadas translucidas e o veu do modal */
+  --alpha-1:8, 37, 50, .82; --alpha-2:111, 231, 255, .10; --alpha-3:3, 21, 31, .95;
+  --overlay:1, 10, 16, .66;
+  /* o widget de chamada, na nossa superficie */
+  --call-widget:8, 37, 50, .96; --call-widget-border:111, 231, 255, .12;
+  --call-widget-text:245, 251, 255, 1; --call-widget-sub-text:143, 170, 180, 1;
 
-  --solid-1: 8 37 50;  --solid-2: 13 47 63;  --solid-3: 18 57 75;
-  --alpha-1: 8, 37, 50, .82;
-  --alpha-2: 111, 231, 255, .10;
-  --alpha-3: 3, 21, 31, .95;
-
-  /* “resolvido / sucesso” do Chatwoot passa a ser o NOSSO verde */
-  --teal-9:  46 232 121;  --teal-10: 38 212 108;  --teal-11: 124 240 168;
-  /* atenção e erro: a mesma família dos avisos do painel */
-  --amber-9: 255 176 32;  --amber-11: 255 196 107;
-  --ruby-9:  255 92 92;   --ruby-11: 255 138 138;
+  /* ── daqui para baixo: valor ESCURO do próprio Chatwoot, adotado sem alteração.
+     Onde a identidade não manda, copiar o fabricante é o caminho de menor risco:
+     a rampa já é internamente coerente e a nossa intervenção fica limitada ao
+     que de fato carrega marca. ─────────────────────────────────────────────── */
+  /* ambar */
+  --amber-1:22 18 12; --amber-2:29 24 15; --amber-3:48 32 8; --amber-4:63 39 0; --amber-5:77 48 0;
+  --amber-6:92 61 5; --amber-7:113 79 25; --amber-8:143 100 36; --amber-10:255 214 10;
+  --amber-12:255 231 179;
+  /* azul (estado informativo) */
+  --blue-1:10 17 28; --blue-2:15 24 38; --blue-3:15 39 72; --blue-4:10 49 99; --blue-5:18 61 117;
+  --blue-6:29 84 134; --blue-7:40 89 156; --blue-8:48 106 186; --blue-9:39 129 246;
+  --blue-10:21 116 231; --blue-11:126 182 255; --blue-12:205 227 255;
+  /* iris */
+  --iris-1:19 19 30; --iris-2:23 22 37; --iris-3:32 34 72; --iris-4:38 42 101; --iris-5:48 51 116;
+  --iris-6:61 62 130; --iris-7:74 74 149; --iris-8:89 88 177; --iris-9:91 91 214;
+  --iris-10:84 114 228; --iris-11:158 177 255; --iris-12:224 223 254;
+  /* rubi */
+  --ruby-1:25 17 19; --ruby-2:30 21 23; --ruby-3:58 20 30; --ruby-4:78 19 37; --ruby-5:94 26 46;
+  --ruby-6:111 37 57; --ruby-7:136 52 71; --ruby-8:179 68 90; --ruby-10:236 90 114;
+  --ruby-12:254 210 225;
+  /* verde-agua */
+  --teal-1:13 21 20; --teal-2:17 28 27; --teal-3:13 45 42; --teal-4:2 59 55; --teal-5:8 72 67;
+  --teal-6:20 87 80; --teal-7:28 105 97; --teal-8:32 126 115;
+  /* violeta */
+  --violet-1:20 17 31; --violet-2:27 21 37; --violet-3:41 31 67; --violet-4:50 37 85;
+  --violet-5:60 46 105; --violet-6:71 56 135; --violet-7:86 70 151; --violet-8:110 86 171;
+  --violet-9:110 86 207; --violet-10:125 109 217; --violet-11:169 153 236;
+  --violet-12:226 221 254;
+  /* preenchimentos solidos */
+  --solid-red:90 33 34; --solid-blue:15 57 102; --solid-iris:38 42 101; --solid-amber:56 50 41;
+  --solid-purple:51 51 107; --solid-amber-button:255 221 141;
+  /* texto sobre estado */
+  --text-blue:213 234 255; --text-amber:255 247 234; --text-purple:232 233 254;
+  /* bordas de estado */
+  --border-blue:39, 129, 246, .5; --border-container:255, 255, 255, 0;
+  --border-blue-strong:201 226 255;
+  /* restantes */
+  --background-input-box:255, 255, 255, .02; --black-alpha-1:0, 0, 0, .3;
+  --black-alpha-2:0, 0, 0, .2; --white-alpha:255, 255, 255, .1; --button-hover-color:0, 0, 0, .15;
+  --label-border:255, 255, 255, .03; --overlay-avatar:0, 0, 0, .05;
 }
 html{color-scheme:dark;}
 body{background-color:var(--rb-bg);}
+/* caixa de marcar, radio, barra de intervalo e barra de progresso NATIVAS: sem
+   isto o navegador as desenha no azul do sistema, ao lado do nosso verde. */
+:root{accent-color:var(--rb-green);}
 
 /* ── 3. A MARCA ────────────────────────────────────────────────────────────────
    `.bg-n-brand` e família são a ÚNICA cor que o Chatwoot deixou fixa no código
@@ -105,14 +165,18 @@ body{background-color:var(--rb-bg);}
 .hover\:enabled\:bg-n-brand:hover:enabled,.focus-visible\:bg-n-brand:focus-visible,
 .dark\:bg-n-brand:is(.dark *){
   background-color:var(--rb-green)!important;
-  /* ⚠️ A COR DO TEXTO VEM JUNTO, e isto não é zelo: o Chatwoot põe texto BRANCO
-     sobre o azul dele. Branco sobre o nosso verde dá 1,62:1 — reprovaria com
+  /* ⚠️ A COR DO TEXTO VEM JUNTO, e isto não e zelo: o Chatwoot põe texto BRANCO
+     sobre o azul dele. Branco sobre o nosso verde da 1,62:1 — reprovaria com
      folga. Trocar só o fundo produziria um botão ilegível em todo o produto.
      Texto escuro sobre este verde: 11,44:1. */
   color:var(--rb-on-green)!important;
 }
-.bg-n-brand *,.hover\:bg-n-brand:hover *{color:inherit!important;}
-.bg-n-brand svg,.hover\:bg-n-brand:hover svg{color:var(--rb-on-green)!important;}
+/* ⚠️ FILHOS DIRETOS, não `*`. A versão anterior usava `.bg-n-brand *` e forcava a
+   cor em TODA a descendencia — um distintivo ou um cartão aninhado dentro de uma
+   área de marca perdia a própria cor sem que nada denunciasse. O rótulo e o ícone
+   de um botão são filhos diretos; e é até aí que a regra precisa ir. */
+.bg-n-brand > *,.hover\:bg-n-brand:hover > *{color:var(--rb-on-green)!important;}
+.bg-n-brand > * > svg,.bg-n-brand > svg{color:var(--rb-on-green)!important;}
 .hover\:bg-n-brand:hover,.hover\:enabled\:bg-n-brand:hover:enabled{background-color:var(--rb-green-hover)!important;}
 .bg-n-brand\/5 {background-color:rgba(46,232,121,.05)!important;}
 .bg-n-brand\/10{background-color:rgba(46,232,121,.10)!important;}
@@ -134,16 +198,59 @@ body{background-color:var(--rb-bg);}
 .outline-n-brand,.focus\:outline-n-brand:focus,.focus-visible\:outline-n-brand:focus-visible,
 .focus-within\:outline-n-brand:focus-within{outline-color:var(--rb-green)!important;}
 
-/* Foco por teclado: ciano da marca, 9,89:1 sobre o cartão. Nunca `outline:none`
-   sozinho — quem navega por Tab precisa saber onde está. */
-:where(a,button,input,select,textarea,[tabindex]):focus-visible{
-  outline:3px solid var(--rb-cyan)!important; outline-offset:2px!important;
+/* Foco por teclado: ciano da marca, 9,89:1 sobré o cartão. Nunca `outline:none`
+   sozinho — quem navega por Tab precisa saber onde esta. 2 px (e não 3) porque em
+   lista densa o anel de 3 px encosta na linha vizinha e o olho le como erro. */
+:where(a,button,input,select,textarea,summary,[tabindex],[role=button],[role=tab],[role=menuitem],[role=switch]):focus-visible{
+  outline:2px solid var(--rb-cyan)!important; outline-offset:2px!important;
+  border-radius:var(--rb-r-botão);
 }
 
-/* ── 4. A TELA DE ENTRADA ──────────────────────────────────────────────────────
-   Só existe quando há campo de senha na tela (entrada e redefinição de senha).
-   Depois de entrar, o seletor deixa de casar e o aplicativo volta ao normal. */
-body:has(input[type="password"]){
+/* ── 3-B. ALVO DE TOQUE ────────────────────────────────────────────────────────
+   ⚠️ Isto NÃO existia no arquivo no ar: a regra dos 44 px vivia só nas maquetes.
+   No aparelho de toque o dedo cobre cerca de 9 mm; alvo menor que 44 px erra o
+   vizinho, e errar o vizinho numa caixa de entrada significa abrir a conversa de
+   outra pessoa. Só em `pointer:coarse` — no computador o ponteiro é preciso e
+   engordar tudo custaria densidade sem devolver nada. */
+@media (pointer:coarse){
+  :where(button,select,summary,[role=button],[role=tab],[role=switch],[role=menuitem]):not(:where([disabled],.rb-sem-alvo)){
+    min-height:44px; min-width:44px;
+  }
+  /* ⚠️ LINK MERECE UMA REGRA PRÓPRIA, e não é detalhe. `min-height` NÃO se aplica a
+     elemento em linha: pôr `a[href]` na lista acima produz uma regra que não faz
+     nada — dívida silenciosa. E alargar link de dentro de frase seria errado: a
+     WCAG 2.5.8 isenta explicitamente o alvo "em linha, dentro de uma frase ou
+     limitado pela entrelinha do texto em volta". Medido na tela de entrada:
+     "Esqueceu-se da sua senha?" mede 194x16 e é exatamente esse caso.
+     Então a regra alcança só o link que JÁ é bloco — o botão disfarçado de link,
+     que é o que o dedo de fato precisa acertar. */
+  :where(a[href]):not(:where(.rb-sem-alvo)):is(.flex,.inline-flex,.block,.inline-block,.grid,[class*="btn"],[class*="button"]){
+    min-height:44px;
+  }
+  /* o campo precisa de 16px de fonte: abaixo disso o iOS dá zoom ao focar e
+     desloca a tela inteira. E o defeito que mais se esquece. */
+  :where(input,textarea,select):not([type=checkbox]):not([type=radio]){
+    font-size:max(16px,1em); min-height:44px;
+  }
+  /* caixa de marcar e radio não crescem: cresce a ÁREA CLICAVEL em volta. */
+  :where(input[type=checkbox],input[type=radio]){min-width:22px;min-height:22px;}
+}
+
+/* ── 4. AS TELAS DE AUTENTICACAO ───────────────────────────────────────────────
+   ⚠️ A ÂNCORA É O NOME DO CAMPO, NÃO O TIPO. O arquivo anterior usava
+   `body:has(input[type="password"])` e isso produzia DOIS defeitos medidos:
+
+     (a) ao clicar no olho de "exibir senha" o Vue troca o campo para
+         `type="text"`, a regra deixa de casar e TODO o tema da entrada sumia —
+         medido: o cartão passava de rgb(8,37,50) para rgb(255,255,255);
+     (b) a regra casava em qualquer tela com campo de senha, inclusive
+         "Configurações do Perfil", que tem quatro. O <body> do aplicativo virava
+         grade de duas colunas com a foto da entrada por trás do painel.
+
+   `name="email_address"` é estável: não muda em tempo de execução e só existe nas
+   telas de autenticacao. Conferido em 7 rotas — entrada, entrada com a senha
+   revelada e redefinicao casam; perfil, painel, caixa nova e agentes não. */
+body:has(form input[name="email_address"]){
   display:grid!important;
   grid-template-columns:minmax(0,54fr) minmax(0,46fr);
   align-items:stretch;
@@ -152,10 +259,10 @@ body:has(input[type="password"]){
 }
 
 /* [A] O CHÃO — foto real de uma operação de atendimento.
-   A foto ILUSTRA; ela não afirma ser "a nossa central" (§11-D.2 do manual).
+   A foto ILUSTRA; ela não afirma ser "a nossa central".
    O véu é medido na REGIÃO do texto, não na média da imagem: pior bloco 8,33:1
-   para a frase (piso de texto grande é 3:1) e 16,82:1 no rodapé. */
-body:has(input[type="password"])::before{
+   para a frase (piso de texto grande e 3:1) e 16,82:1 no rodape. */
+body:has(form input[name="email_address"])::before{
   content:"Todos os canais. Uma conversa só.";
   display:flex; align-items:flex-end;
   padding:44px 48px 42px;
@@ -171,57 +278,62 @@ body:has(input[type="password"])::before{
 }
 
 /* [B] A COLUNA DO CARTÃO ──────────────────────────────────────────────────────
-   ⚠️ Estes seletores saíram da ÁRVORE RENDERIZADA, não de suposição. A primeira
-   versão deste arquivo estilizou o <form>, que parecia ser o cartão — e não é:
-   o cartão do Chatwoot é a <section class="bg-white shadow"> que envolve o form.
-   O resultado foi um cartão escuro dentro de uma caixa BRANCA. É o mesmo erro que
-   o manual chama de "fundo e texto são UM par": mexer em metade quebra a outra.
+   ⚠️ Estes seletores sairam da ÁRVORE RENDERIZADA, não de suposicao. A primeira
+   versão deste arquivo estilizou o <form>, que parecia ser o cartão — e não e:
+   na ENTRADA o cartão é a <section> que envolve o form.
 
-   A árvore real é:
-     #app > div.min-h-screen > main.min-h-screen
-        ├─ section.max-w-5xl        (logomarca + "Entrar no Ragnabot")
-        └─ section.bg-white.shadow  (o cartão)  >  div  >  form                */
-
-/* Os dois invólucros carregam `min-h-screen` (100vh CADA). Dentro de uma coluna
-   de grade isso empilha 200vh e empurra a frase da foto para fora da tela — foi
-   o que cortou "Uma conversa só." na primeira medição. */
-body:has(input[type="password"]) #app{min-width:0; display:block!important;}
-body:has(input[type="password"]) #app > div{min-height:0!important; height:100%;}
-body:has(input[type="password"]) #app main{
+   ⚠️ E há DUAS árvores, não uma. Medido em 28/08:
+     entrada     #app > div > main > section.max-w-5xl  +  section > div > form
+     redefinicao #app > div > div  > form                ← o form E o cartão
+   A regra antiga só conhecia a primeira, e por isso a tela de redefinir senha
+   ficava com cartão BRANCO. As duas estao cobertas abaixo. */
+body:has(form input[name="email_address"]) #app{min-width:0; display:block!important;}
+body:has(form input[name="email_address"]) #app > div{min-height:0!important; height:100%;}
+/* ⚠️ `:has(> form)` NÃO E ZELO — É CORREÇÃO DE UM DEFEITO QUE EU MESMO CRIEI E
+   MEDI. Sem ele, `#app > div > div` casava tambem no contentor de avisos
+   (`div.fixed.left-0.right-0.mx-auto`, VAZIO, z-50), que é irmão do <main>. Com
+   `height:100%` ele passava de 0 para 844px e cobria a tela de entrada INTEIRA,
+   engolindo todo clique: medido em 360, 390 e 768px, o botão do olho e o de
+   entrar ficavam inalcancaveis (`elementFromPoint` devolvia o contentor de
+   avisos). A tela parecia perfeita e não funcionava. */
+body:has(form input[name="email_address"]) #app main,
+body:has(form input[name="email_address"]) #app > div > div:has(> form){
   min-height:0!important; height:100%;
   background:transparent!important;      /* vinha com o azul do Chatwoot a 5% */
   justify-content:center!important;      /* centraliza na vertical */
   padding:40px 30px!important;
 }
 
-/* cabeçalho (logomarca + título) alinhado à largura do cartão, para os dois
-   lerem como uma peça só */
-body:has(input[type="password"]) main > section:first-of-type{
+/* cabeçalho (logomarca + título) alinhado a largura do cartão, para os dois
+   lerem como uma peca só */
+body:has(form input[name="email_address"]) main > section:first-of-type{
   max-width:452px; width:100%; margin:0 auto 16px!important; text-align:left!important;
 }
-/* a logomarca do produto sai: a marca já está na coluna da foto, e duas marcas na
-   mesma tela é ruído — além de esta ser um raster verde que perde contraste aqui */
-body:has(input[type="password"]) main img{display:none!important;}
-body:has(input[type="password"]) main h2{
+/* a logomarca do produto sai: a marca já esta na coluna da foto, e duas marcas na
+   mesma tela é ruído — além de esta ser um raster que perde contraste aqui */
+body:has(form input[name="email_address"]) main > section:first-of-type img{display:none!important;}
+body:has(form input[name="email_address"]) main h2{
   margin:0!important; text-align:left!important;
   font-family:'Poppins','Inter',system-ui,sans-serif; font-weight:700!important;
   font-size:27px!important; line-height:1.2; letter-spacing:-.5px;
   color:var(--rb-heading)!important;
 }
 /* a sobrancelha verde, escrita pelo CSS por não existir no HTML */
-body:has(input[type="password"]) main > section:first-of-type::before{
+body:has(form input[name="email_address"]) main > section:first-of-type::before{
   content:"RAGNABOT"; display:flex; align-items:center; gap:9px;
   font-size:12.5px; font-weight:700; letter-spacing:1.7px;
   color:var(--rb-green); margin-bottom:12px;
 }
-body:has(input[type="password"]) main > section:first-of-type::after{
+body:has(form input[name="email_address"]) main > section:first-of-type::after{
   content:"Use o e-mail cadastrado na conta da sua empresa.";
   display:block; margin-top:8px; font-size:14.5px; line-height:1.6; color:var(--rb-muted);
 }
 
 /* O CARTÃO — cor SÓLIDA. Sem desfoque e sem fundo translúcido: onde há texto, o
-   contraste tem de ser afirmável lendo a regra (96 §3.2). */
-body:has(input[type="password"]) main section:has(form){
+   contraste tem de ser afirmavel lendo a regra. Duas formas: a <section> da
+   entrada é o próprio <form> da redefinicao. */
+body:has(form input[name="email_address"]) main section:has(form),
+body:has(form input[name="email_address"]) #app > div > div > form{
   background:var(--rb-surface)!important;
   border:1px solid var(--rb-borda)!important;
   border-radius:var(--rb-r-card)!important;
@@ -230,96 +342,212 @@ body:has(input[type="password"]) main section:has(form){
   width:100%; max-width:452px; margin:0 auto!important;
   backdrop-filter:none!important; -webkit-backdrop-filter:none!important;
 }
-/* o form em si volta a ser transparente: quem desenha a caixa é a section */
-body:has(input[type="password"]) form{
+/* na ENTRADA quem desenha a caixa é a section, então o form volta a transparente.
+   Na redefinicao o form É a caixa — por issó o seletor exclui aquele caso. */
+body:has(form input[name="email_address"]) main section:has(form) form{
   background:transparent!important; border:none!important;
   box-shadow:none!important; padding:0!important; backdrop-filter:none!important;
 }
-body:has(input[type="password"]) h1,
-body:has(input[type="password"]) h3{
+body:has(form input[name="email_address"]) h1,
+body:has(form input[name="email_address"]) h2,
+body:has(form input[name="email_address"]) h3{
   color:var(--rb-heading)!important;
   font-family:'Poppins','Inter',system-ui,sans-serif; letter-spacing:-.4px;
 }
-body:has(input[type="password"]) label{color:var(--rb-text)!important; font-weight:600;}
+body:has(form input[name="email_address"]) label{color:var(--rb-text)!important; font-weight:600;}
 /* A etiqueta e o link "Esqueceu-se da sua senha?" dividem o mesmo flex. Sem vão e
    sem permissão de quebrar, em 390px eles encostam e viram "SenhaEsqueceu-se…". */
-body:has(input[type="password"]) label.flex{gap:12px; flex-wrap:wrap; align-items:baseline;}
-body:has(input[type="password"]) form p,
-body:has(input[type="password"]) form span:not(.min-w-0){color:var(--rb-muted);}
+body:has(form input[name="email_address"]) label.flex{gap:12px; flex-wrap:wrap; align-items:baseline;}
+body:has(form input[name="email_address"]) form p,
+body:has(form input[name="email_address"]) form span:not(.min-w-0){color:var(--rb-muted);}
 
 /* campos — 16px é PISO: abaixo disso o iOS dá zoom ao focar e desloca a tela,
    que é o pior defeito possível numa tela de entrada. */
-body:has(input[type="password"]) input[type="email"],
-body:has(input[type="password"]) input[type="password"],
-body:has(input[type="password"]) input[type="text"]{
+body:has(form input[name="email_address"]) input[type="email"],
+body:has(form input[name="email_address"]) input[type="password"],
+body:has(form input[name="email_address"]) input[type="text"]{
   background:var(--rb-surface-alt)!important;
   border:1px solid var(--rb-borda-campo)!important;
   color:var(--rb-heading)!important;
   border-radius:var(--rb-r-campo)!important;
   font-size:16px!important; min-height:46px;
 }
-body:has(input[type="password"]) input::placeholder{color:var(--rb-muted)!important; opacity:1;}
-body:has(input[type="password"]) input:focus{
+body:has(form input[name="email_address"]) input::placeholder{color:var(--rb-muted)!important; opacity:1;}
+body:has(form input[name="email_address"]) input:focus{
   border-color:var(--rb-green)!important;
   box-shadow:0 0 0 3px rgba(46,232,121,.18)!important; outline:none!important;
 }
-/* o botão de "mostrar a senha" mora DENTRO do campo e vinha com fundo claro */
-body:has(input[type="password"]) .w-full:has(input) button:not([type="submit"]){
+/* o botão de "mostrar a senha" mora DENTRO do campo e vinha com fundo claro.
+   ⚠️ 44px de alvo aqui tambem: é o botão que o dedo mais erra nesta tela. */
+body:has(form input[name="email_address"]) .w-full:has(input) button:not([type="submit"]){
   background:transparent!important; border:none!important; color:var(--rb-muted)!important;
+  min-width:44px; min-height:44px; display:inline-flex; align-items:center; justify-content:center;
+}
+body:has(form input[name="email_address"]) .w-full:has(input) button:not([type="submit"]):hover{
+  color:var(--rb-heading)!important;
 }
 /* o preenchimento automático do navegador devolvia o campo BRANCO com texto branco */
-body:has(input[type="password"]) input:-webkit-autofill,
-body:has(input[type="password"]) input:-webkit-autofill:hover,
-body:has(input[type="password"]) input:-webkit-autofill:focus{
+body:has(form input[name="email_address"]) input:-webkit-autofill,
+body:has(form input[name="email_address"]) input:-webkit-autofill:hover,
+body:has(form input[name="email_address"]) input:-webkit-autofill:focus{
   -webkit-text-fill-color:var(--rb-heading)!important;
   -webkit-box-shadow:0 0 0 1000px var(--rb-surface-alt) inset!important;
   caret-color:var(--rb-heading);
 }
 
+/* [D] O DESAFIO "CONFIRME QUE É HUMANO" ──────────────────────────────────────
+   Quando o desafio aparece (ele é acionado por tentativas repetidas), ele entra
+   como IRMÃO do campo de senha dentro de uma linha flex que NÃO quebra. O widget
+   ocupa 300 px fixos e o campo, que é `w-full`, é espremido no que sobra.
+
+   Medido na tela de entrada, com o tema DESLIGADO — ou seja, não é defeito nosso:
+     campo de senha   360px → 54x50 ·  390px → 54x50 ·  1440px → 90x50
+     transbordo horizontal do documento a 360px → 30 px
+   Um campo de senha de 54 px mostra três caracteres. É a pior tela possível para
+   um defeito assim.
+
+   A correção é de leiaute e cabe aqui: a linha passa a quebrar, o campo volta a
+   100% e o desafio desce para a linha de baixo.
+     campo de senha   360px → 288x50 · 390px → 318x50 · 1440px → 390x50
+     transbordo horizontal a 360px → 0
+   ⚠️ O `:has(> .rgb-turnstile)` é o que torna a regra INERTE quando o desafio não
+   está na tela — ela não muda nada no caso comum. */
+body:has(form input[name="email_address"]) div.flex.relative:has(> .rgb-turnstile){
+  flex-wrap:wrap; align-items:flex-start; height:auto!important;
+}
+body:has(form input[name="email_address"]) div.flex.relative:has(> .rgb-turnstile) > input{
+  flex:1 1 100%; width:100%;
+}
+body:has(form input[name="email_address"]) .rgb-turnstile{
+  flex:0 0 100%; width:100%; max-width:100%; margin-top:10px; overflow:hidden;
+}
+/* o olho é posicionado de forma absoluta dentro dessa caixa; com duas linhas ele
+   se centralizaria ENTRE as duas. Prende-se à altura do campo. */
+body:has(form input[name="email_address"]) div.flex.relative:has(> .rgb-turnstile) > button:not([type=submit]){
+  top:0; bottom:auto; height:50px;
+}
+
 /* botão Entrar — verde chapado com tinta escura (11,44:1). Sem degradê e sem
    deslocar no hover: botão que pula sob o dedo erra o alvo no celular. */
-body:has(input[type="password"]) button[type="submit"]{
+body:has(form input[name="email_address"]) button[type="submit"]{
   background:var(--rb-green)!important;
   color:var(--rb-on-green)!important;
   border:1px solid var(--rb-green)!important;
-  border-radius:var(--rb-r-botao)!important;
+  border-radius:var(--rb-r-botão)!important;
   font-weight:700!important; min-height:48px; box-shadow:none!important;
   transition:background .14s ease;
 }
-body:has(input[type="password"]) button[type="submit"]:hover{
+body:has(form input[name="email_address"]) button[type="submit"]:hover{
   background:var(--rb-green-hover)!important; border-color:var(--rb-green-hover)!important;
   transform:none!important; filter:none!important;
 }
-body:has(input[type="password"]) button[type="submit"] *{color:var(--rb-on-green)!important;}
-body:has(input[type="password"]) a{color:var(--rb-green)!important;}
-body:has(input[type="password"]) a:hover{color:var(--rb-green-hover)!important;}
+body:has(form input[name="email_address"]) button[type="submit"] *{color:var(--rb-on-green)!important;}
+/* CARREGANDO não vira cinza: cinza lê-se como "não dá para clicar", é o que
+   acontece e o oposto — esta trabalhando. Mantem o verde, baixa a opacidade. */
+body:has(form input[name="email_address"]) button[type="submit"]:disabled,
+body:has(form input[name="email_address"]) button[type="submit"][aria-busy="true"]{
+  opacity:.68; cursor:progress;
+  background:var(--rb-green)!important; color:var(--rb-on-green)!important;
+}
+body:has(form input[name="email_address"]) a{color:var(--rb-green)!important;}
+body:has(form input[name="email_address"]) a:hover{color:var(--rb-green-hover)!important;}
+/* a mensagem de erro da entrada — vermelho da casa, 7,01:1, e com ÍCONE, porque
+   cor sozinha não é informação (1 homem em 12 tem alguma deficiência de visão
+   de cor, e vermelho x verde e o eixo mais afetado). */
+body:has(form input[name="email_address"]) [class*="text-n-ruby"],
+body:has(form input[name="email_address"]) [class*="bg-n-ruby"]{
+  color:var(--rb-erro)!important;
+}
+body:has(form input[name="email_address"]) [class*="bg-n-ruby"]{
+  background:rgba(255,92,92,.12)!important; border:1px solid rgba(255,138,138,.42)!important;
+  border-radius:var(--rb-r-campo)!important;
+}
+
+/* Contentor de avisos VAZIO nunca deve interceptar clique. Ele e `position:fixed`
+   com z-50 e largura de tela inteira; enquanto não há aviso dentro, só pode
+   atrapalhar. Vale como blindagem geral, não só na entrada. */
+.fixed.left-0.right-0.mx-auto:empty{pointer-events:none!important;}
 
 /* ── 5. UMA COLUNA ABAIXO DE 992px ─────────────────────────────────────────────
    A foto vira faixa de topo de 188px. ⛔ NUNCA foto de altura cheia acima do
    formulário: empurra o campo de e-mail para fora da primeira dobra. */
 @media (max-width:991px){
-  body:has(input[type="password"]){grid-template-columns:1fr; grid-template-rows:188px auto;}
-  body:has(input[type="password"])::before{
+  body:has(form input[name="email_address"]){grid-template-columns:1fr; grid-template-rows:188px auto;}
+  body:has(form input[name="email_address"])::before{
     padding:14px 18px 16px; font-size:20px; line-height:1.22;
     background:
       var(--rb-logo) 18px 15px / 116px auto no-repeat,
       linear-gradient(180deg, rgba(1,15,25,.55) 0%, rgba(1,15,25,.74) 100%),
       var(--rb-foto-sm) center/cover no-repeat;
   }
-  body:has(input[type="password"]) #app main{padding:22px 16px 36px!important; justify-content:flex-start!important;}
-  body:has(input[type="password"]) main section:has(form){padding:24px 19px!important;}
-  body:has(input[type="password"]) main > section:first-of-type{margin-bottom:14px!important;}
-  body:has(input[type="password"]) main h2{font-size:23px!important;}
+  body:has(form input[name="email_address"]) #app main,
+  body:has(form input[name="email_address"]) #app > div > div:has(> form){padding:22px 16px 36px!important; justify-content:flex-start!important;}
+  body:has(form input[name="email_address"]) main section:has(form),
+  body:has(form input[name="email_address"]) #app > div > div > form{padding:24px 19px!important;}
+  body:has(form input[name="email_address"]) main > section:first-of-type{margin-bottom:14px!important;}
+  body:has(form input[name="email_address"]) main h2{font-size:23px!important;}
 }
 @media (max-width:400px){
-  body:has(input[type="password"]){grid-template-rows:166px auto;}
-  body:has(input[type="password"])::before{font-size:19px;}
+  body:has(form input[name="email_address"]){grid-template-rows:166px auto;}
+  body:has(form input[name="email_address"])::before{font-size:19px;}
 }
-@media (prefers-reduced-motion:reduce){
-  *,*::before,*::after{animation-duration:.001ms!important;transition-duration:.001ms!important;}
+/* Tela BAIXA e deitada (celular na horizontal, ou teclado virtual aberto): a
+   faixa da foto come a dobra inteira e o campo de e-mail sai da tela. Some. */
+@media (max-height:560px) and (orientation:landscape){
+  body:has(form input[name="email_address"]){grid-template-columns:1fr; grid-template-rows:auto;}
+  body:has(form input[name="email_address"])::before{display:none;}
+  body:has(form input[name="email_address"]) #app main,
+  body:has(form input[name="email_address"]) #app > div > div:has(> form){padding:18px 16px!important;}
 }
 
-/* ── 6. ACABAMENTO DO APLICATIVO ───────────────────────────────────────────── */
+/* ── 6. CORREÇÕES DE COMPONENTE ────────────────────────────────────────────────
+   Aqui o tema deixa de trocar tokens e passa a corrigir um punhado de defeitos
+   MEDIDOS no produto. Cada um traz o número que o justifica. São poucos de
+   propósito: cada regra específica é dívida técnica no próximo upgrade. */
+
+/* 6.1 — AS INICIAIS DO CONTATO ────────────────────────────────────────────────
+   O Chatwoot escolhe a cor do avatar em JAVASCRIPT e escreve no atributo `style`
+   do elemento: `background-color: rgb(204,243,234); color: rgb(0,133,115)`. São
+   pares PASTÉIS, desenhados para uma interface clara. Medido: luminância de fundo
+   entre 0,78 e 0,83 — sobre o nosso azul-petróleo eles são a coisa mais clara da
+   tela, e dois dos seis pares reprovam por conta própria (3,82:1, piso 4,5).
+
+   ⚠️ NÃO dá para trocar a cor: ela é estilo em linha, escrito por JS. O que dá é
+   por um VÉU por cima e clarear o texto. O matiz do contato continua distinguindo
+   uma pessoa da outra — o que muda é a claridade.
+   Medido em PIXEL na captura, depois do véu: entre 10,73:1 e 17,14:1. */
+[class~="group/avatar"] > span[style*="background-color"]{ position:relative; isolation:isolate; }
+[class~="group/avatar"] > span[style*="background-color"]::after{
+  content:""; position:absolute; inset:0; border-radius:inherit; z-index:0;
+  background:rgba(3,21,31,.80);
+  box-shadow:inset 0 0 0 1px rgba(111,231,255,.20);
+}
+[class~="group/avatar"] > span[style*="background-color"] > *{
+  position:relative; z-index:1; color:var(--rb-heading)!important; font-weight:600;
+}
+
+/* 6.2 — A BARRA DE AÇÕES QUE CORTAVA O BOTÃO ─────────────────────────────────
+   Em Contatos a 768px o grupo de ações é `flex-shrink-0` dentro de um cabeçalho
+   de 568px de largura útil: ele não encolhe e não quebra linha, então vaza.
+   Medido: a borda direita do botão "Enviar Mensagem" caía em 796px numa janela de
+   768 — o botão ficava INVISÍVEL e inalcançável, e sem barra de rolagem para
+   denunciar (transbordo do documento = 0). Deixando a linha quebrar: 510px, visível.
+   ⚠️ Defeito do próprio Chatwoot — reproduzido com o tema DESLIGADO. */
+@media (max-width:920px){
+  header.sticky > div[class*="justify-between"]{ flex-wrap:wrap; row-gap:12px; }
+  header.sticky > div[class*="justify-between"] > div{ flex-shrink:1; min-width:0; flex-wrap:wrap; }
+}
+
+/* 6.3 — FOLGA PARA O BOTÃO FLUTUANTE DO MENU ─────────────────────────────────
+   No celular o Chatwoot põe o menu num botão fixo de 56px no canto inferior
+   esquerdo (z-40). A área de rolagem terminava com 32px de folga — menos que os
+   56+16 que o botão ocupa —, então ele cobria a última linha do formulário.
+   96px põe a última linha acima do botão. Medido: sem transbordo horizontal novo. */
+@media (max-width:900px){
+  [class*="overflow-auto"][class*="h-full"], nav[class*="overflow-y-scroll"]{ padding-bottom:96px!important; }
+}
+
+/* ── 7. ACABAMENTO DO APLICATIVO ───────────────────────────────────────────── */
 /* barra de rolagem na família da marca, em vez do cinza do sistema */
 *{scrollbar-color:#1d4a5e var(--rb-bg); scrollbar-width:thin;}
 *::-webkit-scrollbar{width:10px;height:10px;}
@@ -327,3 +555,23 @@ body:has(input[type="password"]) a:hover{color:var(--rb-green-hover)!important;}
 *::-webkit-scrollbar-thumb{background:#1d4a5e;border-radius:99px;border:2px solid var(--rb-bg);}
 *::-webkit-scrollbar-thumb:hover{background:#2a6480;}
 ::selection{background:rgba(46,232,121,.28); color:var(--rb-heading);}
+
+/* No toque a barra de 10px rouba largura útil de uma tela de 360px e não serve
+   para nada — ninguém arrasta barra com o dedo, rola-se o conteúdo. */
+@media (pointer:coarse){
+  *{scrollbar-width:none;}
+  *::-webkit-scrollbar{width:0;height:0;}
+}
+
+/* ⚠️ ZERAR A DURAÇÃO NÃO BASTA. Uma animação INFINITA (o girador de carregamento)
+   com duração de 0,001 ms não para: ela repete a cada frame e vira pisca-pisca —
+   exatamente para quem pediu MENOS movimento, que é quem menos pode receber isso.
+   A contagem de repetições é a peça que faltava. */
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{
+    animation-duration:.001ms!important;
+    animation-iteration-count:1!important;
+    transition-duration:.001ms!important;
+    scroll-behavior:auto!important;
+  }
+}
