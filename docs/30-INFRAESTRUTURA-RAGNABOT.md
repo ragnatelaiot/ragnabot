@@ -377,6 +377,86 @@ mesma VLAN.
 
 ---
 
+## 8-B. O que o dia 29/08 ensinou (lido no ambiente, não no plano)
+
+### O backup se recusou a rodar — e a recusa estava certa
+
+No log do NOC, às 00h01 e 01h13 de 29/08:
+
+```
+[ragnabot-backup] RGTPSTGSQL001 não é o primário agora (pg_is_in_recovery=true) — backup recusado
+```
+
+Não era defeito do backup. Era o **failover automático tendo funcionado**: o líder do cluster
+`ragnabot-pg` passou a ser o `.133` — a máquina que nasceu como reserva —, e a linha do tempo do
+banco marcava **6**, prova de que houve promoção de verdade.
+
+A guarda existia justamente para isto: `pg_dump` numa réplica pode ser **cancelado no meio** por
+conflito de replicação, e essa é uma falha intermitente que só aparece sob carga — o pior tipo de
+defeito num backup. Recusar foi o comportamento correto.
+
+O que estava errado era a **suposição embutida no código**: um nó fixo como primário.
+
+> **Regra que fica, e vale para qualquer código que fale com este banco:**
+> alta disponibilidade automática e primário fixo no código são premissas que **se contradizem**.
+> Descubra o líder a cada vez.
+
+A correção (`acharOLider()` em `ragnabot-backup.service.js`) pergunta a cada nó
+`SELECT NOT pg_is_in_recovery()`. Pergunta ao **Postgres**, e não ao `patronictl`, de propósito:
+quem manda no dump é o estado do banco, não o que a ferramenta de orquestração acha dele. Se os
+dois discordassem, seguir o banco é o que evita gerar backup a partir de um nó em recuperação.
+
+Um nó inalcançável **não** é erro fatal — durante um failover é normal o antigo líder estar fora.
+Só é erro se, ao fim da varredura, nenhum nó se declarar líder.
+
+### A conta do armazenamento estava errada na documentação
+
+O comentário em `/etc/default/minio` — que é a referência de recuperação daquela máquina — dizia:
+
+> *"MinIO distribuído do Ragnabot — 5 nós, 1 disco cada. Cada objeto vira 3 pedaços de dado + 2 de
+> paridade."*
+
+O log de formatação do próprio MinIO diz outra coisa:
+
+```
+INFO: Formatting 1st pool, 1 set(s), 6 drives per set.
+```
+
+São **3 servidores com 2 discos cada**, formando 1 pool com 1 conjunto de 6. Para conjunto desse
+tamanho o MinIO usa **paridade 3**: 3 pedaços de dado e 3 de paridade.
+
+A consequência prática que o texto errado escondia é justamente a que interessa operacionalmente:
+
+| Situação | Leitura | Escrita |
+|---|---|---|
+| 1 hipervisor fora (2 discos) | ✅ | ✅ **continua gravando anexo** |
+| 2 hipervisores fora (4 discos) | ✅ | ⛔ **para** |
+
+E parar a escrita com 4 discos fora é **correto**: melhor recusar a gravação do que aceitar um anexo
+que não se consegue mais reconstruir.
+
+Estado medido em 29/08: 3 servidores, 6 discos, todos OK; rede 3/3; saúde do cluster 200; regra de
+ciclo de vida `expira-versoes-antigas-14d` ativa no bucket `anexos`.
+
+### O Redis também trocou de mestre
+
+`config-epoch 1` no Sentinel significa que **houve uma troca de verdade**, e ela funcionou. O mestre
+hoje é o `.133`, acompanhando o banco. Três sentinelas, quorum 2.
+
+### Onde isto tudo mora versionado
+
+O repositório `ragnatelaiot/ragnabot` (chave `id_ed25519_ragnabot`, host SSH `github.com-ragnabot`)
+passou a carregar, além dos documentos, a **infraestrutura**: `deploy/k8s/ragnabot.yaml` com o
+estado vivo do cluster e a imagem fixada por **digest** — etiqueta muda debaixo do pé, digest
+reproduz o mesmo binário numa restauração —, mais `deploy/minio/`, `deploy/patroni/`,
+`deploy/redis/` e um `deploy/LEIA-ME.md` com a ordem de recriação do zero em 8 passos.
+
+⚠️ **São dois repositórios, e os dois precisam ser atualizados**: `ragnatela-noc` (o código) e
+`ragnabot` (a infraestrutura). O segundo já ficou um dia inteiro para trás uma vez, e um repositório
+de recuperação que descreve a plataforma de ontem não recupera nada.
+
+---
+
 ## 9. Armadilhas registradas
 
 Cada uma destas custou tempo real. Estão aqui para não morderem de novo.
