@@ -785,7 +785,19 @@ Reconstruir fachada é o erro caro deste projeto. Descartado, com o motivo:
 
 ## 8. PONTOS CEGOS QUE CONTINUAM
 
-### 8.1 A VM 10016 continua ilegível `[medido 29/08]`
+### 8.1 — ⭐ RESOLVIDO em 29/08 (tarde): o levantamento saiu pela API do app, não pela VM
+
+**O ponto cego abaixo deixou de valer.** As sete consultas que dependiam do guest agent foram
+respondidas por outro caminho: o **app respondeu na porta da frente** (`chatbk001.ragnatela.com.br`,
+login de admin fornecido pelo dono), e a leitura da API é mais fiel à *funcionalidade* do que ler o
+banco por dentro. O resultado completo — automações por conexão, `inatividadeLastMessageType`
+(a resposta "atendente ou contato"), turnos dos atendentes (turno **É** usado), o menu Ajustes e os
+recursos do plano (canais Facebook/Instagram já pagos) — está no **doc 31**. O guest agent **não
+precisou** ser religado. O texto original abaixo fica como registro histórico.
+
+---
+
+### 8.1 (histórico) A VM 10016 continua ilegível `[medido 29/08 de manhã]`
 
 `qm guest cmd 10016 ping` devolveu **"QEMU guest agent is not running"** nesta sessão, confirmando
 o bloqueio que a investigação de 28/08 já havia encontrado em sete tentativas. A VM está **rodando**
