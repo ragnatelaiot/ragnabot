@@ -145,3 +145,9 @@ estados e o mapa de aplicação sobre o Chatwoot). Responsividade validada em 36
   cluster; valores reais só no cofre local das VMs de banco.
 - TLS terminado no proxy; origem HTTP apenas em VLANs internas isoladas por firewall.
 - Cadastro público desabilitado; tenants criados apenas pela operação.
+
+## Versão, novidades e manual
+- **`VERSAO`** — a versão vigente do produto (começa em `1.00.00`).
+- **`docs/VERSOES.md`** — o que cada versão entregou (cresce a cada release).
+- **`docs/MANUAL.md`** — manual vivo: como cada função funciona.
+- **`docs/32-PLANO-DE-EXECUCAO.md`** — a fila de construção, medida do chat atual.
