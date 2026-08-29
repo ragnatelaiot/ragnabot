@@ -95,9 +95,11 @@ colado não é transferência, é etiqueta — por isso os dois passos, nessa or
 recusa editá-la); uma conversa tem **uma execução por vez** (recusa duas). Se o processo morre no
 meio, a execução **retoma sozinha**. A fila do motor (`RagnabotFluxoFila`) particiona por
 `conta:conversa`, o que impede o relógio de mexer na conversa no meio de um passo do fluxo.
-_Planejado:_ o **resolvedor de entrada** (quem escolhe o fluxo do primeiro "oi") e a **publicação**
-— cuja assinatura de estrutura precisa **ignorar as coordenadas do editor** (`no.ui`), senão
-arrastar um bloco vira mudança estrutural e órfã as conversas em curso (§A1, §A2).
+**Publicação (v1.01.00).** Publicar congela o rascunho numa **versão imutável** e reaponta o fluxo.
+A assinatura de estrutura **ignora as coordenadas do editor** — arrastar um bloco não cria versão
+nova e não órfã quem está no meio da conversa; mudar uma ligação/tipo, sim. Reverter **copia para a
+frente** (versão nova com o conteúdo antigo), mantendo a numeração contínua. _Planejado:_ o
+**resolvedor de entrada** (quem escolhe o fluxo do primeiro "oi") ainda não amarra o motor (§A1).
 
 ---
 

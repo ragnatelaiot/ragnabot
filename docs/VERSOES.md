@@ -19,6 +19,26 @@
 
 ---
 
+## v1.01.00 — Publicação de fluxo (29/08/2026)
+
+O editor de fluxo volta a **publicar**. Antes, publicar/validar/reverter respondiam erro 503 porque
+o serviço não existia; agora existe, testado contra o banco.
+
+- **Publicar** congela o rascunho numa **versão imutável**, valida a estrutura do grafo (nó inicial,
+  arestas ligadas, sem nó órfão) e reaponta o fluxo — tudo numa transação.
+- **Arrastar um bloco na tela NÃO cria versão nova** e nunca deixa órfã quem está no meio da
+  conversa — a assinatura de estrutura ignora as coordenadas do editor. Mudar uma ligação ou um tipo
+  de nó, sim.
+- **Reverter copia para a frente** (cria uma versão nova com o conteúdo antigo), mantendo a linha do
+  tempo contínua para a medição de eficácia.
+
+### Depende de
+- O **resolvedor de entrada** (fluxo do primeiro "oi") ainda não amarra o motor — próximo item (A1).
+- Sem caixa de WhatsApp real, o retrofit de conversa viva foi provado com execução semeada, não sob
+  tráfego.
+
+---
+
 ## v1.00.00 — A fundação (29/08/2026)
 
 Primeira versão marcada. Reúne tudo que já está no ar e sustentado por teste, para servir de
