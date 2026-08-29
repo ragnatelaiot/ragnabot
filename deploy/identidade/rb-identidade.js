@@ -1,0 +1,73 @@
+/* Ragnabot — identidade no painel (empresa + versão), junto do usuário logado.
+   Injetado pela configuração oficial DASHBOARD_SCRIPTS do Chatwoot: NÃO altera o layout nem
+   sobrepõe arquivo dentro da imagem, então sobrevive à troca de versão da plataforma.
+   Falha em silêncio de propósito: se não achar onde encaixar, o painel segue intacto. */
+(function () {
+  var VERSAO = '1.02.00';
+  var ID = 'rb-identidade';
+
+  function nomeDaEmpresa() {
+    try {
+      // A conta ativa é a "empresa registrada como SaaS". O Chatwoot guarda o usuário no
+      // armazenamento local; varremos as formas conhecidas sem depender de estado interno do Vue.
+      var bruto = window.localStorage.getItem('user');
+      if (bruto) {
+        var u = JSON.parse(bruto);
+        var contas = u && (u.accounts || (u.data && u.data.accounts));
+        if (contas && contas.length) {
+          var id = window.localStorage.getItem('accountId') || window.localStorage.getItem('account_id');
+          var achada = null;
+          if (id) { for (var i = 0; i < contas.length; i++) { if (String(contas[i].id) === String(id)) { achada = contas[i]; break; } } }
+          var c = achada || contas[0];
+          if (c && c.name) return c.name;
+        }
+      }
+    } catch (e) { /* silêncio: identidade é enfeite, não pode quebrar o atendimento */ }
+    return null;
+  }
+
+  function alvo() {
+    // O rodapé da barra lateral, onde fica o usuário logado.
+    // ⚠️ Os dois primeiros seletores foram CONFERIDOS nos pacotes do painel em 29/08/2026
+    // (`current-user` e `user-thumbnail` existem; `sidebar-profile` NÃO existe e por isso saiu).
+    // Se nenhum casar, desistimos: melhor não aparecer do que aparecer no lugar errado.
+    var el = document.querySelector('.current-user')
+          || document.querySelector('.user-thumbnail-box')
+          || document.querySelector('[class*="user-thumbnail"]');
+    if (el) {
+      // sobe até o bloco do rodapé, para a linha não cair dentro do avatar
+      var caixa = el.closest('aside') ? el.parentElement : el;
+      return caixa || el;
+    }
+    return null;
+  }
+
+  function pintar() {
+    try {
+      if (document.getElementById(ID)) return;          // idempotente: nunca duplica
+      var pai = alvo();
+      if (!pai) return;
+      var caixa = document.createElement('div');
+      caixa.id = ID;
+      caixa.style.cssText = 'padding:2px 10px 6px;font-size:11px;line-height:1.35;opacity:.72;'
+        + 'text-align:left;letter-spacing:.01em;pointer-events:none;';
+      var empresa = nomeDaEmpresa();
+      caixa.innerHTML = (empresa ? '<div style="font-weight:600">' + empresa.replace(/</g, '&lt;') + '</div>' : '')
+        + '<div>Ragnabot v' + VERSAO + '</div>';
+      (pai.parentNode || pai).insertBefore(caixa, pai.nextSibling);
+    } catch (e) { /* silêncio */ }
+  }
+
+  function ligar() {
+    pintar();
+    // O painel é um app que redesenha a barra lateral; sem observar, a linha some na primeira troca
+    // de tela. O observer é barato e a função é idempotente.
+    try {
+      var obs = new MutationObserver(function () { pintar(); });
+      obs.observe(document.body, { childList: true, subtree: true });
+    } catch (e) { /* silêncio */ }
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ligar);
+  else ligar();
+})();

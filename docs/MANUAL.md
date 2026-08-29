@@ -157,6 +157,23 @@ tempo, esse plantonista ficaria disponível nunca, sem erro nenhum aparecendo.
 
 ---
 
+## 5-D. Identidade no painel (empresa + versão)
+
+**O que faz.** Mostra, junto do usuário logado, o **nome da empresa** e a **versão do Ragnabot**.
+
+**Como o operador percebe.** No rodapé da barra lateral, abaixo do nome de quem está logado.
+
+**Como funciona por dentro.** Usa a configuração oficial `DASHBOARD_SCRIPTS` do Chatwoot — não
+altera o layout nem sobrepõe arquivo dentro da imagem, então **sobrevive à troca de versão da
+plataforma**. Idempotente (o painel redesenha o tempo todo e a linha nunca duplica) e falha em
+silêncio: se não achar onde encaixar, não escreve nada, porque identidade é enfeite e não pode
+quebrar o atendimento.
+
+⚠️ **A versão é embutida no arquivo** — atualize junto com o `VERSAO` a cada entrega.
+Aplicação e reversão em `deploy/identidade/LEIA-ME.md`.
+
+---
+
 ## 6. Multiempresa, planos e cobrança
 
 **O que faz.** Cada empresa cliente é isolada, com seu plano e sua cobrança.
