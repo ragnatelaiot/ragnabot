@@ -19,6 +19,30 @@
 
 ---
 
+## v1.03.00 — Lista com seções, botão de link e e-mail no fluxo (29/08/2026)
+
+Os blocos do montador de fluxo passaram a ter o que o bot atual tem — desenhado a partir da leitura
+dos **35 fluxos dele em produção**, não de suposição.
+
+- **Menu lista com seções e cabeçalho.** Itens agrupados sob títulos, com cabeçalho em negrito.
+- **Botão de link**, ao lado dos botões de resposta.
+- **A mistura é impedida na origem:** no WhatsApp, botão de resposta e botão de link não convivem na
+  mesma mensagem — a Meta recusa tudo. A tela oferece a escolha no nível do bloco em vez de deixar
+  errar e reclamar depois; o motor recusa nos dois pontos (validação e execução).
+- **O botão de link não espera resposta.** A Meta não avisa o clique; se o fluxo esperasse, a
+  conversa travaria e a pessoa seria transferida para um humano por ter feito o que o botão pediu.
+- **Bloco de e-mail** — destinatário, assunto, corpo, responder-para e cópia oculta, com variáveis.
+  O cabeçalho remove quebras de linha (impede acrescentar destinatários ocultos por texto digitado)
+  e o corpo escapa HTML. "Responder para" e "cópia oculta" agora chegam ao envio de verdade.
+
+### Depende de
+- Nenhuma caixa de WhatsApp existe: nada disso foi visto chegando num aparelho. Os limites de
+  tamanho vêm da documentação da Meta, não de observação.
+- O adaptador que entrega as mensagens ao canal ainda não existe no repositório — quando nascer,
+  precisa conhecer os campos novos.
+
+---
+
 ## v1.02.00 — O chatbot atende, o relógio fala, e quatro defeitos a menos (29/08/2026)
 
 Quatro automações novas — e uma auditoria que encontrou quatro defeitos reais no que já rodava.

@@ -174,6 +174,34 @@ Aplicação e reversão em `deploy/identidade/LEIA-ME.md`.
 
 ---
 
+## 5-E. Os blocos do fluxo (17 tipos)
+
+**Fala:** início · texto · mídia (imagem, áudio, vídeo, documento).
+**Pergunta:** pergunta · botões · lista · espera.
+**Decide:** condição · variável · subfluxo.
+**Age:** etiqueta · passa para time · abre chamado · aviso interno · chamada externa · **e-mail** · encerra.
+
+### Lista
+Menu de até 10 opções. Aceita **cabeçalho** em negrito, corpo com variáveis, rodapé, rótulo do botão
+que abre o menu, e cada item com título, descrição e **seção** (para agrupar). Se um item tem seção,
+**todos** precisam ter — com mais de uma seção a Meta exige título em todas e recusa a mensagem
+inteira se faltar.
+
+### Botões
+Ou até **3 botões de resposta**, ou **1 botão de link** — nunca os dois juntos. Isso não é escolha
+nossa: no WhatsApp são tipos de mensagem diferentes, e misturar faz a Meta recusar tudo, com o
+cliente sem receber nada. O **botão de link não espera resposta** (a Meta não avisa o clique), então
+o fluxo segue adiante em vez de ficar parado esperando alguém que já foi embora.
+
+### E-mail
+Destinatário, assunto, corpo, responder-para e cópia oculta — todos aceitam variáveis. Não espera
+resposta e **não** verifica a janela de 24 h (e-mail não passa pela Meta). O cabeçalho remove
+quebras de linha de propósito: sem isso, um texto digitado pelo cliente poderia acrescentar
+destinatários ocultos ao nosso e-mail. A cópia oculta nunca entra no registro — senão deixaria de
+ser oculta.
+
+---
+
 ## 6. Multiempresa, planos e cobrança
 
 **O que faz.** Cada empresa cliente é isolada, com seu plano e sua cobrança.
