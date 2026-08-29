@@ -19,6 +19,41 @@
 
 ---
 
+## v1.02.00 — O chatbot atende, o relógio fala, e quatro defeitos a menos (29/08/2026)
+
+Quatro automações novas — e uma auditoria que encontrou quatro defeitos reais no que já rodava.
+
+### O que passou a existir
+- **A portaria do primeiro "oi".** O motor de conversa estava pronto e ninguém o acionava quando a
+  mensagem chegava. Agora a conversa é encaminhada para o fluxo, para a fila humana ou recebe só um
+  aviso — e quem já está no meio de um menu **não é interrompido** por uma mensagem de expediente.
+- **O aviso "ainda está aí?" sai de verdade**, pelo caminho que respeita a **janela de 24 h** do
+  WhatsApp. Fora dela, a conversa muda de estado do mesmo jeito e o motivo fica na nota interna.
+- **Respostas rápidas** — atalho vira texto pronto, com nome do cliente e número do chamado
+  preenchidos. Atalho repetido é recusado pelo banco; uma empresa nunca vê a resposta da outra.
+- **Turno por atendente** — opcional. Quem não cadastrar herda o horário da empresa; o plantão
+  noturno sobrevive ao horário comercial; feriado derruba todos, dizendo que foi o calendário.
+
+### Quatro defeitos corrigidos (auditoria adversarial: 25 examinados, 4 confirmados)
+Cada um foi verificado por três céticos independentes, cuja tarefa era **derrubar** o achado.
+
+1. Um **carimbo** de "já avisei hoje que estamos fechados" podia ser reaberto por uma rotina de
+   manutenção e virar **relógio de inatividade vencido**, devolvendo a conversa à fila (ou
+   resolvendo-a) sem prazo nenhum ter corrido. Bastava o processo reiniciar na hora errada.
+2. **Transbordo disparando na hora:** re-armado com o minuto da inatividade, que é nulo quando a
+   inatividade está desligada — e zero minuto significa "agora".
+3. **Conversa em espera sumia da varredura para sempre** — a leitura só trazia conversas "abertas",
+   mas é para "aguardando" que o relógio devolve.
+4. **Mensagem dupla ao cliente**, por dois caminhos, sendo que um não conferia a janela de 24 h.
+
+### Depende de
+- Ainda **não existe caixa de WhatsApp** criada: tudo acima é correto por construção e por teste,
+  não por observação em atendimento real.
+- A tela das respostas rápidas (sugerir ao digitar `/`) e a tela de cadastro de turno são frontend.
+- O turno ainda não é consultado pela distribuição — o serviço responde, falta quem pergunte.
+
+---
+
 ## v1.01.00 — Publicação de fluxo (29/08/2026)
 
 O editor de fluxo volta a **publicar**. Antes, publicar/validar/reverter respondiam erro 503 porque

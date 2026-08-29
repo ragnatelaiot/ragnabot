@@ -51,7 +51,12 @@ vence e o que fazer. O trabalhador reconcilia a cada tique: arma o relógio quan
 elegível, re-arma quando há nova interação, e no vencimento despacha a ação — **devolver para a
 fila**, **transferir de time**, **resolver** ou **notificar**. A entrega é idempotente: o mesmo
 vencimento entregue duas vezes não repete o efeito nem a mensagem (`updateMany where disparadoEm:
-null`). A ação **notificar** hoje só enfileira — falta o consumidor _(planejado, §A4)_.
+null`). A ação **notificar** agora tem consumidor próprio, com tique de 15 s: quando o trabalho chega a ele
+o prazo já venceu. Ele cobre **dois tipos** de trabalho — o aviso do relógio e a mensagem avulsa da
+portaria — e respeita a **janela de 24 h** do WhatsApp: fora dela a ação de estado acontece, a
+mensagem não sai, e o motivo fica na nota interna. O texto sai **só** por esse caminho: o envio
+direto do trabalhador foi removido em 29/08 porque fazia o cliente receber a mesma mensagem duas
+vezes, por um atalho que não conferia a janela.
 
 ---
 
@@ -100,6 +105,55 @@ A assinatura de estrutura **ignora as coordenadas do editor** — arrastar um bl
 nova e não órfã quem está no meio da conversa; mudar uma ligação/tipo, sim. Reverter **copia para a
 frente** (versão nova com o conteúdo antigo), mantendo a numeração contínua. _Planejado:_ o
 **resolvedor de entrada** (quem escolhe o fluxo do primeiro "oi") ainda não amarra o motor (§A1).
+
+---
+
+## 5-A. A portaria de entrada (o primeiro "oi")
+
+**O que faz.** É quem decide o que acontece quando o cliente escreve: começar um fluxo, mandar para
+a fila humana, ou responder só um aviso.
+
+**Como o operador percebe.** O cliente manda "oi" e o chatbot responde. Fora do expediente, recebe o
+aviso configurado em vez de ficar no vácuo.
+
+**Como funciona por dentro.** Grava a entrada (reentrega da mesma mensagem é reconhecida e
+descartada), e então: se a conversa **já tem um fluxo em andamento**, a mensagem vai direto ao motor
+— sem passar pelo resolvedor. Essa exceção existe por um motivo concreto: sem ela, quem estivesse no
+meio de um menu às 18h01 receberia "estamos fechados" e ficaria travado esperando uma resposta que a
+portaria tinha engolido. Se não há fluxo vivo, o resolvedor decide, e o que não vira fluxo vira
+trabalho na fila para o consumidor entregar.
+
+---
+
+## 5-B. Respostas rápidas
+
+**O que faz.** Atalhos de texto do atendente.
+
+**Como o operador usa.** Cadastra `/bomdia` com o texto, e ao usar o atalho o texto sai pronto — com
+`{{firstName}}`, `{{ticket_id}}` e `{{protocolo}}` já preenchidos. A resposta pode ser **da empresa**
+(todo mundo usa) ou **pessoal** (só de quem criou), e pode valer só numa caixa ou num time.
+
+**Como funciona por dentro.** O atalho repetido é recusado **pelo banco**, não só pela tela — e o
+truque para isso é uma chave calculada, porque no Postgres dois nulos não são iguais e um índice
+sobre colunas anuláveis deixaria cadastrar `/bomdia` dez vezes. Uma empresa nunca enxerga a resposta
+da outra: o filtro vem sempre do usuário logado, e o que está fora do escopo responde **404**, nunca
+403 — 403 confirmaria que existe.
+
+---
+
+## 5-C. Turno por atendente
+
+**O que faz.** Define o horário de cada atendente, quando ele difere do horário da empresa.
+
+**Como o gestor usa.** Cadastra a janela de quem tem horário próprio. **Quem não cadastrar nada
+continua herdando o horário da empresa** — é o caso da maioria, e é de propósito: se a ausência de
+turno significasse "indisponível", ligar a função esvaziaria a fila no primeiro dia.
+
+**Como funciona por dentro.** Quem tem turno é avaliado pela própria grade; as **exceções do
+calendário da empresa** (feriado, meio expediente) continuam valendo e derrubam o turno — e o motivo
+diz "empresa fechada", não "fora do turno", senão o gestor procuraria defeito na grade da pessoa. O
+plantão 22:00–06:00 numa empresa 08–18 **funciona**: se o sistema exigisse as duas coisas ao mesmo
+tempo, esse plantonista ficaria disponível nunca, sem erro nenhum aparecendo.
 
 ---
 

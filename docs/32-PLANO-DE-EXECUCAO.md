@@ -140,3 +140,35 @@ motor) · `useChatGPT`/`useConnectAi` · `useBotoes` · `useStorage`.
 - **A ordem** está na §5: fechar o núcleo → criar a 1ª caixa e ligar canais → módulos de Gestão →
   turno/opinativos → segurança.
 - Cada entrega vira uma **versão nova** em `VERSOES.md` (começamos em **v1.00.00**).
+
+---
+
+## 7. REQUISITOS DO DONO (entram na fila com prioridade)
+
+### R1 — Identidade visível no painel (29/08/2026)
+**Ordem do dono:** *"a versão do Ragnabot atual sempre deve ser apresentada abaixo do nome do
+usuário logado e no usuário logado deve ter o nome da empresa (empresa registrada como SaaS)."*
+
+**O que precisa aparecer**, no rodapé/área do usuário logado do painel:
+1. o **nome da empresa** — a empresa registrada no nosso SaaS (não o nome da conta interna da
+   plataforma, se divergirem);
+2. a **versão vigente do Ragnabot** (`VERSAO` do repositório — hoje `1.01.00`), logo abaixo do nome
+   do usuário.
+
+**Viabilidade — medida em 29/08:** ✅ dá para fazer **sem sair da imagem oficial** do Chatwoot. O
+mecanismo já existe e está em uso: montamos arquivos dentro do contêiner por **ConfigMap com
+`subPath`** (é assim que as três logomarcas do Ragnabot entram em `/app/public/brand-assets/`).
+O ponto de injeção é `app/views/layouts/vueapp.html.erb` — o layout que o Rails serve para o painel,
+onde já existe um bloco `<script>` com `window.chatwootConfig`.
+
+**Desenho aprovado pelo chefe:**
+- um arquivo `ragnabot-identidade.js` montado em `/app/public/brand-assets/`;
+- **uma única linha** acrescentada ao layout, referenciando esse arquivo;
+- a versão vem de um valor injetado na montagem (a mesma fonte do `VERSAO`), e o nome da empresa vem
+  do que a própria aplicação já conhece do usuário logado.
+
+⚠️ **Ponto de manutenção declarado:** montar o layout por cima é uma customização que **precisa ser
+refeita quando a imagem do Chatwoot subir de versão** — o arquivo tem de ser reextraído da imagem
+nova e a linha reaplicada, senão a customização some ou (pior) sobrescreve um layout defasado.
+Isso fica anotado aqui e no `MANUAL.md` do produto, com o procedimento de reversão (remover o
+`volumeMount`).

@@ -1,0 +1,32 @@
+# Trecho de patch do Deployment ragnabot-web (namespace ragnabot).
+#
+# NAO APLIQUE SEM REVISAR. Este arquivo e um patch estrategico: o Kubernetes funde
+# `volumeMounts` e `volumes` por chave (mountPath e name), entao os 3 montes das
+# logomarcas que ja existem PERMANECEM — este patch so acrescenta os 2 novos.
+#
+# Comando (decisao do chefe, nao do agente):
+#   kubectl -n ragnabot patch deploy ragnabot-web --patch-file deploy/identidade/patch-deployment.yaml
+#
+# Pre-requisito: o ConfigMap ragnabot-identidade ja aplicado.
+# Efeito: o patch altera o template do pod, logo o proprio patch ja dispara o rollout.
+# ⚠️ Rollout = pods novos. Conferir a politica da casa antes (deploy so em janela combinada).
+spec:
+  template:
+    spec:
+      containers:
+      - name: web
+        volumeMounts:
+        # o script da identidade: servido como arquivo estatico da MESMA origem
+        # (RAILS_SERVE_STATIC_FILES=true, medido), portanto imune a CSP e sem CDN
+        - mountPath: /app/public/brand-assets/ragnabot-identidade.js
+          name: identidade
+          subPath: ragnabot-identidade.js
+        # o layout do painel com UMA linha a mais: a tag <script> que chama o arquivo acima
+        - mountPath: /app/app/views/layouts/vueapp.html.erb
+          name: identidade
+          subPath: vueapp.html.erb
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: ragnabot-identidade
+        name: identidade
