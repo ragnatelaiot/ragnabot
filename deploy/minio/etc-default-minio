@@ -1,0 +1,16 @@
+# MinIO distribuído do Ragnabot — 3 servidores com 2 discos cada = 6 discos, 1 pool, 1 conjunto.
+# Os 3 servidores são os próprios nós do Kubernetes, e cada um mora num HIPERVISOR DIFERENTE: é
+# isso que faz a queda de um hipervisor derrubar só 2 dos 6 discos.
+#
+# ⚠️ Este comentário já esteve ERRADO (dizia \"5 nós, 1 disco cada\", 3 dados + 2 paridade).
+# A verdade medida em 29/08/2026, no log de formatação do próprio MinIO:
+#   \"Formatting 1st pool, 1 set(s), 6 drives per set\"
+# Para um conjunto de 6 discos o MinIO usa paridade 3 (EC:3): cada objeto vira 3 pedaços de dado
+# e 3 de paridade. LEITURA sobrevive à perda de 3 discos; ESCRITA precisa de 4 dos 6 no ar —
+# ou seja, um hipervisor inteiro pode cair (leva 2 discos) e a plataforma continua gravando anexo.
+# Dois hipervisores fora ao mesmo tempo (4 discos) param a escrita, e isso é de propósito: melhor
+# recusar a gravação do que aceitar um anexo que não se consegue mais reconstruir.
+MINIO_VOLUMES="http://172.17.20.4:9000/dados/minio http://172.17.20.4:9000/dados/minio2 http://172.17.20.5:9000/dados/minio http://172.17.20.5:9000/dados/minio2 http://172.17.20.162:9000/dados/minio http://172.17.20.162:9000/dados/minio2"
+MINIO_OPTS="--address :9000 --console-address :9001"
+MINIO_ROOT_USER=ragnabot-minio
+MINIO_ROOT_PASSWORD=«DEFINIR — valor real só no servidor»

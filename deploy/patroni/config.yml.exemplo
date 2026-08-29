@@ -1,0 +1,61 @@
+# Patroni — failover AUTOMATICO do banco do Ragnabot.
+# POR QUE EXISTE: em 28/08/2026 o primario morreu num ensaio e a plataforma ficou ~4 min fora,
+# porque a promocao era MANUAL (o ato em si leva 7s; o resto foi espera humana). Pior: ao religar,
+# o no antigo voltou como primario e por minutos existiram DOIS primarios. So nao houve perda de
+# dados porque ninguem escreveu. Este arquivo existe para isso nunca mais depender de gente.
+#
+# ⚠️ TUDO NA REDE DE FUNDO (VLAN 34, 172.17.20.128/27) — ordem do dono: consenso e replicacao sao
+# conversa interna e ficam isolados da rede da frente.
+scope: ragnabot-pg
+name: pg132
+namespace: /service/
+
+restapi:
+  listen: 172.17.20.132:8008
+  connect_address: 172.17.20.132:8008
+
+etcd3:
+  hosts: 172.17.20.132:2379,172.17.20.133:2379,172.17.20.134:2379
+
+bootstrap:
+  dcs:
+    ttl: 30
+    loop_wait: 10
+    retry_timeout: 10
+    maximum_lag_on_failover: 1048576
+    # Sem isto, perder o etcd faria o lider se rebaixar sozinho — deixando o banco fora do ar
+    # por um problema que NAO e do banco. Com failsafe, ele so se rebaixa se de fato perder o
+    # contato com TODOS os outros membros.
+    failsafe_mode: true
+    postgresql:
+      use_pg_rewind: true
+      use_slots: true
+      parameters:
+        wal_level: replica
+        hot_standby: "on"
+        max_wal_senders: 10
+        max_replication_slots: 10
+        wal_keep_size: 512MB
+
+postgresql:
+  listen: 0.0.0.0:5432
+  connect_address: 172.17.20.132:5432
+  data_dir: /var/lib/postgresql/18/main
+  bin_dir: /usr/lib/postgresql/18/bin
+  config_dir: /etc/postgresql/18/main
+  pgpass: /var/lib/postgresql/.pgpass_patroni
+  authentication:
+    replication:
+      username: replicator
+      password: «DEFINIR — valor real só no servidor»
+    superuser:
+      username: postgres
+      password: «DEFINIR — valor real só no servidor»
+  parameters:
+    unix_socket_directories: '/var/run/postgresql'
+
+tags:
+  nofailover: false
+  noloadbalance: false
+  clonefrom: false
+  nosync: false

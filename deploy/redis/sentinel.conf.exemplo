@@ -1,0 +1,14 @@
+port 26379
+bind 0.0.0.0
+protected-mode no
+dir "/var/lib/redis"
+sentinel monitor ragnabot-redis 172.17.20.133 6379 2
+sentinel down-after-milliseconds ragnabot-redis 5000
+sentinel failover-timeout ragnabot-redis 10000
+sentinel auth-pass «DEFINIR — valor real só no servidor»
+sentinel announce-ip "172.17.20.132"
+sentinel announce-port 26379
+latency-tracking-info-percentiles 50 99 99.9
+supervised systemd
+user default on nopass sanitize-payload ~* &* +@all
+requirepass "YH7A3jdp3WdQY6HYHRXiRH4u8AD_JS5R"

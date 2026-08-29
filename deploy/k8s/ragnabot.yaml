@@ -1,159 +1,410 @@
-# =============================================================================
-# RAGNABOT — Plataforma de Atendimento Omnichannel (Ragnatela IoT Solutions)
-# Manifesto Kubernetes — versao SANITIZADA para o git.
-# ⛔ LEI: credencial JAMAIS no git. Os valores reais do Secret vivem apenas:
-#   1. aplicados no cluster (kubectl -n ragnabot get secret ragnabot-env)
-#   2. no cofre local /root/.chat002-credenciais das VMs de banco (10603/10604)
-# Para instalar: preencha os <PLACEHOLDER> e aplique com kubectl apply -f.
-# =============================================================================
-apiVersion: v1
-kind: Namespace
-metadata: { name: ragnabot }
----
-apiVersion: v1
-kind: Secret
-metadata: { name: ragnabot-env, namespace: ragnabot }
-type: Opaque
-stringData:
-  SECRET_KEY_BASE: "<GERE COM: openssl rand -hex 64>"
-  POSTGRES_PASSWORD: "<SENHA DO USUARIO chatwoot NO POSTGRES>"
-  REDIS_URL: "redis://:<SENHA-REDIS>@172.17.20.132:6379"
-  REDIS_PASSWORD: "<SENHA-REDIS>"
-  SMTP_PASSWORD: "<SENHA DA CONTA alerta@ragnatela.com.br>"
----
-apiVersion: v1
-kind: ConfigMap
-metadata: { name: ragnabot-config, namespace: ragnabot }
-data:
-  FRONTEND_URL: "https://bot.ragnatela.com.br"   # dominio OFICIAL. Monta os links DENTRO dos e-mails (convite, senha)
-  INSTALLATION_ENV: "kubernetes-ragnatela"
-  RAILS_ENV: "production"
-  NODE_ENV: "production"
-  RAILS_LOG_TO_STDOUT: "true"
-  LOG_LEVEL: "info"
-  DEFAULT_LOCALE: "pt_BR"
-  POSTGRES_HOST: "172.17.20.132"
-  POSTGRES_PORT: "5432"
-  POSTGRES_DATABASE: "chatwoot"
-  POSTGRES_USERNAME: "chatwoot"
-  ENABLE_ACCOUNT_SIGNUP: "false"   # fechado apos criar a conta 1 (SaaS: tenants criados pelo NOC)
-  ACTIVE_STORAGE_SERVICE: "local"
-  TRUSTED_PROXIES: "10.244.0.0/16,172.17.20.0/24,172.20.11.2"
-  # ── E-MAIL (ligado em 28/08/2026) ────────────────────────────────────────────
-  # Sem estas chaves NENHUM e-mail sai: nem convite de usuario, nem o canal de
-  # suporte por e-mail. A senha vive no Secret (SMTP_PASSWORD), nunca aqui.
-  SMTP_ADDRESS: "smtp.skymail.net.br"
-  SMTP_PORT: "465"
-  SMTP_SSL: "true"                    # 465 = TLS implicito
-  SMTP_ENABLE_STARTTLS_AUTO: "false"  # nao negociar STARTTLS numa porta que ja e TLS
-  SMTP_AUTHENTICATION: "login"
-  SMTP_DOMAIN: "ragnatela.com.br"
-  SMTP_USERNAME: "alerta@ragnatela.com.br"
-  SMTP_OPENSSL_VERIFY_MODE: "peer"
-  MAILER_SENDER_EMAIL: "Ragnabot <noreply@ragnatela.com.br>"
-  MAILER_INBOUND_EMAIL_DOMAIN: "ragnatela.com.br"
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata: { name: ragnabot-storage, namespace: ragnabot }
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ragnabot-web
+  namespace: ragnabot
 spec:
-  accessModes: [ReadWriteOnce]
-  storageClassName: local-path
-  resources: { requests: { storage: 20Gi } }
----
-# Migracao/preparacao do banco. Rode UMA vez a cada atualizacao de imagem:
-#   kubectl -n ragnabot delete job ragnabot-migracao; kubectl apply -f (este arquivo, so o Job)
-apiVersion: batch/v1
-kind: Job
-metadata: { name: ragnabot-migracao, namespace: ragnabot }
-spec:
-  backoffLimit: 2
+  progressDeadlineSeconds: 600
+  replicas: 2
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: ragnabot-web
+  strategy:
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+    type: RollingUpdate
   template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/restartedAt: '2026-08-28T23:25:03-03:00'
+      labels:
+        app: ragnabot-web
     spec:
-      restartPolicy: Never
-      nodeSelector: { kubernetes.io/hostname: rgtk8s001 }
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - rgtk8s003
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: ragnabot-web
+              topologyKey: kubernetes.io/hostname
+            weight: 100
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app: ragnabot-web
+            topologyKey: kubernetes.io/hostname
+      automountServiceAccountToken: false
       containers:
-      - name: migracao
+      - command:
+        - bundle
+        - exec
+        - rails
+        - s
+        - -p
+        - '3000'
+        - -b
+        - 0.0.0.0
+        envFrom:
+        - configMapRef:
+            name: ragnabot-config
+        - secretRef:
+            name: ragnabot-env
         image: chatwoot/chatwoot@sha256:18f280a63070073c7588164eed31303cc788123d899733e54aeec4c39d1d8dd9
-        command: ["bundle","exec","rails","db:chatwoot_prepare"]
-        envFrom: [{ configMapRef: { name: ragnabot-config } }, { secretRef: { name: ragnabot-env } }]
+        imagePullPolicy: Always
+        name: web
+        ports:
+        - containerPort: 3000
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 12
+          httpGet:
+            path: /api
+            port: 3000
+            scheme: HTTP
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        resources:
+          limits:
+            cpu: '3'
+            memory: 2500Mi
+          requests:
+            cpu: 500m
+            memory: 1Gi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          seccompProfile:
+            type: RuntimeDefault
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /app/public/brand-assets/ragnabot-logo.svg
+          name: branding
+          subPath: ragnabot-logo.svg
+        - mountPath: /app/public/brand-assets/ragnabot-logo-dark.svg
+          name: branding
+          subPath: ragnabot-logo-dark.svg
+        - mountPath: /app/public/brand-assets/ragnabot-logo-thumb.svg
+          name: branding
+          subPath: ragnabot-logo-thumb.svg
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+      tolerations:
+      - effect: NoExecute
+        key: node.kubernetes.io/unreachable
+        operator: Exists
+        tolerationSeconds: 60
+      - effect: NoExecute
+        key: node.kubernetes.io/not-ready
+        operator: Exists
+        tolerationSeconds: 60
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: ragnabot-branding
+        name: branding
 ---
 apiVersion: apps/v1
 kind: Deployment
-metadata: { name: ragnabot-web, namespace: ragnabot }
+metadata:
+  name: ragnabot-worker
+  namespace: ragnabot
 spec:
+  progressDeadlineSeconds: 600
   replicas: 1
-  selector: { matchLabels: { app: ragnabot-web } }
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: ragnabot-worker
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
   template:
-    metadata: { labels: { app: ragnabot-web } }
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/restartedAt: '2026-08-28T23:25:03-03:00'
+      labels:
+        app: ragnabot-worker
     spec:
-      # web e worker DIVIDEM o PVC local (RWO) -> presos ao mesmo no por enquanto.
-      # HA de aplicacao virá com storage S3 (Fase 8); o BANCO ja e replicado (VM standby).
-      nodeSelector: { kubernetes.io/hostname: rgtk8s001 }
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - rgtk8s003
+      automountServiceAccountToken: false
       containers:
-      - name: web
+      - command:
+        - bundle
+        - exec
+        - sidekiq
+        - -C
+        - config/sidekiq.yml
+        envFrom:
+        - configMapRef:
+            name: ragnabot-config
+        - secretRef:
+            name: ragnabot-env
         image: chatwoot/chatwoot@sha256:18f280a63070073c7588164eed31303cc788123d899733e54aeec4c39d1d8dd9
-        command: ["bundle","exec","rails","s","-p","3000","-b","0.0.0.0"]
-        ports: [{ containerPort: 3000 }]
-        envFrom: [{ configMapRef: { name: ragnabot-config } }, { secretRef: { name: ragnabot-env } }]
-        volumeMounts: [{ name: storage, mountPath: /app/storage }]
-        readinessProbe: { httpGet: { path: /api, port: 3000 }, initialDelaySeconds: 20, periodSeconds: 10, failureThreshold: 12 }
-        resources: { requests: { cpu: 250m, memory: 1Gi }, limits: { memory: 2500Mi } }
-      volumes:
-      - name: storage
-        persistentVolumeClaim: { claimName: ragnabot-storage }
+        imagePullPolicy: Always
+        name: worker
+        resources:
+          limits:
+            memory: 2500Mi
+          requests:
+            cpu: 250m
+            memory: 1Gi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          seccompProfile:
+            type: RuntimeDefault
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+      tolerations:
+      - effect: NoExecute
+        key: node.kubernetes.io/unreachable
+        operator: Exists
+        tolerationSeconds: 60
+      - effect: NoExecute
+        key: node.kubernetes.io/not-ready
+        operator: Exists
+        tolerationSeconds: 60
 ---
 apiVersion: apps/v1
 kind: Deployment
-metadata: { name: ragnabot-worker, namespace: ragnabot }
+metadata:
+  name: banco-lider
+  namespace: ragnabot
 spec:
-  replicas: 1
-  selector: { matchLabels: { app: ragnabot-worker } }
+  progressDeadlineSeconds: 600
+  replicas: 2
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: banco-lider
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
   template:
-    metadata: { labels: { app: ragnabot-worker } }
+    metadata:
+      labels:
+        app: banco-lider
     spec:
-      nodeSelector: { kubernetes.io/hostname: rgtk8s001 }
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app: banco-lider
+            topologyKey: kubernetes.io/hostname
       containers:
-      - name: worker
-        image: chatwoot/chatwoot@sha256:18f280a63070073c7588164eed31303cc788123d899733e54aeec4c39d1d8dd9
-        command: ["bundle","exec","sidekiq","-C","config/sidekiq.yml"]
-        envFrom: [{ configMapRef: { name: ragnabot-config } }, { secretRef: { name: ragnabot-env } }]
-        volumeMounts: [{ name: storage, mountPath: /app/storage }]
-        resources: { requests: { cpu: 250m, memory: 1Gi }, limits: { memory: 2500Mi } }
+      - image: haproxy:2.9-alpine
+        imagePullPolicy: IfNotPresent
+        name: haproxy
+        ports:
+        - containerPort: 5432
+          protocol: TCP
+        resources:
+          limits:
+            cpu: 200m
+            memory: 128Mi
+          requests:
+            cpu: 20m
+            memory: 32Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /usr/local/etc/haproxy/haproxy.cfg
+          name: conf
+          subPath: haproxy.cfg
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
       volumes:
-      - name: storage
-        persistentVolumeClaim: { claimName: ragnabot-storage }
+      - configMap:
+          defaultMode: 420
+          name: banco-lider-conf
+        name: conf
 ---
 apiVersion: v1
 kind: Service
-metadata: { name: ragnabot-web, namespace: ragnabot }
+metadata:
+  name: ragnabot-web
+  namespace: ragnabot
 spec:
-  selector: { app: ragnabot-web }
-  ports: [{ port: 3000, targetPort: 3000 }]
+  clusterIP: 10.100.119.175
+  clusterIPs:
+  - 10.100.119.175
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - port: 3000
+    protocol: TCP
+    targetPort: 3000
+  selector:
+    app: ragnabot-web
+  sessionAffinity: None
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: banco-lider
+  namespace: ragnabot
+spec:
+  clusterIP: 10.104.79.194
+  clusterIPs:
+  - 10.104.79.194
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - port: 5432
+    protocol: TCP
+    targetPort: 5432
+  selector:
+    app: banco-lider
+  sessionAffinity: None
+  type: ClusterIP
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 50m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '86400'
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '86400'
   name: ragnabot
   namespace: ragnabot
-  annotations:
-    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "86400"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "86400"
 spec:
   ingressClassName: nginx
   rules:
-  # bot.ragnatela.com.br e o dominio OFICIAL; chat002 fica servido como legado
-  # ate a migracao terminar (link antigo em uso nao pode quebrar de um dia p/ o outro).
-  - host: bot.ragnatela.com.br
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend: { service: { name: ragnabot-web, port: { number: 3000 } } }
   - host: chat002.ragnatela.com.br
     http:
       paths:
-      - path: /
+      - backend:
+          service:
+            name: ragnabot-web
+            port:
+              number: 3000
+        path: /
         pathType: Prefix
-        backend: { service: { name: ragnabot-web, port: { number: 3000 } } }
+  - host: bot.ragnatela.com.br
+    http:
+      paths:
+      - backend:
+          service:
+            name: ragnabot-web
+            port:
+              number: 3000
+        path: /
+        pathType: Prefix
+---
+apiVersion: v1
+data:
+  ACTIVE_STORAGE_SERVICE: s3_compatible
+  DEFAULT_LOCALE: pt_BR
+  ENABLE_ACCOUNT_SIGNUP: 'false'
+  ENABLE_RACK_ATTACK: 'true'
+  FRONTEND_URL: https://bot.ragnatela.com.br
+  I18N_DEFAULT_LOCALE: pt_BR
+  INSTALLATION_ENV: kubernetes-ragnatela
+  LANG: pt_BR.UTF-8
+  LOG_LEVEL: info
+  MAILER_INBOUND_EMAIL_DOMAIN: ragnatela.com.br
+  MAILER_SENDER_EMAIL: Ragnabot <noreply@ragnatela.com.br>
+  NODE_ENV: production
+  POSTGRES_DATABASE: chatwoot
+  POSTGRES_HOST: banco-lider
+  POSTGRES_PORT: '5432'
+  POSTGRES_USERNAME: chatwoot
+  RACK_ATTACK_LIMIT: '3000'
+  RAILS_ENV: production
+  RAILS_LOCALE: pt_BR
+  RAILS_LOG_TO_STDOUT: 'true'
+  RAILS_MAX_THREADS: '5'
+  RAILS_SERVE_STATIC_FILES: 'true'
+  SMTP_ADDRESS: smtp.skymail.net.br
+  SMTP_AUTHENTICATION: login
+  SMTP_DOMAIN: ragnatela.com.br
+  SMTP_ENABLE_STARTTLS_AUTO: 'false'
+  SMTP_OPENSSL_VERIFY_MODE: peer
+  SMTP_PORT: '465'
+  SMTP_SSL: 'true'
+  SMTP_USERNAME: alerta@ragnatela.com.br
+  STORAGE_BUCKET_NAME: anexos
+  STORAGE_ENDPOINT: http://172.17.20.4:9000
+  STORAGE_FORCE_PATH_STYLE: 'true'
+  STORAGE_REGION: us-east-1
+  TRUSTED_PROXIES: 10.244.0.0/16,172.17.20.0/24,172.20.11.2
+  WEB_CONCURRENCY: '2'
+kind: ConfigMap
+metadata:
+  name: ragnabot-config
+  namespace: ragnabot
+---
+apiVersion: v1
+data:
+  haproxy.cfg: "global\n  maxconn 200\ndefaults\n  log global\n  mode tcp\n  retries 2\n  timeout client 30m\n \
+    \ timeout connect 4s\n  timeout server 30m\n  timeout check 5s\nlisten postgres\n  bind *:5432\n  option httpchk\
+    \ OPTIONS /primary\n  http-check expect status 200\n  default-server inter 3s fall 3 rise 2 on-marked-down shutdown-sessions\n\
+    \  server pg132 172.17.20.132:5432 maxconn 100 check port 8008\n  server pg133 172.17.20.133:5432 maxconn 100\
+    \ check port 8008\n"
+kind: ConfigMap
+metadata:
+  name: banco-lider-conf
+  namespace: ragnabot
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  finalizers:
+  - kubernetes.io/pvc-protection
+  name: ragnabot-storage
+  namespace: ragnabot
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: local-path
+  volumeMode: Filesystem
