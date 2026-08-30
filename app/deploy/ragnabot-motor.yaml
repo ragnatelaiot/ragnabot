@@ -89,7 +89,7 @@ spec:
           #    debaixo do pé; digest é o mesmo binário para sempre — e é o que faz uma restauração
           #    reproduzir o que estava no ar.
           #    image: registro.interno/ragnabot-motor@sha256:«DEFINIR — digest da imagem construída»
-          image: ragnabot-motor:1.03.00
+          image: ragnabot-motor:1.03.01
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -112,7 +112,7 @@ spec:
             # /pronto confere o BANCO (SELECT 1). Pod que perdeu o banco sai do balanceamento em
             # vez de aceitar webhook que ele não consegue gravar.
             httpGet:
-              path: /pronto
+              path: /vivo
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10

@@ -242,3 +242,48 @@ de esquema.
 Construir a imagem, criar o `Secret` (a credencial já está guardada no `.env` do NOC para isso),
 subir o `ragnabot-motor`, apontar o webhook da plataforma para ele e **desligar os trabalhadores no
 NOC na mesma janela** — nunca os dois rodando, senão dois relógios agem na mesma conversa.
+
+---
+
+## 10. ETAPA 3 — o motor no ar (30/08/2026)
+
+### O obstáculo que não estava no plano, e como foi contornado
+Os nós do Kubernetes **não têm ferramenta de construção de imagem** (nem `docker`, nem `nerdctl`,
+nem `buildah`) e **não existe registro interno**. O plano supunha que dava para construir lá.
+
+Saída: o **NOC tem Docker utilizável**. A imagem é construída no NOC, exportada, enviada por SFTP e
+importada em cada nó com `ctr -n k8s.io images import`. Funciona sem abrir registro novo e sem
+instalar nada nos nós — mas **não escala**: a Etapa 5 deve avaliar um registro interno, senão toda
+atualização vira três transferências de 133 MB.
+
+### O que está no ar
+`ragnabot-motor`, **2 réplicas em nós diferentes** (antiafinidade funcionando), imagem
+`ragnabot-motor:1.03.01`, cofre `ragnabot-motor-env` com 4 chaves.
+
+Resposta do `/saude`, medida pelo serviço (balanceando entre os dois pods):
+```
+banco: "no ar"
+trabalhadores: atendimento(60s) ✓ · despertar(15s) ✓ · portaria ✓
+autenticação: ok · rotas pendentes: nenhuma
+```
+E a rota privada devolve **401 sem token** — a falha fechada funcionando.
+
+**A aplicação do Ragnabot conecta na base própria de dentro do cluster.** É o que a separação existe
+para conseguir.
+
+### Duas divergências entre os agentes, achadas na subida
+1. **A sonda perguntava por `/pronto`; o servidor expõe `/vivo`.** Os pods rodavam e nunca ficavam
+   prontos. Um agente escreveu o manifesto, o outro o servidor, e o contrato não fixou o nome.
+2. **O `/saude` lia uma variável de ambiente que ninguém define**, em vez do módulo `base/versao.js`
+   que existe justamente para isso — devolvia `versao: null`. Um escreveu o leitor, o outro não o usou.
+
+> **A lição, de novo:** o que não está no contrato, dois agentes resolvem de dois jeitos. Nome de
+> caminho e nome de arquivo são contrato, não detalhe.
+
+### O interruptor da virada
+Os trabalhadores no NOC ficaram atrás de `RAGNABOT_WORKERS_NO_NOC`, **desligados por padrão**.
+Interruptor e não remoção: se o motor novo falhar, é uma variável e um reinício para o NOC voltar a
+atender enquanto se conserta. A remoção definitiva é a Etapa 5, e só depois de dias de motor no ar.
+
+⛔ **NUNCA os dois ao mesmo tempo.** Dois relógios na mesma conversa devolvem o cliente para a fila
+duas vezes e mandam a mesma mensagem duas vezes.

@@ -25,6 +25,7 @@
 import express from 'express';
 import prisma from './base/db.js';
 import logger from './base/logger.js';
+import VERSAO from './base/versao.js';
 
 // ⚠️ A autenticação vem da camada de base (outro agente). Se o arquivo ainda não existe, o processo
 // NÃO cai: ele sobe com um guarda que RECUSA tudo que é privado. O webhook, que é público por
@@ -173,7 +174,10 @@ export async function ligarTrabalhadores() {
 app.get('/saude', async (req, res) => {
   const out = {
     servico: 'ragnabot-motor',
-    versao: process.env.RAGNABOT_VERSAO || null,
+    // Lê do módulo `base/versao.js`, que busca o arquivo VERSAO (a fonte única do número que o
+    // dono acompanha). Antes lia uma variável de ambiente que NINGUÉM definia, e o /saude devolvia
+    // `versao: null` — um dos dois agentes escreveu o leitor e o outro não o usou.
+    versao: VERSAO || process.env.RAGNABOT_VERSAO || null,
     banco: 'fora',
     trabalhadores,
     autenticacao: authIndisponivel ? { ok: false, motivo: authIndisponivel } : { ok: true },
