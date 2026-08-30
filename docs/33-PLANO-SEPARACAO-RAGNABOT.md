@@ -142,3 +142,62 @@ Hoje esse teste falha — e é ele que define o fim da migração.
 
 Nenhuma caixa de WhatsApp existe. A migração pode ser feita e provada com o motor e os relógios,
 mas a prova final — mensagem real chegando — depende de a Meta liberar o número.
+
+---
+
+## 7. DECISÃO DO CHEFE — quem autentica na aplicação nova (30/08/2026)
+
+O agente da Etapa 1 fez a pergunta certa e **não** copiou o `authMiddleware` do NOC — copiar seria
+levar o acoplamento junto na mudança. Enquanto a decisão não existia, ele deixou o processo subir
+com as rotas privadas recusando `503 AUTH_NAO_CONFIGURADA` — **falha fechada, nunca aberta**. Certo.
+
+### A decisão: identidade PRÓPRIA, com uma ponte explícita e temporária
+
+**1. Serviço a serviço (NOC → Ragnabot), a partir de agora.**
+O NOC chama a API do Ragnabot com um **token de serviço próprio** (`RAGNABOT_SERVICE_TOKEN`, no
+cofre dos dois lados), e **declara em cabeçalho quem é o operador humano** que pediu a ação.
+O Ragnabot registra na auditoria que aquela identidade foi **asserida pelo NOC** — nunca como se
+tivesse sido verificada por ele.
+
+**Por que isto é aceitável aqui:** o NOC é console de operação, autentica os próprios operadores e
+já decide o escopo deles. Delegar identidade entre serviços confiáveis é padrão — desde que o
+registro diga que foi delegação, e é isso que a marca "via NOC" faz.
+
+**2. O limite dessa ponte, que é onde muita gente erra.**
+A identidade asserida vale **somente** para escopo de OPERADOR (nós administrando). Ela **NUNCA**
+pode servir para o cliente final se atender: no dia em que o admin de uma empresa cliente usar a
+plataforma, a identidade dele tem de ser verificada **pelo Ragnabot**, contra a própria plataforma —
+senão quem controla o cabeçalho controla o escopo, e o isolamento entre empresas que provamos com
+teste vira enfeite.
+
+⚠️ A regra da auditoria continua valendo, sem exceção: **o escopo sai de quem está autenticado,
+nunca do que a tela mandou.** Com a ponte, "quem está autenticado" para chamada de operador é o
+**par (token de serviço + operador asserido)** — e o token de serviço é a parte que não se falsifica.
+
+**3. Etapa 4 encerra a ponte.** Quando as telas mudarem de casa, a autenticação passa a ser da
+plataforma (o cliente entra no Ragnabot, não no NOC) e a assertiva do NOC fica restrita ao que é
+operação nossa. A ponte é **transitória por desenho**, e está escrita aqui para não virar
+permanente por esquecimento.
+
+### Consequência imediata
+`base/auth.js` expõe `authMiddleware`, `adminOnly` e `superuserOnly` com essa semântica. Sem
+`RAGNABOT_SERVICE_TOKEN` definido, tudo que é privado recusa — falha fechada.
+
+---
+
+## 8. Pendências abertas ao fim da Etapa 1
+
+1. **Quatro dependências do NOC ainda estáticas**, e por isso `/api/ragnabot-cobranca` e
+   `/api/ragnabot-cluster` não sobem: `auth.middleware.js`, `validate.js`, `operator-2fa.js` e
+   `ssh-pool.service.js`.
+   **Destino decidido:** `auth`/`validate`/`2fa` viram peça da camada de base do Ragnabot (são
+   identidade e validação, coisa de quem atende); **`ssh-pool` NÃO muda de casa** — ler o cluster por
+   SSH é observação, e observação é do NOC. A rota de cluster passa a consumir a API do NOC, ou some
+   da aplicação nova. (A tela do cluster já é do NOC e continua sendo.)
+2. **Dependências dinâmicas:** `otp.service` e `device.service` seguem o mesmo destino da identidade;
+   **`smtp.service` MUDA DE CASA** (o nó de e-mail do fluxo atende cliente); `evolution.service`
+   fica no NOC e vira **porta injetada** (mandar alerta no WhatsApp é operação, não atendimento).
+3. **A aplicação precisa do próprio `node_modules` e do próprio cliente Prisma gerado.** Lição cara
+   da Etapa 1: um atalho para as dependências do NOC fez o cliente gerado carregar o `.env` do NOC,
+   e testes locais bateram no **banco de produção** sem avisar. Conferido depois: nenhum esquema
+   órfão, nenhum dado a mais. Mas a lição fica — ambiente emprestado mente sobre onde você está.

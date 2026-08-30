@@ -1,0 +1,252 @@
+# ════════════════════════════════════════════════════════════════════════════════════════════════
+# ragnabot-motor — o processo próprio do Ragnabot (Etapa 3 do doc 33).
+#
+# O que ele passa a fazer, e hoje o `noc-agent` faz: receber o webhook da plataforma · rodar o
+# trabalhador de atendimento (60s) · rodar o consumidor do despertar (15s) · executar o motor de
+# fluxo · servir a API do produto.
+#
+# ⚠️ NÃO APLICAR AINDA. Este arquivo é entrega da Etapa 1 (repositório), para revisão do chefe.
+#    Aplicar antes da Etapa 2 (base `ragnabot` criada) sobe um pod que não tem em que banco falar.
+#
+# ⚠️ VIRADA SEM DOIS RELÓGIOS. Quando isto subir, os trabalhadores do Ragnabot têm de ser
+#    desligados no `noc-agent` NA MESMA JANELA. Dois relógios na mesma conversa encerram
+#    atendimento em dobro e disparam a mesma transferência duas vezes.
+#
+# ⚠️ NENHUM VALOR DE SEGREDO AQUI — só nomes de chave. O `Secret` `ragnabot-motor-env` é criado à
+#    mão no servidor (ver a lista no fim deste arquivo).
+# ════════════════════════════════════════════════════════════════════════════════════════════════
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ragnabot-motor
+  namespace: ragnabot
+  labels:
+    app: ragnabot-motor
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  progressDeadlineSeconds: 600
+  selector:
+    matchLabels:
+      app: ragnabot-motor
+  strategy:
+    rollingUpdate:
+      # maxSurge 0 + maxUnavailable 1: nunca sobem 3 pods. Com a antiafinidade RÍGIDA abaixo só
+      # existem 2 lugares possíveis; um terceiro pod ficaria Pending e travaria o rollout.
+      maxSurge: 0
+      maxUnavailable: 1
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: ragnabot-motor
+    spec:
+      affinity:
+        podAntiAffinity:
+          # RÍGIDA: as duas réplicas em hipervisores DIFERENTES. Se as duas caíssem no mesmo nó,
+          # perder aquele hipervisor pararia o atendimento inteiro — que é justamente o que esta
+          # separação existe para evitar.
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: ragnabot-motor
+              topologyKey: kubernetes.io/hostname
+        nodeAffinity:
+          # O `ragnabot-web` EXCLUI o nó rgtk8s003 de forma rígida. Aqui a exclusão é PREFERENCIAL
+          # de propósito: em operação normal o motor fica nos mesmos dois nós do web, mas se um
+          # deles morrer o pod PODE ir para o rgtk8s003 e continuar atendendo.
+          # ❓ DECISÃO DO CHEFE: se houver motivo para o rgtk8s003 ser proibido (capacidade, papel
+          #    no quórum), troque este bloco pelo `required…` idêntico ao do `ragnabot-web`.
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: NotIn
+                    values:
+                      - rgtk8s003
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      tolerations:
+        # Nó sumiu: 60s e o pod é remarcado noutro lugar (o padrão do Kubernetes é 300s — cinco
+        # minutos sem atender). Mesmo valor que o `ragnabot-web` já usa.
+        - effect: NoExecute
+          key: node.kubernetes.io/unreachable
+          operator: Exists
+          tolerationSeconds: 60
+        - effect: NoExecute
+          key: node.kubernetes.io/not-ready
+          operator: Exists
+          tolerationSeconds: 60
+      containers:
+        - name: motor
+          # ⚠️ FIXAR POR DIGEST antes de aplicar, como o `ragnabot-web` já faz. Etiqueta muda
+          #    debaixo do pé; digest é o mesmo binário para sempre — e é o que faz uma restauração
+          #    reproduzir o que estava no ar.
+          #    image: registro.interno/ragnabot-motor@sha256:«DEFINIR — digest da imagem construída»
+          image: ragnabot-motor:1.03.00
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: ragnabot-motor-config
+            - secretRef:
+                name: ragnabot-motor-env
+          startupProbe:
+            # O motor conecta no banco e carrega o cliente Prisma antes de responder. Até 60s
+            # (12 × 5s) para subir sem que a sonda de vida o mate no meio da partida.
+            httpGet:
+              path: /saude
+              port: http
+            periodSeconds: 5
+            failureThreshold: 12
+          readinessProbe:
+            # /pronto confere o BANCO (SELECT 1). Pod que perdeu o banco sai do balanceamento em
+            # vez de aceitar webhook que ele não consegue gravar.
+            httpGet:
+              path: /pronto
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            # /saude é DE PROPÓSITO mais burro que /pronto: só diz que o processo responde.
+            # Se a vida dependesse do banco, uma troca de líder do Patroni reiniciaria os dois
+            # pods ao mesmo tempo — transformando 20s de indisponibilidade em minutos.
+            httpGet:
+              path: /saude
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: '1'
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            # readOnlyRootFilesystem exige dar um lugar gravável para o que a aplicação escreve:
+            # os arquivos de log do winston e o /tmp do Node. Efêmeros de propósito — a fonte de
+            # verdade do log é o stdout, que o NOC lê.
+            - name: logs
+              mountPath: /app/logs
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: logs
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ragnabot-motor
+  namespace: ragnabot
+  labels:
+    app: ragnabot-motor
+spec:
+  type: ClusterIP
+  selector:
+    app: ragnabot-motor
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ragnabot-motor
+  namespace: ragnabot
+spec:
+  # Manutenção de nó (`kubectl drain`) nunca tira as duas réplicas de uma vez.
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: ragnabot-motor
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ragnabot-motor-config
+  namespace: ragnabot
+data:
+  NODE_ENV: production
+  PORT: '3000'
+  TZ: America/Fortaleza
+  LOG_LEVEL: info
+  # URL pública da plataforma (o nome que está no certificado).
+  RAGNABOT_BASE_URL: https://bot.ragnatela.com.br
+  RAGNABOT_HTTP_TIMEOUT_MS: '20000'
+  # Como suspender uma empresa: remover_vinculos (reversível) | somente_marcar
+  RAGNABOT_SUSPENSAO_MODO: remover_vinculos
+  # Provedor de cobrança: manual (Pix copia e cola, sem credencial) | efibank
+  RAGNABOT_COBRANCA_ADAPTADOR: manual
+  # TRAVA MESTRA: 1 = o serviço pode MESMO liberar/suspender a conta do cliente.
+  # Sobe em '0' na virada — o ciclo roda em observação e só registra a intenção.
+  RAGNABOT_COBRANCA_APLICAR: '0'
+  RAGNABOT_PIX_NOME: RAGNATELA IOT SOLUTIONS
+  RAGNABOT_PIX_CIDADE: SAO LUIS
+  # ── De dentro do cluster o motor fala com a plataforma pelo Service, não pela internet:
+  #    não passa por proxy reverso, não depende de DNS público e não sofre com hairpin NAT.
+  #    ❓ DECISÃO DO CHEFE: manter o RAGNABOT_PROXY_IP (caminho de hoje, pelo proxy) ou apontar
+  #    para http://ragnabot-web:3000 e aposentar a variável.
+  # RAGNABOT_PROXY_IP: «DEFINIR — só se continuar saindo pelo proxy reverso»
+---
+# ════════════════════════════════════════════════════════════════════════════════════════════════
+# O `Secret` ragnabot-motor-env NÃO ESTÁ NESTE ARQUIVO, de propósito (LEI 1: nenhum segredo no
+# git). Criar à mão no servidor, com estes nomes de chave:
+#
+#   DATABASE_URL                     base `ragnabot` no Patroni. ⚠️ APONTAR PARA O SERVIÇO
+#                                    `banco-lider` (o HAProxy que segue o primário), NUNCA para o
+#                                    IP de um nó — o líder muda.
+#                                    postgresql://<usuario>@banco-lider:5432/ragnabot
+#   ENCRYPTION_KEY                   ⚠️ A MESMA do NOC, 64 hex. Sem ela idêntica, todo segredo já
+#                                    gravado (token de plataforma, senha de origem) NÃO ABRE.
+#                                    Conferir ANTES de migrar dado: src/base/testes/crypto.test.mjs
+#   RAGNABOT_PLATFORM_TOKEN          token do Platform App da plataforma. É a chave de TODAS as
+#                                    empresas: vazou, comprometeu todo mundo.
+#   RAGNABOT_WEBHOOK_SEGREDO         segredo do webhook plataforma → motor
+#   RAGNABOT_COBRANCA_WEBHOOK_SEGREDO segredo do webhook do provedor de cobrança
+#   RAGNABOT_DB_URL                  base `chatwoot` (liberar/suspender conta pelo caminho direto)
+#   RAGNABOT_PIX_CHAVE               chave Pix do adaptador manual
+#   EFI_CLIENT_ID · EFI_CLIENT_SECRET · EFI_PIX_CHAVE · EFI_PIX_CERT_SENHA · EFI_AMBIENTE
+#                                    só se RAGNABOT_COBRANCA_ADAPTADOR=efibank
+#   RAGNABOT_S3_ENDPOINT · _REGION · _BUCKET · _ACCESS_KEY · _SECRET_KEY
+#                                    bucket IMUTÁVEL do backup (não é o dos anexos)
+#
+# ❗ AINDA SEM DONO (ver relatório da Etapa 1): o envio de e-mail do produto lê hoje a
+#    configuração SMTP da tabela `Settings` DO NOC — que não é uma das 40 tabelas. Enquanto isso
+#    não for resolvido, o motor não manda e-mail sozinho. As duas saídas:
+#      (a) SMTP_HOST · SMTP_PORT · SMTP_SECURE · SMTP_USER · SMTP_PASSWORD · SMTP_FROM_EMAIL
+#          · SMTP_FROM_NAME neste Secret; ou
+#      (b) uma tabela de configuração do próprio Ragnabot.
+#    É decisão de arquitetura, não de implementação.
+#
+# Criação (o valor NUNCA vai para o histórico do shell nem para o git):
+#   kubectl -n ragnabot create secret generic ragnabot-motor-env --from-env-file=/root/motor.env
+#   shred -u /root/motor.env
+# ════════════════════════════════════════════════════════════════════════════════════════════════

@@ -1,0 +1,37 @@
+{
+  "name": "ragnabot",
+  "version": "1.3.0",
+  "private": true,
+  "description": "Ragnabot — motor de fluxo, portaria, relógios de atendimento, SaaS, protocolo e auditoria. Aplicação própria, independente do NOC.",
+  "type": "module",
+  "engines": {
+    "node": ">=18.18"
+  },
+  "main": "src/servidor.js",
+  "scripts": {
+    "start": "node src/servidor.js",
+    "test": "npm run test:base && npm run test:unit && npm run test:mjs",
+    "prisma:generate": "prisma generate",
+    "prisma:validate": "prisma validate",
+    "prisma:format": "prisma format",
+    "test:base": "node src/base/testes/crypto.test.mjs && node --experimental-test-module-mocks src/base/testes/auditoria.test.mjs",
+    "test:unit": "vitest run",
+    "test:mjs": "node --test tests/"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1040.0",
+    "@prisma/client": "^5.22.0",
+    "axios": "^1.18.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "nodemailer": "^9.0.1",
+    "pg": "^8.20.0",
+    "ssh2": "^1.16.0",
+    "winston": "^3.14.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "prisma": "^5.22.0",
+    "vitest": "^4.1.5"
+  }
+}

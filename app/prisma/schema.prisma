@@ -1,0 +1,1449 @@
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// SCHEMA DO RAGNABOT — as 40 tabelas do produto, na base `ragnabot` (Patroni), fora do NOC.
+//
+// POR QUE ESTE ARQUIVO EXISTE (Etapa 1 do doc 33): até 30/08/2026 estes 40 modelos moravam no
+// schema do NOC (`ragnatela_noc`). Se o NOC caísse, o chatbot parava. Aqui eles passam a ser da
+// aplicação do Ragnabot; o NOC segue com os dele.
+//
+// ⚠️ LEI 2 DA CASA — NUNCA `prisma db push` nem `prisma migrate dev` neste schema.
+//    As 3 chaves estrangeiras COMPOSTAS (`rb_no_fk`, `rb_aresta_fk`, `rb_exec_versao_fk`) são a
+//    tranca que impede juntar dado de empresas diferentes. O Prisma não sabe declará-las e os dois
+//    comandos as apagam EM SILÊNCIO. Caminho certo:
+//      prisma migrate diff --from-schema-datasource --to-schema-datamodel --script
+//      → recortar todo DROP → conferir que sobrou só CREATE → prisma db execute --file
+//      → versionar o SQL em prisma/sql/<assunto>/NN-*.sql
+//    A criação da base do zero é feita pelos SQL de `prisma/sql/` (ver prisma/sql/00-LEIA-ME.md).
+//
+// ⚠️ CHAVES LÓGICAS PARA O NOC: nenhum modelo aqui tem `@relation` para modelo do NOC. Os vínculos
+//    com entidades do NOC (empresa cliente, usuário) são guardados como String — `clientCompanyId`,
+//    `userId`, `criadoPorUserId` — SEM integridade referencial do banco, de propósito: são bases
+//    separadas. Quem valida o vínculo é a aplicação (ou a API do NOC), não o Postgres.
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  // Base `ragnabot` no cluster Patroni (a mesma alta disponibilidade que já serve a plataforma).
+  // Aponte para o serviço `banco-lider` (HAProxy que segue o primário), NUNCA para um nó fixo:
+  // o líder muda. Ex.: postgresql://ragnabot@banco-lider:5432/ragnabot
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Catálogo de planos. Preço NASCE NULO de propósito: o valor é decisão comercial do dono,
+// e um número inventado no código vira cobrança errada no cliente.
+model RagnabotPlano {
+  id                 String               @id @default(cuid())
+  codigo             String               @unique // slug estável ("essencial", "profissional"); é o que a API e o adaptador usam
+  nome               String
+  descricao          String?
+  precoCentavos      Int? // null = preço ainda NÃO definido pelo dono; assinatura não pode ser cobrada assim
+  moeda              String               @default("BRL")
+  cicloMeses         Int                  @default(1) // 1 = mensal, 3 = trimestral, 12 = anual
+  // Limites do plano. null = ilimitado (e é assim que o código lê).
+  limiteAgentes      Int?
+  limiteCaixas       Int? // caixas de entrada / canais
+  limiteMensagensMes Int?
+  recursos           Json                 @default("[]") // lista de textos exibidos na vitrine
+  // Ponte com a frente SaaS/multiconexão: a CAPACIDADE do plano (agentes, caixas, canais)
+  // vive em `src/config/ragnabot-plans.js` — regra de produto se revisa em pull request, não
+  // com UPDATE solto. Aqui mora só a camada COMERCIAL (preço e ciclo). Este campo diz a qual
+  // plano de capacidade este plano comercial corresponde: essencial|profissional|avancado|custom.
+  codigoCapacidade   String?
+  ativo              Boolean              @default(true)
+  publico            Boolean              @default(false) // aparece para o cliente escolher
+  ordem              Int                  @default(0)
+  idExterno          String? // plan_id no provedor (Efí: POST /v1/plan)
+  criadoEm           DateTime             @default(now())
+  atualizadoEm       DateTime             @updatedAt
+  assinaturas        RagnabotAssinatura[]
+
+  @@index([ativo, ordem])
+}
+
+// Uma assinatura = uma conta do RAGNABOT (Chatwoot) pagando um plano.
+model RagnabotAssinatura {
+  id                 String              @id @default(cuid())
+  clientCompanyId    String? // chave lógica → ClientCompany.id (sem @relation, ver cabeçalho)
+  // Chave lógica → RagnabotTenant.id (frente SaaS/multiconexão). Quando preenchida, a
+  // liberação e a suspensão são DELEGADAS a ragnabot-tenant.service (suspenderEmpresa/
+  // reativarEmpresa) — um mecanismo só, nunca dois disputando a mesma conta.
+  tenantId           String?
+  contaChatwootId    Int? // chave lógica → accounts.id no PostgreSQL do RAGNABOT
+  rotuloConta        String // nome legível da conta (a auditoria precisa ler sozinha)
+  planoId            String
+  plano              RagnabotPlano       @relation(fields: [planoId], references: [id])
+  // teste | ativa | inadimplente | suspensa | cancelada
+  status             String              @default("teste")
+  cicloMeses         Int                 @default(1)
+  valorCentavos      Int? // fotografia do preço no momento da contratação (plano pode mudar depois)
+  diaVencimento      Int                 @default(10)
+  inicioEm           DateTime            @default(now())
+  fimTesteEm         DateTime?
+  proximoVencimento  DateTime?
+  ultimoPagamentoEm  DateTime?
+  inadimplenteDesde  DateTime?
+  suspensaEm         DateTime?
+  canceladaEm        DateTime?
+  motivoCancelamento String?
+  diasCarencia       Int                 @default(5) // vencido há N dias → inadimplente (ainda usa)
+  diasParaSuspender  Int                 @default(10) // vencido há N dias → suspende a conta
+  meioPreferido      String              @default("pix") // pix | boleto | cartao | manual
+  adaptador          String              @default("manual") // manual | efibank
+  idExterno          String? // subscription_id no provedor
+  idExternoPlano     String?
+  emailCobranca      String?
+  documentoCobranca  String? // CPF/CNPJ só dígitos (exigido pela Efí para boleto)
+  contatoNome        String?
+  contatoTelefone    String?
+  // Espelho do que ESTÁ aplicado na conta do Chatwoot (accounts.status). Serve para o
+  // reconciliador saber que a intenção já virou fato — e para detectar divergência.
+  contaLiberada      Boolean             @default(true)
+  aplicadoEm         DateTime?
+  ultimoErro         String?
+  metadados          Json?
+  criadoEm           DateTime            @default(now())
+  atualizadoEm       DateTime            @updatedAt
+  pagamentos         RagnabotPagamento[]
+
+  @@index([status, proximoVencimento])
+  @@index([clientCompanyId])
+  @@index([tenantId])
+  @@index([contaChatwootId])
+  @@index([idExterno])
+}
+
+// Uma cobrança do ciclo (competência "2026-09"). A unicidade por (assinatura, competência)
+// é o que impede cobrar o mesmo mês duas vezes quando o worker roda de novo.
+model RagnabotPagamento {
+  id                  String             @id @default(cuid())
+  assinaturaId        String
+  assinatura          RagnabotAssinatura @relation(fields: [assinaturaId], references: [id], onDelete: Cascade)
+  competencia         String // "AAAA-MM" do ciclo cobrado
+  valorCentavos       Int
+  // pendente | pago | vencido | cancelado | estornado
+  status              String             @default("pendente")
+  meio                String             @default("manual") // pix | boleto | cartao | manual
+  vencimentoEm        DateTime
+  pagoEm              DateTime?
+  canceladoEm         DateTime?
+  valorPagoCentavos   Int?
+  idExterno           String?            @unique // charge_id (Efí) ou endToEndId (Pix): âncora da baixa
+  idExternoAssinatura String?
+  linkPagamento       String?
+  linhaDigitavel      String?
+  pixCopiaECola       String? // BR Code EMV (o ManualAdapter gera offline com a chave Pix do dono)
+  observacao          String?
+  baixadoPorUserId    String? // quem deu baixa manual (auditoria)
+  payload             Json? // resposta crua do provedor, para perícia
+  criadoEm            DateTime           @default(now())
+  atualizadoEm        DateTime           @updatedAt
+
+  @@unique([assinaturaId, competencia])
+  @@index([status, vencimentoEm])
+  @@index([assinaturaId, vencimentoEm])
+}
+
+// Trilha CRUA de tudo que chegou do provedor. É a idempotência e é a prova.
+model RagnabotEventoCobranca {
+  id                String    @id @default(cuid())
+  origem            String // efibank-cobrancas | efibank-pix | manual
+  chaveIdempotencia String    @unique // ex.: "efi-notif:<token>" ou "efi-pix:<endToEndId>"
+  tipo              String?
+  assinaturaId      String?
+  pagamentoId       String?
+  statusExterno     String?
+  resultado         String? // aplicado | ignorado | erro
+  erro              String?
+  payload           Json?
+  ip                String?
+  recebidoEm        DateTime  @default(now())
+  processadoEm      DateTime?
+
+  @@index([origem, recebidoEm])
+  @@index([assinaturaId])
+}
+
+model RagnabotTenant {
+  id              String    @id @default(uuid())
+  name            String // razão social ou nome fantasia
+  slug            String    @unique // identificador curto, usado em URL e conferência de exclusão
+  cnpj            String?
+  contactName     String
+  contactEmail    String    @unique // e-mail duplicado entre empresas é FALHA DURA (ordem do dono)
+  contactWhatsapp String?
+  // Conta da empresa na plataforma de atendimento. Fica null após a exclusão
+  // definitiva (LGPD) — o registro comercial permanece, os dados não.
+  cwAccountId     Int?      @unique
+  cwAdminUserId   Int? // usuário administrador criado no provisionamento
+  plan            String    @default("essencial") // essencial|profissional|avancado|custom
+  status          String    @default("trial") // trial|active|past_due|suspended|closed
+  limits          Json // snapshot dos limites no momento do plano vigente
+  wabaId          String? // conta comercial de WhatsApp do CLIENTE ("traga a sua WABA")
+  brandLogoUrl    String?
+  brandColor      String?
+  retentionDays   Int       @default(365) // LGPD: retenção do histórico de conversas
+  dpaSignedAt     DateTime?
+  termsAcceptedAt DateTime?
+  trialEndsAt     DateTime?
+  suspendedAt     DateTime?
+  closedAt        DateTime?
+  purgedAt        DateTime? // exclusão definitiva da conta na plataforma
+  createdByUserId String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  inboxes RagnabotInbox[]
+  events  RagnabotTenantEvent[]
+  usage   RagnabotUsageSnapshot[]
+  origens RagnabotOrigemAutorizada[]
+
+  @@index([status])
+  @@index([plan])
+}
+
+// Conexões (caixas de entrada) da empresa. MULTICONEXÃO: várias linhas por
+// tenant, inclusive do MESMO canal — dois números de WhatsApp, dois widgets.
+//
+// ⚠️ NENHUMA CREDENCIAL AQUI. O token da Meta, o token do bot e as senhas de
+// IMAP/SMTP ficam SOMENTE na plataforma (criptografados lá). Guardamos apenas
+// `credentialFingerprint` (sha256 truncado) para saber se o token foi trocado,
+// sem jamais poder reconstruí-lo.
+model RagnabotInbox {
+  id                    String         @id @default(uuid())
+  tenantId              String
+  tenant                RagnabotTenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  cwInboxId             Int? // id da caixa na plataforma
+  name                  String
+  channelType           String // web_widget|whatsapp|email|telegram|instagram|facebook|api
+  identifier            String // número, e-mail ou endereço do site — o que identifica a conexão
+  credentialFingerprint String?
+  metadata              Json? // wabaId, phoneNumberId, websiteToken, callbackWebhook
+  // Trava de corrida: "canal:identificador" enquanto a conexão está ATIVA, null
+  // depois de removida. Um número de WhatsApp pertence a UMA empresa por vez, e
+  // dois pedidos simultâneos não conseguem prender o mesmo número — mas o número
+  // volta a ficar livre quando a conexão é desligada (Postgres aceita vários
+  // nulos num índice único, e é exatamente disso que precisamos aqui).
+  activeKey             String?        @unique
+  removedAt             DateTime? // conexão desligada — a linha NUNCA é apagada (histórico)
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  @@index([tenantId, removedAt])
+  @@index([channelType, identifier])
+}
+
+model RagnabotTenantEvent {
+  id          String         @id @default(uuid())
+  tenantId    String
+  tenant      RagnabotTenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  type        String // provisioned|plan_changed|suspended|reactivated|closed|purge|inbox_created|inbox_removed|agent_invited|sso_link|limit_warning
+  payload     Json?
+  actorUserId String? // null = worker automático
+  createdAt   DateTime       @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([type])
+}
+
+// Medição de consumo por competência (base da cobrança e do aviso de limite).
+model RagnabotUsageSnapshot {
+  id            String         @id @default(uuid())
+  tenantId      String
+  tenant        RagnabotTenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  periodStart   DateTime // 1º dia do mês de competência, 00:00 America/Fortaleza
+  agentsActive  Int            @default(0)
+  inboxes       Int            @default(0)
+  conversations Int            @default(0)
+  messagesIn    Int            @default(0)
+  messagesOut   Int            @default(0)
+  storageMb     Int?
+  collectedAt   DateTime       @default(now())
+
+  @@index([tenantId, periodStart])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ORIGEM AUTORIZADA — de quem aceitamos contato, e a que empresa ele pertence.
+//
+// Ordem do dono (28/08/2026): "deveremos poder cadastrar apenas o domínio todo
+// e/ou por conta de e-mail e associar a empresa". E contato de origem NÃO
+// cadastrada é RECUSADO — decisão dele, depois de eu levantar o risco de perder
+// prospecto novo. Faz sentido: `suporte@` é canal de cliente existente; quem
+// chega novo entra pelo comercial.
+//
+// Serve aos DOIS canais: e-mail (domínio ou conta) e WhatsApp (número), porque a
+// alocação acontece na CONVERSA, não no canal. É o que permite "cada novo cliente
+// que entrou em contato por whats e mail alocar ao grupo (empresa)".
+model RagnabotOrigemAutorizada {
+  id       String         @id @default(uuid())
+  tenantId String
+  tenant   RagnabotTenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // dominio  → "empresa.com.br"  (vale para qualquer conta @empresa.com.br)
+  // email    → "fulano@gmail.com" (conta avulsa: sócio, terceirizado, Gmail pessoal)
+  // whatsapp → "5598999999999"    (número, só dígitos)
+  tipo  String
+  valor String // SEMPRE normalizado minúsculo e sem espaço; número só dígitos
+
+  ativo      String? // null = ativo. Guarda o motivo quando desativado, p/ auditoria
+  observacao String?
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Uma origem pertence a UMA empresa. Domínio em duas empresas é ambiguidade
+  // que só aparece no pior momento — melhor falhar no cadastro.
+  @@unique([tipo, valor])
+  @@index([tenantId])
+}
+
+// CONTATO RECUSADO — todo contato barrado fica registrado aqui.
+//
+// Por que existe: recusar em silêncio é perigoso. Se um cliente real escrever de
+// um domínio que ninguém cadastrou, a mensagem some e NINGUÉM fica sabendo — nem
+// ele, nem nós. Este registro transforma o silêncio em fato consultável, e é o
+// que permite a tela "recusados hoje" para alguém cadastrar o que faltou.
+model RagnabotContatoRecusado {
+  id        String   @id @default(uuid())
+  canal     String // email | whatsapp
+  origem    String // e-mail ou número de quem tentou
+  assunto   String? // assunto do e-mail, quando houver
+  resumo    String? // primeiras linhas, para dar contexto a quem for classificar
+  resolvido Boolean  @default(false) // marcado quando alguém cadastra a origem
+  criadoEm  DateTime @default(now())
+
+  @@index([canal, criadoEm])
+  @@index([resolvido])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PROTOCOLO DE ATENDIMENTO — RGT-0000000001, um por empresa, sequência própria.
+//
+// Ordem do dono: "cada atendimento deverá ter um protocolo... RGT-SEQUÊNCIA DE 10 NÚMEROS";
+// "cada empresa terá 3 letras de prefixo, análogo ao RGT que a Ragnatela tem".
+//
+// O CONTADOR é uma linha por empresa. O próximo número sai de um UPDATE atômico
+// (`prefixo` travado na transação) — dois atendimentos simultâneos NUNCA pegam o
+// mesmo número. Esta tabela é o contador; o protocolo emitido vai em RagnabotProtocolo.
+model RagnabotContadorProtocolo {
+  tenantId String @id
+  prefixo  String @unique // 3 letras MAIÚSCULAS, uma por empresa (RGT = Ragnatela)
+  ultimo   Int    @default(0) // último número emitido; o próximo é ultimo+1
+
+  updatedAt DateTime @updatedAt
+}
+
+// PROTOCOLO EMITIDO — liga o número humano ao atendimento no Chatwoot.
+model RagnabotProtocolo {
+  id        String @id @default(uuid())
+  tenantId  String
+  prefixo   String // desnormalizado p/ busca direta e p/ o protocolo sobreviver a troca de prefixo
+  numero    Int // sequência dentro da empresa
+  protocolo String @unique // "RGT-0000000001" — o par prefixo+numero, materializado e único
+
+  // Referência ao atendimento na plataforma. Guardamos o id da conversa do Chatwoot;
+  // NENHUM dado de conversa é copiado — só o ponteiro.
+  cwConversationId Int
+  cwAccountId      Int
+
+  criadoEm DateTime @default(now())
+
+  @@unique([tenantId, numero])
+  @@unique([cwAccountId, cwConversationId]) // idempotência: 1 protocolo por conversa
+  @@index([tenantId, criadoEm])
+  @@index([protocolo])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUDITORIA POR USUÁRIO — quando mexer em config, logar, deslogar, IP, início/fim
+// de atendimento. Vive DO NOSSO LADO (a nativa é paga e some nas atualizações).
+//
+// Ordem do dono sobre ISOLAMENTO: admin da empresa vê "tudo da empresa dele — e nada
+// das outras". Por isso `tenantId` é OBRIGATÓRIO em toda consulta filtrada, e a
+// consulta filtra pela empresa do USUÁRIO LOGADO, nunca por parâmetro da tela — foi
+// assim que o sistema antigo vazou. Há teste provando que A não alcança B.
+model RagnabotAuditoria {
+  id       String  @id @default(uuid())
+  tenantId String? // null = evento do próprio NOC/Ragnatela sem empresa (ex.: super user global)
+
+  // ator
+  atorTipo  String // agent | admin | super | sistema
+  atorId    String? // id do usuário no Chatwoot ou no NOC
+  atorNome  String?
+  atorEmail String?
+
+  categoria String // acesso | atendimento | configuracao | pessoas | dados
+  acao      String // login | logout | login_falhou | atendimento_iniciado | atendimento_encerrado | config_alterada | ...
+  descricao String?
+
+  // onde
+  ip        String?
+  userAgent String?
+
+  // detalhe da mudança (valor antes/depois quando aplicável)
+  protocolo  String? // quando o evento é de atendimento
+  entidade   String? // que objeto mudou (inbox, team, agent, label...)
+  entidadeId String?
+  antes      Json?
+  depois     Json?
+
+  criadoEm DateTime @default(now())
+
+  @@index([tenantId, criadoEm])
+  @@index([tenantId, categoria, criadoEm])
+  @@index([tenantId, atorId, criadoEm])
+  @@index([tenantId, ip])
+  @@index([protocolo])
+}
+
+// ───────────────────────────────────────────────────────────────────────────────────────────────
+// 1. IDENTIDADE DO FLUXO
+//
+// Tráfego de cliente NUNCA escreve nesta tabela. É a correção direta do D10 medido: no sistema
+// atual a telemetria mora dentro do documento do fluxo, então cada interação de cliente reescreve
+// a linha inteira e `updatedAt` deixa de significar "alguém editou" para significar "alguém
+// conversou". Aqui `atualizadoEm` volta a ser o carimbo de EDIÇÃO.
+// ───────────────────────────────────────────────────────────────────────────────────────────────
+model RagnabotFluxo {
+  id       String @id @default(uuid())
+  tenantId String // → RagnabotTenant.id (chave lógica; ver nota de @relation no cabeçalho)
+
+  nome      String
+  descricao String?
+  estado    String  @default("rascunho") // rascunho|publicado|desligado
+
+  // Ponteiro para a versão que atende tráfego novo. É anulável porque um fluxo em rascunho ainda
+  // não publicou nada, e o Postgres aceita vários NULOS num índice único — que aqui é o
+  // comportamento desejado, não um buraco (o oposto exato de RagnabotFluxoEntrada.chave, onde
+  // NULO seria falha). Mesmo padrão de RagnabotInbox.activeKey, já em produção neste schema.
+  versaoPublicadaId String? @unique
+
+  entrada       String @default("subfluxo") // caixa|subfluxo|palavra_chave
+  cwInboxId     Int? // preenchido só quando entrada='caixa'
+  palavrasChave Json   @default("[]") // [{palavra,tipo,diferenciaMaiuscula}]
+
+  // FREIOS DE EXECUÇÃO, por fluxo. Não são enfeite: o fluxo real medido tem DOIS laços (nó 31 →
+  // nó 4 "Recomece" e nó 34 → nó 16 "Não entendi"), e o segundo é acionado por 151 das 518
+  // apresentações medidas. Sem teto, o laço de exceção é um moedor de conversa de cliente.
+  passosPorEvento     Int @default(50)
+  passosTotalMax      Int @default(500)
+  visitasPorNoMax     Int @default(10)
+  ttlExecucaoSegundos Int @default(82800) // 23 h — 1 h de margem sob a janela de serviço da Meta
+
+  // ⚠️ ACRÉSCIMO DECLARADO: a especificação §3.1 manda herdar `vars` "conforme RagnabotFluxo.retomada
+  // (reiniciar é o padrão)", e §3.2/C fala em "politicaContinuacao.janelaSegundos (padrão 20 s)" —
+  // mas o §2.1 esqueceu os dois campos. Materializados aqui em vez de deixar cada serviço criar a
+  // sua própria constante escondida, que é o defeito que a tabela datada de limites evita.
+  retomada            String @default("reiniciar") // reiniciar|herdar_vars
+  politicaContinuacao Json   @default("{\"janelaSegundos\":20,\"ambiguidadeMs\":2000}")
+
+  arquivadoEm     DateTime?
+  criadoPorUserId String?
+  criadoEm        DateTime  @default(now())
+  atualizadoEm    DateTime  @updatedAt
+
+  @@unique([tenantId, nome]) // nome duplicado na mesma empresa é o D11 (fluxo gêmeo) nascendo de novo
+  @@index([tenantId, estado])
+  @@index([cwInboxId])
+}
+
+// ───────────────────────────────────────────────────────────────────────────────────────────────
+// 2. RASCUNHO — em tabela separada, e existe por UM motivo só: é ele que permite a tabela de
+// VERSÕES ser estritamente de inserção, sem nenhum caminho de UPDATE no código da aplicação. Sem
+// esta tabela, "salvar o rascunho" seria um UPDATE numa linha de versão, e o gatilho de
+// imutabilidade não teria como distinguir isso de uma adulteração.
+//
+// `rev` é concorrência otimista. Dois administradores no mesmo fluxo é evento real, não hipótese:
+// `rev` divergente devolve 409 e a segunda gravação vê o conflito, em vez de sobrescrever em
+// silêncio o trabalho do colega.
+// ───────────────────────────────────────────────────────────────────────────────────────────────
+model RagnabotFluxoRascunho {
+  fluxoId  String @id
+  tenantId String
+
+  documento Json // { nos:[], arestas:[], variaveis:[] }
+  rev       Int   @default(0)
+  validacao Json? // último resultado de validar(): problemas de classe A e B
+
+  atualizadoPorUserId String?
+  atualizadoEm        DateTime @updatedAt
+
+  @@index([tenantId])
+}
+
+// ───────────────────────────────────────────────────────────────────────────────────────────────
+// 3. O DOCUMENTO — IMUTÁVEL, SÓ INSERÇÃO.
+//
+// Duas camadas de defesa, porque o D10 sobreviveu catorze meses em produção justamente por
+// ninguém perceber que a linha era reescrita:
+//   (a) gatilho `rb_recusa_update()` BEFORE UPDATE — recusa qualquer UPDATE, de qualquer coluna;
+//   (b) REVOKE UPDATE ON "RagnabotFluxoVersao" do papel da aplicação — cobre também o caso de
+//       alguém remover o gatilho, e é conferível por consulta a information_schema.
+// ───────────────────────────────────────────────────────────────────────────────────────────────
+model RagnabotFluxoVersao {
+  id       String @id @default(uuid())
+  fluxoId  String
+  tenantId String // desnormalizado de propósito: TODO filtro do produto é por empresa
+  numero   Int // 1,2,3… monotônico NO TEMPO — nunca reaproveitado, nunca revisitado
+
+  documento Json // { nos:[], arestas:[], variaveis:[] } — a fonte da projeção abaixo
+
+  hashDocumento String // sha256 do JSON canônico inteiro
+  // sha256 SÓ do esqueleto: (no.id, no.tipo, saídas ordenadas) + (aresta.de, aresta.saida,
+  // aresta.para). IGNORA texto, tempo, limiar e coordenada de tela. É este hash que decide, de
+  // forma auditável, se uma publicação pode alcançar quem já está DENTRO da conversa: hash igual
+  // ⇒ mudança compatível ⇒ retrofit é seguro.
+  hashEstrutura String
+
+  variaveis    Json    @default("[]") // [{nome,tipo,obrigatoria,origem}]
+  noInicialId  String
+  // OBRIGATÓRIO quando a versão tem algum nó que estaciona. É para onde vai a execução órfã na
+  // migração forçada. Recusa explícita de reencaixe por semelhança: mandar uma conversa para o nó
+  // "mais parecido" erra em silêncio, e errar em silêncio no meio de uma conversa de cliente é
+  // pior que parar.
+  noResgateId  String?
+  perfilLimite String // "whatsapp_cloud@2026-08" — contra QUAL perfil de limites isto validou
+  validacao    Json    @default("{}") // problemas conhecidos no momento da publicação
+  modoMigracao String  @default("fixar") // fixar|retrofit|retrofit_forcado
+
+  origemVersaoId String? // de onde foi copiada (reversão ou duplicação)
+  notaPublicacao String?
+
+  publicadoPorUserId String?
+  publicadoEm        DateTime?
+  criadoEm           DateTime  @default(now())
+
+  @@unique([fluxoId, numero])
+  // ★ CHAVE-ALVO DAS FKs COMPOSTAS. Com ela o BANCO recusa amarrar um nó, uma aresta ou uma
+  // execução de uma empresa a uma versão de OUTRA — mesmo que o código erre o filtro, que é
+  // exatamente como o sistema antigo vazou dados entre empresas.
+  @@unique([tenantId, id])
+  @@index([fluxoId, publicadoEm])
+  // Detecta fluxo gêmeo (D11). NÃO é unique de propósito: reverter republica um documento
+  // idêntico a uma versão antiga, e isso é legítimo.
+  @@index([hashDocumento])
+  @@index([hashEstrutura])
+}
+
+// ───────────────────────────────────────────────────────────────────────────────────────────────
+// 4. PROJEÇÃO DO GRAFO — onde a integridade tem dentes.
+//
+// Derivada do documento na MESMA transação da publicação. Existe porque as perguntas de operação
+// são de CONJUNTO e são péssimas em JSONB: "quais nós usam este segredo?" (antes de rotacionar um
+// token replicado em dez nós), "o nó em que esta execução parou ainda existe na versão nova?",
+// "quais listas podem estourar por interpolação?".
+// `reprojetar(versaoId)` reconstrói do documento e é teste de integridade — nunca há duas verdades.
+// ───────────────────────────────────────────────────────────────────────────────────────────────
+model RagnabotFluxoNo {
+  id       String @id @default(uuid())
+  versaoId String
+  tenantId String
+
+  noId   String // id do nó DENTRO do documento
+  tipo   String // inicio|texto|midia|pergunta|lista|botoes|espera|condicao|http|variavel|
+  //            // etiqueta|time|notificar|subfluxo|encerrar  (§4.2)
+  titulo String?
+  ordem  Int
+
+  estaciona Boolean @default(false) // espera resposta do cliente
+  efeito    String  @default("nenhum") // nenhum|repetivel|irrepetivel|condicional
+
+  // Apelidos de cofre referenciados pelo nó. É o que faz `ondeUsado(apelido)` responder "quais
+  // fluxos e nós usam este token" ANTES da rotação — pergunta que hoje não tem resposta.
+  segredosRef String[] @default([])
+  // Hosts externos referenciados. Alimenta a conferência contra a lista de permissão da empresa.
+  destinosRef String[] @default([])
+  resumo      String? // ~120 caracteres, para a busca do editor
+
+  @@unique([versaoId, noId])
+  @@index([versaoId])
+  @@index([tenantId, tipo])
+}
+
+// ★ A ESTRELA DO MODELO.
+// O fan-out acidental (D5 medido — duas arestas na MESMA saída do TYPEBOT-ENVIO4, com o
+// encerramento pendurado em apenas um dos ramos) passa a ser RECUSADO PELO BANCO. Validador tem
+// defeito, tem caminho que o contorna, e tem o botão "publicar mesmo assim" que o documento 19
+// §4.1 exige que exista. Restrição de banco não tem nada disso.
+model RagnabotFluxoAresta {
+  id       String @id @default(uuid())
+  versaoId String
+  // ⚠️ CORREÇÃO DECLARADA sobre o §2.2 da especificação: o modelo publicado lá NÃO tem `tenantId`,
+  // mas a migração 4 do §2.8 manda criar FK composta (tenantId, versaoId) "de nó, ARESTA e
+  // execução". Sem a coluna, essa FK não existe e a aresta fica sendo o único ponto do grafo sem
+  // a cerca entre empresas.
+  tenantId String
+
+  de    String // noId de origem
+  saida String // nome da saída ('padrao','sem_resposta','opcao_invalida','erro',id do item…)
+  para  String // noId de destino
+
+  @@unique([versaoId, de, saida]) // ← UMA aresta por saída. O D5 morre aqui, no banco.
+  @@index([versaoId, para])
+}
+
+// ───────────────────────────────────────────────────────────────────────────────────────────────
+// 5. O ESTADO VIVO — uma linha por conversa dentro do fluxo.
+//
+// Esta é a tabela que o tráfego de cliente escreve. Está separada do documento justamente para que
+// a escrita de conversa nunca toque a definição do fluxo (D10).
+// ───────────────────────────────────────────────────────────────────────────────────────────────
+model RagnabotFluxoExecucao {
+  id       String @id @default(uuid())
+  tenantId String
+
+  cwAccountId      Int
+  cwConversationId Int
+  cwContactId      Int?
+  contatoChave     String? // telefone normalizado (só dígitos) — casamento com a janela de 24 h
+  protocolo        String? // RGT-0000000001 — vem de ragnabot-protocolo.service. Mata o D12
+  //                       // (hoje Tickets.flowId é nulo em 100 % dos casos medidos)
+
+  fluxoId         String
+  versaoId        String // versão em que roda AGORA (pode mudar num retrofit)
+  versaoInicialId String // com qual COMEÇOU — é o que torna a migração visível na análise
+
+  noAtualId   String?
+  // Configuração RENDERIZADA do nó em que a conversa está PARADA.
+  // É o que torna o retrofit seguro: a pessoa está olhando no celular uma mensagem que JÁ SAIU e
+  // responde ÀQUILO. Sem congelar, trocar o título de um item enquanto alguém está com a lista
+  // aberta corrompe a resposta em silêncio. Com congelamento, o retrofit passa a valer do PRÓXIMO
+  // nó em diante, e o horizonte de incompatibilidade cai de "o fluxo todo" para "um nó".
+  // Guarda REFERÊNCIAS, nunca binário nem base64.
+  noCongelado Json?
+
+  visitaSeq     Int       @default(0) // token contra despertar obsoleto (ver RagnabotFluxoFila.tokenVisita)
+  aguardando    String    @default("nada") // nada|resposta|temporizador|http|humano
+  // Início da espera. É o que permite o CASAMENTO POSICIONAL NO TEMPO: mensagem cujo `origemEm` é
+  // anterior a isto NÃO é resposta deste nó — é nota interna. Sem essa regra, uma mensagem
+  // atrasada porque o canal esteve surdo é gravada na variável errada e o chamado nasce com os
+  // campos trocados.
+  aguardaDesde  DateTime?
+  acordarEm     DateTime?
+  saidaAoVencer String? // normalmente 'sem_resposta'
+
+  tentativasNo Json @default("{}") // {noId:{semResposta:n,opcaoInvalida:n}}
+  visitasPorNo Json @default("{}")
+  passosTotal  Int  @default(0)
+
+  vars           Json    @default("{}") // ⚠️ DADO PESSOAL — purgado aos 30 dias (ver §RETENÇÃO)
+  caixaPendente  Json    @default("[]") // rajada estacionada (teto 10)
+  pilha          Json    @default("[]") // sub-fluxo modo 'chamar': [{versaoId,noRetornoId}]
+  ultimaVariavel String? // alvo da política de continuação (mensagem que chega logo depois)
+
+  // Trilha compacta [[noId, saida, msDesdeInicio], …], teto 200 + marcador de truncagem.
+  // Responde "por onde essa pessoa passou" com UMA leitura, sem junção — que é a pergunta que o
+  // atendente faz de madrugada, quando ninguém quer montar consulta.
+  trilha         Json    @default("[]")
+  trilhaTruncada Boolean @default(false)
+
+  estado     String  @default("rodando")
+  // ATIVOS:    rodando | esperando | pausado_humano | pausado_duvida
+  // TERMINAIS: concluido | abandonado | erro
+  motivoFim  String?
+  ultimoErro String?
+
+  // POSSE POR ARRENDAMENTO, com token de CERCA.
+  // Trava consultiva de SESSÃO morre em silêncio atrás de pgbouncer em modo transação, e um
+  // processo congelado por pausa longa de coletor de lixo mantém a sessão TCP viva enquanto
+  // acredita ser o dono. A cerca troca "eu tenho a trava" por "o banco aceitou meu UPDATE porque
+  // o meu token ainda é o vigente": zero linhas afetadas ⇒ perdi a posse ⇒ a transação inteira
+  // volta atrás ANTES de qualquer efeito.
+  donoWorker    String?
+  leaseToken    String?
+  leaseExpiraEm DateTime?
+
+  // Estado pausado tem RELÓGIO e PRAZO próprios. Estado sem relógio é estado que some — e o que
+  // some aqui é uma pessoa esperando resposta.
+  prazoEm        DateTime?
+  escalonamentos Int       @default(0)
+
+  expiraEm         DateTime // min(início + ttl, janela.expiraEm − margem)
+  origemExecucaoId String? // retomada depois de abandono/conclusão
+  iniciadaEm       DateTime  @default(now())
+  atualizadaEm     DateTime  @updatedAt
+  encerradaEm      DateTime?
+
+  @@index([estado, acordarEm]) // o despertador vive deste índice
+  @@index([estado, leaseExpiraEm]) // varredor de órfãos
+  @@index([estado, prazoEm]) // escalador de pausa
+  @@index([estado, expiraEm]) // expirador de TTL
+  @@index([versaoId, estado]) // "alguma execução viva ainda aponta para esta versão?"
+  @@index([tenantId, iniciadaEm])
+  @@index([cwAccountId, cwConversationId])
+  @@index([protocolo])
+}
+
+// ───────────────────────────────────────────────────────────────────────────────────────────────
+// 6. ENTRADA BRUTA — imutável. É a idempotência E é a prova.
+// ───────────────────────────────────────────────────────────────────────────────────────────────
+model RagnabotFluxoEntrada {
+  id String @id @default(uuid())
+
+  // CHAVE NOT NULL, CALCULADA. Nunca um par com coluna anulável: dois NULOS não são iguais no
+  // Postgres, e um único campo nulo transformaria o índice único num carimbo decorativo. O próprio
+  // schema da casa registra esse comportamento em RagnabotInbox.activeKey — lá o NULO é recurso
+  // desejado; aqui seria buraco.
+  //   Com id estável:  "cw:<conta>:<evento>:<tipoObjeto>:<idObjeto>"
+  //   Sem id estável:  "cw:<conta>:<evento>:h:<sha256 do corpo canonicalizado>"
+  // ⚠️ O canonicalizador REMOVE campos voláteis (updated_at, last_activity_at, contadores).
+  // Incluir um campo que o emissor reescreve ANULA a idempotência: a reentrega gera chave nova e
+  // passa direto, como se fosse mensagem nova do cliente.
+  chave String @unique
+
+  tenantId         String?
+  inboxSegredoId   String? // POR QUAL segredo entrou — é o segredo que define o escopo da empresa
+  cwAccountId      Int?
+  cwInboxId        Int?
+  cwConversationId Int?
+  cwMessageId      Int?
+  wamid            String? // id da Meta — dedupe do eco do adaptador direto
+
+  evento String
+  classe String // resposta_cliente | controle | eco_proprio
+  //            // Só `resposta_cliente` é candidata a responder um nó. Criação de conversa NUNCA
+  //            // é resposta de pergunta.
+  corpo  Json // REDIGIDO antes do INSERT (nunca token, nunca corpo cru de terceiro)
+
+  origemEm DateTime? // carimbo de ORIGEM (Meta, ou created_at do Chatwoot) — é ele que ordena a
+  //                 // rajada e que decide o casamento posicional no tempo
+  atrasoMs Int? // recebidoEm − origemEm → alimenta a saúde do canal
+
+  resultado    String? // aplicado|ignorado|duplicado|recusado|erro
+  erro         String?
+  recebidaEm   DateTime  @default(now())
+  processadaEm DateTime?
+
+  @@index([cwAccountId, cwConversationId, origemEm])
+  @@index([resultado, recebidaEm])
+  @@index([wamid])
+}
+
+// SEGUNDA BARREIRA de idempotência, agora no CONSUMO.
+// A da entrada protege contra REENTREGA; esta protege contra trabalho ceifado e reprocessado,
+// dreno duplicado e migração de fila. Antes de gravar QUALQUER variável a partir de uma mensagem,
+// se o cwMessageId já foi consumido por esta execução, descarta e registra 'entrada_repetida'.
+model RagnabotFluxoEntradaConsumida {
+  execucaoId  String
+  cwMessageId Int
+  noId        String
+  consumidaEm DateTime @default(now())
+
+  @@id([execucaoId, cwMessageId])
+}
+
+// ───────────────────────────────────────────────────────────────────────────────────────────────
+// 7. FILA DURÁVEL — é o relógio, é a retentativa e é a serialização por conversa.
+//
+// Escolhida em Postgres, não em Redis: o Redis medido no aglomerado é primário/réplica com
+// replicação ASSÍNCRONA e sem ensaio de troca registrado. Numa promoção de réplica a cauda de uma
+// fila desaparece e uma trava distribuída se duplica — que é exatamente o cenário que este motor
+// precisa sobreviver. No Postgres a fila entra no RESTORE-INSTRUCTIONS de graça.
+// ───────────────────────────────────────────────────────────────────────────────────────────────
+model RagnabotFluxoFila {
+  id BigInt @id @default(autoincrement())
+
+  tipo          String // entrada|despertar|continuar_http|iniciar|conciliar|expirar
+  chaveParticao String // "conta:conversa" — a UNIDADE de serialização. Dois processos nunca
+  //                   // executam a mesma conversa porque a posse é tomada por esta chave.
+  tenantId      String?
+  execucaoId    String?
+  entradaId     String?
+  // Descarta despertar obsoleto: se o cliente respondeu antes do prazo, `visitaSeq` avançou e este
+  // job não vale mais. Sem isso, resposta e expiração mandam a conversa por dois caminhos ao mesmo
+  // tempo — e ela chega em dois nós diferentes.
+  tokenVisita   Int?
+
+  payload      Json     @default("{}")
+  prioridade   Int      @default(100) // 50 = tráfego de cliente · 200 = campanha
+  disponivelEm DateTime @default(now())
+
+  status        String  @default("pendente") // pendente|processando|feito|falhou|descartado
+  tentativas    Int     @default(0)
+  maxTentativas Int     @default(8) // ao estourar: 'falhou' + incidente (trabalho envenenado)
+  ultimoErro    String?
+
+  donoWorker String?
+  travadoEm  DateTime?
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@index([status, disponivelEm, prioridade])
+  @@index([chaveParticao, status, id])
+  @@index([execucaoId, status])
+  // ← O CEIFADOR vive deste índice. Trabalho preso em 'processando' por worker morto CONGELA a
+  //   conversa, e para o cliente isso é o robô ficando mudo no meio da frase.
+  @@index([status, travadoEm])
+}
+
+// ───────────────────────────────────────────────────────────────────────────────────────────────
+// 8. CAIXA DE SAÍDA DE DUAS FASES
+//
+// A reserva nasce na MESMA transação que avança o estado; a confirmação vem DEPOIS do efeito. O
+// que fica no meio é o que o conciliador resolve.
+//
+// A ordem inversa (enviar e depois gravar) foi rejeitada por medição de consequência: uma queda
+// entre enviar e gravar replicaria o nó e a mensagem sairia duas vezes SEM NENHUM registro durável
+// de que saiu uma vez — impossível de conciliar, impossível de auditar. O preço assumido é que uma
+// queda pode deixar mensagem não enviada. Silêncio seguido de repetição é falha melhor que
+// "chamado registrado com sucesso" fantasma (o D3 medido).
+// ───────────────────────────────────────────────────────────────────────────────────────────────
+model RagnabotFluxoEfeito {
+  id         String @id @default(uuid())
+  execucaoId String
+  tenantId   String
+
+  noId      String
+  visitaSeq Int
+  tentativa Int    @default(1)
+  // Destinatário, quando há vários (nó `notificar` com lista). Um efeito POR destino: a falha de
+  // um não reenvia para o outro — é o D5/D6 fechado do lado da saída.
+  sufixo    String @default("")
+
+  // sha256(execucaoId|noId|visitaSeq|tentativa|sufixo).
+  // É TAMBÉM o `rgt_efeito` que viaja em content_attributes da mensagem — a NOSSA marca no
+  // destino. Conciliar é procurar a nossa chave, não depender de `source_id`, que em canal de
+  // WhatsApp é preenchido pelo provedor e pode não ser um campo que o criador define.
+  // ⚠️ A chave inclui VISITA e TENTATIVA de propósito. Uma chave derivada só de "protocolo:nó" é
+  // constante entre visitas: não distingue a primeira da segunda tentativa — que é onde ela
+  // serviria — e faz um segundo chamado legítimo na mesma conversa colidir com o primeiro num
+  // destino que respeite idempotência, sendo descartado em silêncio enquanto o cliente lê
+  // "registrado com sucesso". Seria o D3 renascido por outro caminho.
+  chave String @unique
+
+  tipo             String // msg_texto|msg_lista|msg_botoes|midia|template|nota|http|notificar|
+  //                      // etiqueta|atribuir|resolver
+  politicaEmDuvida String @default("conciliar") // conciliar|reenviar|condicional|seguir|parar
+
+  // Carimbo do estado OBSERVADO no momento da reserva, para ESCRITA CONDICIONAL.
+  // `resolver` e `atribuir` NÃO são idempotentes: são escritas de "último a escrever vence" sobre
+  // um estado compartilhado e editável por humano. Reaplicar 45 segundos depois fecha a conversa
+  // embaixo da analista que acabou de assumir, ou rouba a conversa dela.
+  estadoAnterior Json?
+
+  status                String  @default("reservado") // reservado|confirmado|falhou|descartado|duvidoso
+  motivoDescarte        String? // fora_da_janela|limite_meta|estado_mudou|humano_assumiu
+  idExterno             String? // id devolvido pelo destino (id da mensagem no Chatwoot, wamid)
+  httpStatus            Int?
+  resposta              Json? // NUNCA corpo cru — só resumo redigido
+  erro                  String?
+  // Template pago: torna o prejuízo de um replay VISÍVEL em vez de invisível.
+  custoEstimadoCentavos Int?
+
+  reservadoEm  DateTime  @default(now())
+  confirmadoEm DateTime?
+
+  @@index([status, reservadoEm]) // conciliador
+  @@index([execucaoId, visitaSeq])
+  @@index([tenantId, tipo, reservadoEm])
+}
+
+// ───────────────────────────────────────────────────────────────────────────────────────────────
+// 9. TELEMETRIA — FORA DO DOCUMENTO. A correção direta do D10. SÓ INSERT, nunca UPDATE.
+// ───────────────────────────────────────────────────────────────────────────────────────────────
+model RagnabotFluxoEvento {
+  id         BigInt  @id @default(autoincrement())
+  tenantId   String
+  versaoId   String
+  execucaoId String
+  noId       String?
+
+  tipo         String // no_entrou|no_saiu|mensagem_enviada|resposta_recebida|sem_resposta|opcao_invalida|
+  //          // erro_no|texto_cortado|limite_visitas|prazo_adiado_por_canal|ordem_incerta|
+  //          // entrada_repetida|versao_migrada|resgatado|entregue_humano|abandonado
+  saida        String?
+  // interativo|indice|titulo|prefixo|apelido — mede DA PRODUÇÃO como a pessoa conseguiu escolher.
+  // Se a maioria vier por índice ou por apelido, o menu está mal escrito, e isso aparece sozinho
+  // sem ninguém precisar suspeitar primeiro.
+  viaCasamento String?
+  latenciaMs   Int?
+  cwMessageId  Int?
+
+  // LGPD: NÃO carrega o texto do cliente. UMA exceção, no tipo 'opcao_invalida': 120 caracteres do
+  // que a pessoa digitou, porque ali o texto É o achado — as 151 pessoas medidas estão dizendo o
+  // que querem, e hoje ninguém lê. Herda RagnabotTenant.retentionDays.
+  detalhe Json?
+
+  criadoEm DateTime @default(now())
+
+  @@index([versaoId, noId, tipo, criadoEm])
+  @@index([execucaoId, criadoEm])
+  @@index([tenantId, tipo, criadoEm])
+}
+
+// AGREGADO DIÁRIO — a TABELA é criada agora (é barata e vazia), mas o WORKER que a preenche é
+// FASE 2, com gatilho escrito: ~200 mil eventos/mês por empresa. Justificativa para adiar: o nó
+// mais movimentado medido acumulou 518 apresentações em CATORZE MESES; varrer o bruto responde
+// instantaneamente nessa ordem de grandeza, e construir o agregador agora seria otimizar por
+// presunção. Deriva 100 % do bruto, então ligá-lo depois é recarga, não migração de risco.
+model RagnabotFluxoNoMetricaDia {
+  id       BigInt   @id @default(autoincrement())
+  tenantId String
+  versaoId String
+  noId     String
+  dia      DateTime @db.Date
+
+  apresentados  Int  @default(0)
+  respondidos   Int  @default(0)
+  expirados     Int  @default(0)
+  invalidos     Int  @default(0)
+  porSaida      Json @default("{}")
+  latenciaP50Ms Int?
+  latenciaP95Ms Int?
+
+  @@unique([versaoId, noId, dia])
+  @@index([tenantId, dia])
+}
+
+// A CAIXA DE ENTRADA DE DEFEITOS DO OPERADOR.
+// Agrupada, não uma linha por evento: "CONFIRMACAO · opção inválida · 151 vezes · última há 3 min"
+// é acionável; 151 linhas iguais são ruído que se aprende a ignorar — e ignorar é o que aconteceu
+// nos catorze meses medidos.
+model RagnabotFluxoIncidente {
+  id       String @id @default(uuid())
+  tenantId String
+  versaoId String
+  noId     String
+
+  codigo String // catálogo em §4.10: SEM_RESPOSTA_ESGOTADA|OPCAO_INVALIDA_ESGOTADA|
+  //            // LIMITE_EXCEDIDO|JANELA_FECHADA|TEMPLATE_REPROVADO|HTTP_FALHOU|HTTP_SEM_CAMPO|
+  //            // DESTINO_NAO_PERMITIDO|VARIAVEL_AUSENTE|ARESTA_AUSENTE|TETO_DE_PASSOS|
+  //            // CANAL_RECUSOU|SEGREDO_AUSENTE|EFEITO_DUVIDOSO|ORDEM_INCERTA|EXECUCAO_RESGATADA
+  nivel  String @default("erro") // erro|aviso
+
+  mensagem     String // para o OPERADOR, em português, dizendo o modo de falha real
+  comoCorrigir String? // escrito pelo executor que detectou — quem sabe o defeito sabe o conserto
+  amostras     Json    @default("[]") // até 5, REDIGIDAS
+
+  ocorrencias Int      @default(1)
+  primeiraEm  DateTime @default(now())
+  ultimaEm    DateTime @default(now())
+
+  reconhecidoPor String?
+  reconhecidoEm  DateTime?
+  resolvidoEm    DateTime?
+
+  @@unique([versaoId, noId, codigo]) // é o agrupamento, imposto pelo banco
+  @@index([tenantId, resolvidoEm, ultimaEm])
+}
+
+// SAÚDE DO CANAL por conta.
+// Existe porque canal ruim NUNCA é queda, e porque o relógio do motor não pode continuar andando
+// enquanto o canal está surdo: um prazo de 4 minutos e um atraso mediano de 6 minutos são
+// matematicamente incompatíveis — nessa condição `sem_resposta` não pode significar "o cliente não
+// respondeu", e o motor não pode afirmar que significa.
+//
+// DUAS evidências INDEPENDENTES marcam degradação: falha de SAÍDA (disjuntor) e SILÊNCIO anormal
+// de ENTRADA — porque numa parada total não há falha de saída a detectar se ninguém tentar enviar
+// naquela janela.
+model RagnabotFluxoCanalSaude {
+  cwAccountId Int @id
+
+  ultimaEntradaEm DateTime?
+  ultimoEnvioOkEm DateTime?
+  atrasoP95Ms     Int?
+  degradadoDesde  DateTime?
+  degradadoAte    DateTime?
+  // [[inicio,fim], …] das últimas 24 h — usado para DESCONTAR tempo de canal caído do prazo dos
+  // nós antes de tomar a saída `sem_resposta`.
+  janelas         Json      @default("[]")
+  atualizadoEm    DateTime  @updatedAt
+}
+
+// ───────────────────────────────────────────────────────────────────────────────────────────────
+// 10. JANELA DE SERVIÇO DA META — estado de primeira classe, não esperança.
+//
+// ⚠️ A chave é (número DA EMPRESA, destinatário), NÃO (conta, contato): a Ragnatela tem DUAS
+// conexões de WhatsApp medidas na MESMA empresa (Whatsapps 42 "RAGNATELA" e 45 "Suporte
+// Ragnatela"). Uma janela aberta por um número não vale pelo outro, e com duas caixas na mesma
+// conta essa informação não é derivável depois — por isso ela é gravada, não inferida.
+// ───────────────────────────────────────────────────────────────────────────────────────────────
+model RagnabotFluxoJanela {
+  id String @id @default(uuid())
+
+  phoneNumberId    String // o número DA EMPRESA que recebeu
+  destinatarioWaId String // só dígitos
+  cwAccountId      Int
+
+  ultimaEntradaEm         DateTime // carimbo de ORIGEM, não de recepção: entre a Meta e nós há o Chatwoot
+  //                       // ingerindo, gravando e disparando o webhook
+  expiraEm                DateTime
+  // Visível na tela, não escondida em constante. Enquanto NÃO estiver medido se o Chatwoot 4.17.1
+  // repassa o timestamp da Meta, o motor trata a janela como fechada esta margem ANTES do
+  // vencimento nominal.
+  margemSegurancaSegundos Int       @default(300)
+  // A Meta recusou por fora-de-janela: a NOSSA contabilidade aprende com a fonte autoritativa em
+  // vez de continuar dizendo "aberta" até a próxima mensagem de entrada.
+  fechadaPeloDestinoEm    DateTime?
+
+  atualizadaEm DateTime @updatedAt
+
+  @@unique([phoneNumberId, destinatarioWaId])
+  @@index([expiraEm])
+}
+
+// COFRE POR EMPRESA. Valor cifrado com src/utils/crypto.js (AES-256-GCM, ENCRYPTION_KEY).
+// NENHUMA rota devolve `valorCifrado` — só o fingerprint, o mesmo padrão de
+// RagnabotInbox.credentialFingerprint já em produção.
+//
+// ⚠️ NÃO EXISTE cofre do tipo "variável de ambiente", e a ausência é deliberada: o .env deste
+// processo carrega RAGNABOT_PLATFORM_TOKEN, RAGNABOT_DB_URL e ENCRYPTION_KEY. Um apelido que
+// apontasse para `env` transformaria o editor de fluxo — uma tela que o cliente usa — em leitura
+// arbitrária do ambiente mais privilegiado que temos.
+model RagnabotFluxoSegredo {
+  id       String @id @default(uuid())
+  tenantId String
+
+  apelido      String // "typebot_token" — é ISTO que vai no documento do fluxo, nunca o valor
+  valorCifrado String
+  fingerprint  String // sha256 truncado: mostra que trocou, sem permitir reconstruir
+  descricao    String?
+
+  criadoPorUserId String?
+  rotacionadoEm   DateTime?
+  usadoEm         DateTime?
+  criadoEm        DateTime  @default(now())
+
+  // resolver() usa findUnique com o tenantId DA EXECUÇÃO. Um findFirst por apelido devolveria a
+  // linha de OUTRA empresa — e o cliente A mandaria requisição com o token do cliente B.
+  @@unique([tenantId, apelido])
+  @@index([tenantId])
+}
+
+// LISTA DE PERMISSÃO DE SAÍDA, por empresa.
+// O nó HTTP é, por definição de produto, uma URL de texto livre escrita pelo cliente — ou seja, um
+// primitivo de falsificação de requisição do lado do servidor. A auditoria da casa já mediu e
+// fechou esse vetor no Chatwoot; recriá-lo aqui seria desfazer o conserto.
+model RagnabotFluxoDestinoPermitido {
+  id       String @id @default(uuid())
+  tenantId String
+
+  host    String // "typebot.io" — sem curinga de terceiro nível
+  esquema String @default("https")
+  portas  Int[]  @default([443])
+
+  aprovadoPorUserId String?
+  observacao        String?
+  criadoEm          DateTime @default(now())
+
+  @@unique([tenantId, host])
+  @@index([tenantId])
+}
+
+// LIMITES DO CANAL — TABELA DATADA, não constante.
+// ⚠️ RENOMEADO em relação à especificação (§2.7 chamava `RagnabotLimiteCanal`): a ordem é prefixar
+// TUDO com `RagnabotFluxo`, e o prefixo uniforme vale mais que a fidelidade literal ao nome. Quem
+// for implementar precisa saber que é o mesmo modelo do §2.7.
+//
+// `unidade` existe porque NINGUÉM MEDIU em que unidade a Meta conta caracteres, e `origem` separa
+// regra medida de palpite. Enquanto `origem='documentacao'`, o validador aplica o PIOR CASO e
+// escreve isso na tela — aviso que se declara palpite não corrói a confiança nos avisos que são
+// regra.
+model RagnabotFluxoLimiteCanal {
+  id String @id @default(uuid())
+
+  perfil String // "whatsapp_cloud@2026-08"
+  chave  String // botoes_max|lista_itens_max|lista_titulo_max|lista_descricao_max|
+  //            // lista_botao_max|corpo_max|rodape_max|texto_max|janela_servico_horas
+  valor  Int
+
+  unidade     String   @default("indefinida") // grafema|ponto_de_codigo|utf16|byte_utf8|indefinida|contagem
+  origem      String   @default("documentacao") // medido|documentacao
+  fonte       String?
+  conferidoEm DateTime
+
+  @@unique([perfil, chave])
+}
+
+// ESPELHO DOS TEMPLATES DA WABA.
+// O validador consulta ANTES de deixar publicar qualquer caminho que dependa de template: template
+// em análise é fluxo quebrado no ar, e ele quebra exatamente fora da janela de 24 h, que é quando
+// não existe alternativa.
+model RagnabotFluxoTemplate {
+  id       String @id @default(uuid())
+  tenantId String
+  wabaId   String
+
+  nome        String
+  idioma      String @default("pt_BR")
+  categoria   String
+  status      String // aprovado|em_analise|reprovado|pausado
+  componentes Json // estrutura: nº de parâmetros, botões, limites
+
+  sincronizadoEm DateTime @default(now())
+
+  @@unique([tenantId, nome, idioma])
+  @@index([tenantId, status])
+}
+
+// SEGREDO DO WEBHOOK **POR CAIXA**.
+// É ELE que define o escopo: a empresa é identificada por QUAL segredo verificou, nunca pelo
+// `account.id` do corpo — o corpo é escrito por quem chama. O account.id é apenas CONFERIDO contra
+// a empresa do segredo; divergiu, recusa 401 e registra.
+// Duas linhas ativas por caixa durante a rotação, para trocar sem janela de indisponibilidade.
+model RagnabotFluxoWebhookSegredo {
+  id       String @id @default(uuid())
+  tenantId String
+
+  cwInboxId   Int?
+  cwAccountId Int
+
+  valorCifrado String
+  fingerprint  String
+  ativo        Boolean   @default(true)
+  expiraEm     DateTime? // janela de rotação
+
+  criadoEm DateTime @default(now())
+
+  @@index([cwAccountId, ativo])
+  @@index([tenantId])
+}
+
+// POLÍTICA DE AUTOMAÇÃO — a aba que a conexão não tem.
+//
+// TRÊS NÍVEIS DE ESCOPO, com herança do mais geral para o mais específico:
+//   empresa  →  caixa de entrada  →  time (setor)
+// O valor efetivo é o do nível mais específico que TIVER o campo preenchido. É por isso que quase
+// todo campo aqui é ANULÁVEL: nulo significa "herda", não "desligado". Um booleano não-anulável
+// aqui obrigaria cada setor a repetir a configuração inteira da empresa — que é exatamente a
+// dispersão em quatro lugares que fez o operador da origem não achar a chave certa.
+model RagnabotAtendPolitica {
+  id       String @id @default(uuid())
+  tenantId String // → RagnabotTenant.id (chave lógica; ver regra 1 acima)
+
+  cwAccountId Int
+  escopo      String // empresa | caixa | time
+  cwInboxId   Int? // preenchido só quando escopo='caixa'
+  cwTeamId    Int? // preenchido só quando escopo='time'
+
+  // Chave calculada NOT NULL: "empresa" | "caixa:42" | "time:7". Sem ela, duas políticas de
+  // empresa (ambas com cwInboxId e cwTeamId nulos) escapariam do índice único, porque no Postgres
+  // NULO não é igual a NULO — e a empresa acordaria com duas configurações contraditórias sem
+  // ninguém ter feito nada errado.
+  escopoChave String
+
+  ativa Boolean @default(true)
+
+  // ── FUSO ────────────────────────────────────────────────────────────────────────────────────
+  // Explícito e com padrão brasileiro DE PROPÓSITO. Medido em 29/08: a caixa 1 do Ragnabot está em
+  // UTC. Herdar o fuso da plataforma erraria todo expediente em 3 horas, e o erro apareceria como
+  // "o robô respondeu fora de hora", que ninguém liga ao fuso.
+  fuso String @default("America/Fortaleza")
+
+  // ── RELÓGIO DE INATIVIDADE (pedido nº 1 e nº 2 do dono) ─────────────────────────────────────
+  inatividadeAtiva   Boolean @default(false)
+  inatividadeMinutos Int? // silêncio tolerado antes de agir
+
+  // ⭐ A ESCOLHA QUE O DONO CITOU NOMINALMENTE: de quem é o silêncio que conta.
+  //   'contato'   → o CLIENTE sumiu (usa conversations.waiting_since = nulo, isto é, o contato já
+  //                 foi respondido e parou de falar)
+  //   'atendente' → o ATENDENTE sumiu (waiting_since preenchido: o cliente está esperando)
+  //   'qualquer'  → ninguém falou, de lado nenhum (usa last_activity_at)
+  // O Chatwoot só sabe fazer 'qualquer', e nem isso de forma configurável — o auto_resolve_after
+  // dele é da conta inteira e só resolve. Esta coluna é a funcionalidade.
+  inatividadeConta String? // contato | atendente | qualquer
+
+  inatividadeAcao        String? // devolver_fila | transferir_time | resolver | notificar
+  inatividadeTimeDestino Int? // usado quando a ação é transferir_time
+  inatividadeMensagem    String? // texto enviado ao cliente ao agir (vazio = age em silêncio)
+
+  // Aviso ANTES de agir ("ainda está aí?"). Sem isso, devolver para a fila é uma surpresa para o
+  // cliente que só demorou a digitar.
+  inatividadeAvisoMinutos  Int?
+  inatividadeAvisoMensagem String?
+
+  // ⚠️ ARMADILHA QUE ESTE CAMPO EVITA: se o relógio correr de madrugada, TODA conversa da noite
+  // amanhece devolvida para a fila às 3h — e o cliente recebe "ainda está aí?" às 3h. Falso por
+  // padrão significa: o relógio congela fora do expediente e volta a contar na abertura.
+  inatividadeContaForaExpediente Boolean @default(false)
+
+  // ── TRANSBORDO POR TEMPO EM FILA ────────────────────────────────────────────────────────────
+  // "Ninguém assumiu em X minutos → passa para outro setor." É o timeToTransfer da origem.
+  transbordoAtivo    Boolean @default(false)
+  transbordoMinutos  Int?
+  transbordoTimeId   Int?
+  transbordoMensagem String?
+
+  // ── FLUXO (pedido nº 4 do dono) ─────────────────────────────────────────────────────────────
+  // Ponteiros para RagnabotFluxo.id — chave lógica, mesma regra 1.
+  fluxoPrimeiroContatoId String? // o fluxo do primeiro "oi"
+  fluxoPadraoId          String? // retomada, ou quando não é primeiro contato
+  fluxoForaExpedienteId  String? // fluxo próprio de fora de hora (nulo = só a mensagem)
+
+  // Quanto silêncio faz o próximo "oi" contar como PRIMEIRO contato de novo. Sem este número a
+  // pergunta "é primeiro contato?" não tem resposta objetiva, e cada trecho de código inventaria a
+  // sua — que é como nascem dois comportamentos para a mesma conversa.
+  reiniciaFluxoAposHoras Int @default(24)
+
+  // ── MENSAGENS ───────────────────────────────────────────────────────────────────────────────
+  // Anuláveis porque nulo = herda do escopo mais geral (ver nota de escopo acima).
+  msgSaudacao              String?
+  msgForaExpediente        String?
+  msgIntervalo             String? // texto próprio do almoço — dizer "estamos fechados" às 12h é mentira
+  msgFeriado               String?
+  msgTransferenciaTime     String? // ao mudar de SETOR
+  msgTransferenciaAgente   String? // ao mudar de ATENDENTE
+  msgAtendenteIndisponivel String? // ninguém em turno na fila de destino
+  msgDespedidaEspera       String? // para quem entrou na fila e desistiu (sendFarewellWaitingTicket)
+
+  // Depois de avisar que está fora de hora: encerra a conversa ou deixa aberta esperando amanhã?
+  encerrarAposForaExpediente Boolean @default(false)
+
+  // ── PAUSA DE EMERGÊNCIA ─────────────────────────────────────────────────────────────────────
+  // O pauseAttendance da origem, com o que falta lá: prazo e motivo. Pausa sem hora de volta é
+  // pausa que alguém esquece ligada — e ninguém descobre até o cliente reclamar.
+  distribuicaoPausada Boolean   @default(false)
+  pausadaAte          DateTime?
+  pausadaMotivo       String?
+  pausadaPorUserId    String?
+
+  // ── AUDITORIA E CONCORRÊNCIA ────────────────────────────────────────────────────────────────
+  // `rev` é concorrência otimista, igual ao rascunho de fluxo: dois administradores na mesma tela
+  // é evento real, não hipótese. Divergência devolve 409 em vez de sobrescrever o colega em
+  // silêncio. O antes/depois da mudança vai para RagnabotAuditoria, não para cá.
+  rev                 Int      @default(0)
+  criadoPorUserId     String?
+  atualizadoPorUserId String?
+  criadoEm            DateTime @default(now())
+  atualizadoEm        DateTime @updatedAt
+
+  @@unique([tenantId, escopoChave])
+  @@index([tenantId, ativa])
+  @@index([cwAccountId, cwInboxId])
+}
+
+// EXPEDIENTE — a correção direta do defeito medido no destino.
+//
+// O Chatwoot guarda UMA linha por dia da semana, com um único par abre/fecha
+// (day_of_week, open_hour, open_minutes, close_hour, close_minutes), e o modelo valida que o
+// fechamento não pode vir antes da abertura. Medido em 29/08: a caixa 1 tem exatamente 7 linhas,
+// uma por dia. Representar 08–12 e 13–18 é IMPOSSÍVEL naquele formato — e é por isso que o
+// intervalo de almoço que o dono pediu não é ajuste, é modelo novo.
+//
+// Aqui a linha é a JANELA, não o dia. Segunda-feira com almoço são duas linhas. Plantão que vira a
+// madrugada são duas linhas. Sábado só de manhã é uma linha. O dia deixa de ser um limite.
+//
+// MINUTOS DESDE A MEIA-NOITE, e não hora+minuto em colunas separadas: comparar dois campos é
+// exatamente o que empurrou o modelo do Chatwoot para a validação que proibiu a segunda janela.
+// Um inteiro entre 0 e 1440 ordena, soma e compara sem caso especial.
+model RagnabotAtendExpediente {
+  id         String @id @default(uuid())
+  tenantId   String
+  politicaId String // → RagnabotAtendPolitica.id
+
+  diaSemana Int // 0 = domingo … 6 = sábado
+  abreMin   Int // minutos desde 00:00 — 480 = 08:00
+  fechaMin  Int // 720 = 12:00. Se fechaMin <= abreMin, a janela cruza a meia-noite (plantão)
+  rotulo    String? // "manhã", "tarde", "plantão" — aparece na tela e no relatório
+  ativo     Boolean @default(true)
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@index([politicaId, diaSemana, abreMin])
+  @@index([tenantId])
+}
+
+// EXCEÇÃO DE DATA — feriado e data especial.
+//
+// Feriado NÃO EXISTE em nenhum dos dois lados: medido em 29/08, a palavra "holiday" não aparece
+// nos modelos, serviços nem no pacote enterprise do Chatwoot 4.17.1; e na origem o único lugar era
+// o módulo Agenda, que tem ZERO registros em 14 meses. É requisito novo — mas de carona na mesma
+// estrutura do expediente, e "atender no Natal por engano" é erro que o cliente enxerga.
+model RagnabotAtendExcecaoData {
+  id         String @id @default(uuid())
+  tenantId   String
+  politicaId String
+
+  // Chave calculada NOT NULL, mesma razão de escopoChave: feriado recorrente não tem ano, e um
+  // `ano Int?` nulo escaparia do índice único, deixando cadastrar o mesmo Natal dez vezes.
+  //   data fixa:    "2026-12-25"
+  //   recorrente:   "*-12-25"
+  chaveData String
+
+  tipo     String // fechado | janela_especial
+  abreMin  Int? // preenchidos só quando tipo='janela_especial' (ex.: véspera, meio expediente)
+  fechaMin Int?
+
+  rotulo   String // "Natal", "Ponto facultativo"
+  mensagem String? // texto próprio do dia; nulo = usa msgForaExpediente da política
+
+  criadoEm DateTime @default(now())
+
+  @@unique([politicaId, chaveData])
+  @@index([tenantId])
+}
+
+// TURNO DO ATENDENTE — o startWork/endWork da origem.
+//
+// Medido em 29/08: no Chatwoot NÃO existe turno por agente — só o status que a própria pessoa
+// marca (online/ausente/ocupado), e o distribuidor do núcleo devolve TODOS os membros da caixa sem
+// filtrar presença.
+//
+// ⚠️ A TABELA NASCE, O CÓDIGO NÃO: a espec. põe este item na fatia 3, "só depois de medir". Se os
+// 77 usuários da origem estiverem todos com 00:00–00:00, o requisito nunca foi usado e escrever o
+// filtro de presença seria construir sobre um número que ninguém conferiu — que é precisamente o
+// erro que o documento 29 existe para evitar.
+model RagnabotAtendTurno {
+  id       String @id @default(uuid())
+  tenantId String
+  cwUserId Int // agente na plataforma
+
+  diaSemana Int
+  abreMin   Int
+  fechaMin  Int
+  ativo     Boolean @default(true)
+
+  criadoEm DateTime @default(now())
+
+  @@index([tenantId, cwUserId, diaSemana])
+}
+
+// O RELÓGIO POR CONVERSA. Fonte da verdade do prazo.
+//
+// POR QUE UMA TABELA, e não só um trabalho agendado na fila: trabalho agendado que reinicia, é
+// ceifado, ou é migrado de fila, some — e o que some aqui é uma conversa parada que ninguém vai
+// devolver para a fila. É a mesma lição já registrada na casa em
+// `noc-monitor-restart-safe-recovery.md`: monitor resolve reconciliando com o BANCO, nunca só por
+// evento. A fila (RagnabotFluxoFila, tipo 'atend_relogio') é o DESPERTADOR; a verdade é esta linha.
+//
+// `chave` NOT NULL e única mata dois defeitos de uma vez: dois relógios do mesmo tipo na mesma
+// conversa (o cliente recebendo "ainda está aí?" duas vezes) e a corrida entre o trabalhador e o
+// evento de mensagem nova.
+model RagnabotAtendRelogio {
+  id       String @id @default(uuid())
+  tenantId String
+
+  cwAccountId      Int
+  cwConversationId Int
+  politicaId       String
+
+  tipo String // inatividade | aviso | transbordo
+
+  // "conta:conversa:tipo" — materializada, NOT NULL, única.
+  chave String @unique
+
+  // Quem falou por último, e quando. É deste par que sai a resposta a "de quem é o silêncio",
+  // sem depender de reler o histórico inteiro da conversa a cada tique.
+  ultimaAtividadeEm   DateTime
+  ultimaAtividadeLado String // contato | atendente | sistema
+
+  venceEm DateTime
+
+  // Congelado, e por quê. Estado congelado SEM motivo declarado é estado que ninguém consegue
+  // explicar depois — e a primeira pergunta do dono vai ser "por que essa conversa não voltou".
+  pausadoMotivo String? // fora_expediente | intervalo | feriado | silenciado | efeito_pendente
+
+  disparadoEm DateTime?
+  resultado   String? // aplicado | descartado_obsoleto | recusado_fora_expediente | erro
+  erro        String?
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  // O trabalhador vive deste índice: "o que venceu e ainda não disparou".
+  @@index([venceEm, disparadoEm])
+  @@index([cwAccountId, cwConversationId])
+  @@index([tenantId, tipo])
+}
+
+// TRANSFERÊNCIA — quem passou para quem, e por quê.
+//
+// Medido em 29/08: no Chatwoot a transferência é a troca silenciosa de assignee_id. Gera mensagem
+// de atividade e uma notificação interna — que ainda é suprimida quando a conversa está 'pending'.
+// Não há motivo, não há nota de passagem, não há aceite, não há aviso ao agente que recebe, e não
+// há relatório. Esta tabela é o registro que falta nos DOIS lados.
+model RagnabotAtendTransferencia {
+  id       String @id @default(uuid())
+  tenantId String
+
+  cwAccountId      Int
+  cwConversationId Int
+  protocolo        String? // número humano, quando a conversa já tem (RagnabotProtocolo)
+
+  deTipo   String // agente | time | bot | ninguem
+  deId     Int?
+  deNome   String?
+  paraTipo String // agente | time
+  paraId   Int?
+  paraNome String?
+
+  motivo      String? // categoria curta, escolhida numa lista (vira relatório)
+  notaInterna String? // o texto livre que o próximo atendente precisa ler
+
+  // De onde partiu. Sem isto, "por que essa conversa mudou de setor às 14h32" só se responde
+  // cruzando log de três serviços.
+  origem     String // manual | automacao | fluxo | transbordo | inatividade | turno
+  atorUserId String? // nulo = automático
+
+  criadoEm DateTime @default(now())
+
+  @@index([tenantId, criadoEm])
+  @@index([cwAccountId, cwConversationId, criadoEm])
+  @@index([tenantId, paraTipo, paraId, criadoEm])
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// RESPOSTA RÁPIDA — o atalho de texto do atendente (C9).
+//
+// Medido em 29/08/2026: o menu Gestão do chat atual tem "Respostas rápidas" e a origem tem o
+// recurso (39 cadastradas em 4 empresas no levantamento; a instância de referência está hoje com
+// zero). O Chatwoot 4.17.1 tem canned responses nativas, mas SEM escopo por caixa/time, SEM
+// resposta pessoal do atendente e SEM as variáveis que a operação já usa — que é justamente o que
+// esta tabela acrescenta.
+//
+// ⚠️ `chaveAtalho` É CALCULADA, E NOT NULL — mesma lição de `RagnabotAtendPolitica.escopoChave` e
+// de `RagnabotFluxoEntrada.chave`: no Postgres NULO não é igual a NULO, então um índice único sobre
+// (tenantId, atalho, cwInboxId, cwTeamId, userId) com quatro colunas anuláveis deixaria cadastrar
+// `/bomdia` dez vezes na mesma empresa sem uma única violação. A chave materializa o escopo inteiro
+// numa string comparável:
+//     "bomdia|geral|empresa"        → resposta da empresa, vale em qualquer caixa
+//     "bomdia|caixa:42|empresa"     → só na caixa 42
+//     "bomdia|time:7|u:<uuid>"      → pessoal de um atendente, dentro do time 7
+// Assim `/bomdia` da empresa e `/bomdia` pessoal de dois atendentes convivem (é intencional: a
+// pessoal ganha na hora de expandir), mas `/bomdia` duplicado no MESMO escopo e MESMO dono é
+// recusado pelo banco, não por um `if` que alguém esquece de escrever na próxima rota.
+//
+// SEM CHAVE ESTRANGEIRA para RagnabotTenant, no mesmo estilo lógico dos modelos RagnabotAtend*.
+model RagnabotRespostaRapida {
+  id       String @id @default(uuid())
+  tenantId String // → RagnabotTenant.id (chave lógica)
+
+  // Normalizado pelo serviço: minúsculas, sem acento, sem espaço e SEM a barra. O atendente digita
+  // "/bomdia"; o banco guarda "bomdia". Guardar com a barra faria "/bomdia" e "bomdia" virarem duas
+  // linhas diferentes — e o atendente jurando que cadastrou.
+  atalho   String
+  titulo   String
+  mensagem String
+
+  // Escopo OPCIONAL. Nulos nos dois = vale para a empresa inteira. Nunca os dois preenchidos.
+  cwInboxId Int?
+  cwTeamId  Int?
+
+  // empresa = todo mundo da empresa usa; pessoal = só de quem criou (o `userId`).
+  visibilidade String  @default("empresa")
+  userId       String? // dono, obrigatório quando visibilidade='pessoal'
+
+  // Escopo + dono + atalho, materializados. Ver o aviso acima.
+  chaveAtalho String
+
+  ativa Boolean @default(true)
+
+  criadoPorUserId String?
+  criadoEm        DateTime @default(now())
+  atualizadoEm    DateTime @updatedAt
+
+  // A tranca de verdade contra atalho repetido.
+  @@unique([tenantId, chaveAtalho])
+  // A consulta do dia a dia: "as respostas ativas da minha empresa, por atalho".
+  @@index([tenantId, ativa, atalho])
+  // A consulta do atendente: "as minhas pessoais".
+  @@index([tenantId, visibilidade, userId])
+  @@index([tenantId, cwInboxId])
+  @@index([tenantId, cwTeamId])
+}
