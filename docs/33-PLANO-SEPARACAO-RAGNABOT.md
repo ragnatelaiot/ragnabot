@@ -201,3 +201,44 @@ permanente por esquecimento.
    da Etapa 1: um atalho para as dependências do NOC fez o cliente gerado carregar o `.env` do NOC,
    e testes locais bateram no **banco de produção** sem avisar. Conferido depois: nenhum esquema
    órfão, nenhum dado a mais. Mas a lição fica — ambiente emprestado mente sobre onde você está.
+
+
+---
+
+## 9. ETAPA 2 — CONCLUÍDA (30/08/2026)
+
+### O que foi feito, na ordem
+1. **Conferência antes de tocar em qualquer coisa real.** Apliquei os 11 arquivos SQL num esquema
+   descartável e comparei **coluna a coluna** contra as tabelas de produção do NOC:
+   **zero divergência**. A suspeita de desvio silencioso (o motivo de 13 tabelas não terem SQL) está
+   descartada para as outras 27.
+2. **Base própria criada** no mesmo cluster Patroni que já serve a plataforma — mesma alta
+   disponibilidade, mesmo backup, sem máquina nova. **Usuário e dono próprios** (`ragnabot_app`):
+   o app do Ragnabot não alcança a base do Chatwoot, e vice-versa.
+3. **40 tabelas, 154 índices**, as **3 chaves compostas de isolamento entre empresas** e o gatilho
+   que torna a versão publicada imutável — tudo em transação única.
+4. **Dados migrados:** 39 linhas (1 empresa, 2 eventos, 2 contadores, 28 protocolos, 6 registros de
+   auditoria), conferidas uma a uma na chegada. Nenhum segredo cifrado no conjunto.
+5. **Posse ajustada:** as tabelas nasceram do superusuário; o dono da base passou a ser dono do
+   conteúdo, senão a aplicação conecta e é recusada no esquema.
+6. **Regras de acesso** nos dois nós do banco, liberando só as redes dos nós do Kubernetes.
+
+### ⚠️ Acoplamento escondido DENTRO do SQL versionado — corrigido
+`03-rb_versao_imutavel.sql` continha `GRANT UPDATE … TO ragnatela_app` — o usuário **do NOC**. Na
+base própria esse papel não existe, e a **transação inteira era revertida**. Um arquivo versionado
+que só funciona se o outro sistema estiver do lado é acoplamento, mesmo sem `import`. Trocado por
+concessão ao **dono da base corrente**, que serve nos dois.
+
+### O NOC NÃO entra no `pg_hba`, de propósito
+Tentar ler a base nova a partir do NOC devolve `no pg_hba.conf entry`. **Isso é o resultado
+desejado**, não um defeito: o banco do produto não deve ser alcançável pelo console de operação.
+Provado de dentro do cluster (pod → `banco-lider`): 1 empresa, 28 protocolos, 40 tabelas.
+
+⚠️ **A mensagem do Prisma engana:** ele diz *"User was denied access on the database"* quando a
+causa real é `pg_hba`. Quem for diagnosticar isso um dia: teste com `psql` antes de caçar permissão
+de esquema.
+
+### O que falta para a Etapa 3
+Construir a imagem, criar o `Secret` (a credencial já está guardada no `.env` do NOC para isso),
+subir o `ragnabot-motor`, apontar o webhook da plataforma para ele e **desligar os trabalhadores no
+NOC na mesma janela** — nunca os dois rodando, senão dois relógios agem na mesma conversa.

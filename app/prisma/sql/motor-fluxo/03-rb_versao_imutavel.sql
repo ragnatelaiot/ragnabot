@@ -41,4 +41,14 @@ CREATE TRIGGER rb_versao_imutavel BEFORE UPDATE ON "RagnabotFluxoVersao"
 
 -- Reparo idempotente: em ambiente onde o REVOKE chegou a ser aplicado (foi o caso deste banco em
 -- 28/08/2026), esta linha devolve o privilégio de que as FKs compostas dependem.
-GRANT UPDATE ON "RagnabotFluxoVersao" TO ragnatela_app;
+-- ⚠️ CORRIGIDO em 30/08/2026 (Etapa 1 da separação): esta linha concedia ao usuário DO NOC
+-- (`ragnatela_app`), que não existe na base própria do Ragnabot — e a transação inteira era
+-- revertida ao aplicar. Era acoplamento escondido DENTRO do SQL versionado: um arquivo que só
+-- funciona se o outro sistema estiver do lado. Agora concede ao dono da base corrente, seja ele
+-- qual for, o que serve tanto no NOC quanto no Ragnabot.
+DO $conceder$
+BEGIN
+  EXECUTE format('GRANT UPDATE ON "RagnabotFluxoVersao" TO %I',
+                 (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = current_database()));
+END
+$conceder$;
