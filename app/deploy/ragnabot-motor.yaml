@@ -52,19 +52,21 @@ spec:
                   app: ragnabot-motor
               topologyKey: kubernetes.io/hostname
         nodeAffinity:
-          # O `ragnabot-web` EXCLUI o nó rgtk8s003 de forma rígida. Aqui a exclusão é PREFERENCIAL
-          # de propósito: em operação normal o motor fica nos mesmos dois nós do web, mas se um
-          # deles morrer o pod PODE ir para o rgtk8s003 e continuar atendendo.
-          # ❓ DECISÃO DO CHEFE: se houver motivo para o rgtk8s003 ser proibido (capacidade, papel
-          #    no quórum), troque este bloco pelo `required…` idêntico ao do `ragnabot-web`.
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              preference:
-                matchExpressions:
+          # ⚠️ DECISÃO DO CHEFE (30/08), respondendo à pergunta que o autor deixou aqui: a exclusão é
+          # RÍGIDA, e o motivo é medido — o nó rgtk8s003 NÃO ALCANÇA A REDE DO BANCO
+          # (172.17.20.128/27). Das 4 portas testadas de lá, nenhuma responde; dos outros dois nós,
+          # todas respondem. Ele fica no XSE e a rota entre as sub-redes não existe.
+          # Um pod do motor nascendo lá sobe "saudável" e não enxerga o banco — pior que não subir.
+          # O `ragnabot-web` já era rígido pelo mesmo motivo, e o `banco-lider` ganhou a regra hoje,
+          # depois de metade das conexões falharem por causa disso.
+          # A cura de verdade é uma rota na CHR; enquanto ela não vem, esta é a contenção.
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
                   - key: kubernetes.io/hostname
                     operator: NotIn
                     values:
-                      - rgtk8s003
+                      - "rgtk8s003"
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 45
       securityContext:
@@ -89,7 +91,7 @@ spec:
           #    debaixo do pé; digest é o mesmo binário para sempre — e é o que faz uma restauração
           #    reproduzir o que estava no ar.
           #    image: registro.interno/ragnabot-motor@sha256:«DEFINIR — digest da imagem construída»
-          image: ragnabot-motor:1.03.01
+          image: ragnabot-motor:1.04.00
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -100,6 +102,11 @@ spec:
                 name: ragnabot-motor-config
             - secretRef:
                 name: ragnabot-motor-env
+            # SMTP próprio (doc 33 — a 5ª amarra). Antes a configuração de e-mail vinha da tabela
+            # `Settings` DO NOC: uma dependência que nenhum `import` denunciava. Sem estas chaves, o
+            # segundo fator recusa e o nó de e-mail do fluxo não envia — falha fechada, de propósito.
+            - secretRef:
+                name: ragnabot-motor-smtp
           startupProbe:
             # O motor conecta no banco e carrega o cliente Prisma antes de responder. Até 60s
             # (12 × 5s) para subir sem que a sonda de vida o mate no meio da partida.

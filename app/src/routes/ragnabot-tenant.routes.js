@@ -50,11 +50,15 @@ router.use(async (req, res, next) => {
 async function checar2fa(req) {
   const { otpChannel, otpCode } = req.body || {};
   if (!otpCode) {
-    const u = await prisma.user.findUnique({ where: { id: req.user.id }, select: { email: true, totpEnabled: true } });
+    // S5: os canais saem da SESSÃO, não de `prisma.user` — aquela era a tabela de usuários DO NOC,
+    // que não existe na base do Ragnabot (o resultado era um 500 com "findUnique of undefined").
+    // O e-mail vem da plataforma no login; sem ele (chamada pela ponte de serviço), não há para
+    // onde mandar código — e adivinhar destino de código de segurança é o erro a evitar.
+    const otp = await import('../services/otp.service.js');
     return {
       needs2fa: true,
-      channels: { email: !!u?.email, totp: !!u?.totpEnabled },
-      emailHint: u?.email ? u.email.replace(/^(.).*(@.*)$/, '$1***$2') : null,
+      channels: otp.canaisDe(req.user),
+      emailHint: otp.dicaDeEmail(req.user?.email),
     };
   }
   const otp = await import('../services/otp.service.js');
@@ -96,13 +100,20 @@ router.post('/2fa/request-otp', async (req, res) => {
     const canal = req.body?.channel === 'totp' ? 'totp' : 'email';
     const otp = await import('../services/otp.service.js');
     if (canal === 'email') {
-      const u = await prisma.user.findUnique({ where: { id: req.user.id }, select: { email: true } });
-      if (!u?.email) return res.status(400).json({ success: false, error: 'Seu usuário não tem e-mail para receber o código.' });
-      await otp.createAndSendEmailOtp(req.user.id, 'access_2fa');
-      return res.json({ success: true, data: { channel: 'email', sent: true } });
+      // S5: o ator (3º argumento) é de onde sai o e-mail — da sessão da plataforma.
+      const r = await otp.createAndSendEmailOtp(req.user.id, 'access_2fa', req.user);
+      if (!r?.ok) {
+        // Falha fechada e HONESTA: a tela não pode receber `sent: true` sem o código ter saído.
+        const st = r?.code === 'SMTP_INDISPONIVEL' ? 503 : 400;
+        return res.status(st).json({ success: false, error: r?.error || 'Não consegui enviar o código.' });
+      }
+      return res.json({ success: true, data: { channel: 'email', sent: true, emailHint: otp.dicaDeEmail(req.user?.email), ttlMinutes: r.ttlMinutes } });
     }
-    const u = await prisma.user.findUnique({ where: { id: req.user.id }, select: { totpEnabled: true } });
-    if (!u?.totpEnabled) return res.status(400).json({ success: false, error: 'App autenticador não configurado no seu perfil.' });
+    // S5: o aplicativo autenticador NÃO existe nesta aplicação — o segredo dele ficou na tabela de
+    // usuários do NOC. Dizer isso é melhor que fingir que existe e falhar na conferência.
+    if (!otp.canaisDe(req.user).totp) {
+      return res.status(400).json({ success: false, error: 'Aplicativo autenticador não está disponível aqui — use o código por e-mail.' });
+    }
     res.json({ success: true, data: { channel: 'totp', sent: false } });
   } catch (err) { res.status(400).json({ success: false, error: err.message }); }
 });

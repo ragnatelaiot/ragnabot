@@ -28,6 +28,22 @@ COPY app/prisma ./prisma
 RUN DATABASE_URL="postgresql://build:build@localhost:5432/build" npx prisma generate
 
 # ── Etapa 2: a imagem que roda ──────────────────────────────────────────────────────────────────
+# ── Etapa 1b: a interface (doc 33, Etapa 4) ─────────────────────────────────────────────────────
+# Pacote próprio, com node_modules próprio: a tela não empresta as dependências do motor, e o motor
+# não carrega React em produção. Foi a lição da Etapa 1 — ambiente emprestado mente sobre onde você
+# está (naquele caso, um atalho para o node_modules do NOC fez teste local bater no banco de
+# produção).
+FROM node:20-alpine AS interface
+
+WORKDIR /web
+
+# package.json antes do código: se só a tela mudar, o npm ci reaproveita a camada.
+COPY app/web/package.json app/web/package-lock.json* ./
+RUN npm ci --no-audit --no-fund
+
+COPY app/web/ ./
+RUN npm run build
+
 FROM node:20-alpine AS producao
 
 RUN apk add --no-cache openssl tini
@@ -48,6 +64,8 @@ COPY VERSAO ./VERSAO
 
 # O logger escreve em logs/ quando roda fora de contêiner; no pod o que vale é o stdout, mas a
 # pasta tem de existir e ser gravável pelo usuário não-root, senão o winston derruba o processo.
+# A tela construída. Fica em /app/web/dist porque é onde `PASTA_INTERFACE` a procura por padrão.
+COPY --from=interface /web/dist ./web/dist
 RUN mkdir -p logs && chown -R node:node /app
 
 # ⚠️ NÃO-ROOT. A imagem base já traz o usuário `node` (uid 1000).

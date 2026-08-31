@@ -22,6 +22,9 @@
 //      no NOC de propósito: "backup é vigilância externa; feito por quem é vigiado vale menos".
 //      O serviço foi copiado (é do Ragnabot), mas quem o agenda continua sendo o NOC.
 // ════════════════════════════════════════════════════════════════════════════════════════════════
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import express from 'express';
 import prisma from './base/db.js';
 import logger from './base/logger.js';
@@ -91,6 +94,14 @@ async function montar(caminho, arquivo, ...travas) {
 // — é o contrato com a plataforma, e ordem que muda "porque agora dá" é armadilha para o próximo.
 // A proteção dele é o segredo próprio (RAGNABOT_WEBHOOK_SEGREDO, comparação resistente a timing),
 // e ele responde 200 SÓ DEPOIS DE GRAVAR (erro → 500 → o Chatwoot reenvia).
+// ── ENTRADA DE SESSÃO ───────────────────────────────────────────────────────────────────────────
+// Público de propósito: é o lugar onde ainda NÃO há sessão. Pô-lo atrás da autenticação o deixaria
+// inalcançável e ninguém entraria nunca. A proteção dele é a própria plataforma (que confere a
+// senha), o freio de tentativas e o segredo de sessão — sem o segredo, RECUSA com 503.
+// Vem ANTES do desvio-para-a-página: senão um `GET /sessao/eu` do navegador (que pede text/html)
+// receberia a PÁGINA, e a tela leria `<` onde esperava dados.
+await montar('/sessao', './rotas-sessao.js');
+
 await montar('/api/ragnabot-webhook', './routes/ragnabot-webhook.routes.js');
 
 // ── Rotas privadas, na MESMA ordem e com as MESMAS travas do NOC ────────────────────────────────
@@ -180,7 +191,12 @@ app.get('/saude', async (req, res) => {
     versao: VERSAO || process.env.RAGNABOT_VERSAO || null,
     banco: 'fora',
     trabalhadores,
-    autenticacao: authIndisponivel ? { ok: false, motivo: authIndisponivel } : { ok: true },
+    // Diz QUAIS caminhos de identidade estão configurados (cookie, token de serviço, os dois), sem
+    // revelar segredo. Sem isto, "ninguém consegue entrar" e "o motor subiu sem a chave de sessão"
+    // são indistinguíveis de fora — e alguém passa uma tarde nisso.
+    autenticacao: authIndisponivel
+      ? { ok: false, motivo: authIndisponivel }
+      : { ok: true, ...(await import('./base/auth.js')).autenticacaoPronta() },
     rotasPendentes: pendencias,
     instante: new Date().toISOString(),
   };
@@ -223,8 +239,72 @@ export async function desligar(sinal = 'SIGTERM') {
   logger.info('[ragnabot] desligado');
 }
 
-export async function iniciar({ porta = Number(process.env.PORT || 3100) } = {}) {
+// 3000 e não 3100: é o que o `EXPOSE` do Dockerfile declara e o que o manifesto do Kubernetes
+// usa. Padrão diferente do declarado é armadilha — funciona no cluster (que passa PORT) e falha
+// no teste local, que é justamente onde o problema sai barato.
+// A INTERFACE (doc 33, Etapa 4) — a tela do editor de fluxo, servida pelo próprio motor.
+//
+// ⚠️ ESTE BLOCO VEM DEPOIS DE TODAS AS ROTAS. O desvio-para-a-página é um curinga: montado antes
+// da API, ele responde HTML a `GET /api/…` e a tela quebra sem mensagem de erro.
+//
+// A pasta é opcional de propósito: se a imagem for construída sem a interface (ou em
+// desenvolvimento, quando quem serve é o `vite`), o motor sobe igual e só não tem tela. Atendimento
+// não pode depender de front-end existir.
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+const PASTA_INTERFACE = process.env.RAGNABOT_INTERFACE_DIR
+  || path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'web', 'dist');
+const TEM_INTERFACE = fs.existsSync(path.join(PASTA_INTERFACE, 'index.html'));
+
+if (TEM_INTERFACE) {
+  // ⛔ AQUI HAVIA `app.get('/interface/configuracao.js', …)`. REMOVIDO em 30/08/2026 pelo
+  // contrato S4-AUTH — era exatamente a pendência do §3 deste arquivo, e o chefe escolheu o
+  // caminho (C). NÃO reponha: aquele endpoint injetava o RAGNABOT_SERVICE_TOKEN no navegador.
+  // Quem autentica a tela agora é `src/rotas-sessao.js` (cookie de sessão). O que montar, e em que
+  // ordem, está em `app/src/COMO-MONTAR-SESSAO.md`.
+
+  // ── 2. Os arquivos ────────────────────────────────────────────────────────────────────────────
+  // `index: false` porque quem responde a raiz é o desvio abaixo — assim há UM caminho só para o
+  // HTML, e o cabeçalho de cache é o mesmo em `/` e em `/qualquer-coisa`.
+  app.use(express.static(PASTA_INTERFACE, { index: false, maxAge: '7d', etag: true }));
+
+  // ── 3. O desvio-para-a-página ─────────────────────────────────────────────────────────────────
+  // A tela guarda o fluxo aberto no `#hash`, não no caminho — mas o operador ainda pode colar uma
+  // URL antiga (`/ragnabot-fluxos/<id>`), e um F5 numa dessas tem de devolver a página, não 404.
+  //
+  // ⚠️ AS EXCLUSÕES NÃO SÃO ENFEITE. Sem elas, um `GET /api/ragnabot-fluxo/saude` digitado errado
+  // devolveria HTML com status 200, e quem estivesse diagnosticando leria "o motor respondeu".
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/')) return next();
+    if (req.path === '/saude' || req.path === '/vivo') return next();
+    // A entrada de sessão responde JSON, sempre. Sem esta linha, um `GET /sessao/eu` com
+    // `Accept: text/html` receberia a PÁGINA, e a tela leria "<" onde esperava JSON.
+    if (req.path.startsWith('/sessao')) return next();
+    // ⚠️ Só NAVEGAÇÃO. Um `.js`/`.css`/`.woff2` que não existe TEM de dar 404: devolver HTML no
+    // lugar de um módulo faz o navegador falhar com "Unexpected token '<'", que não diz nada a
+    // ninguém, e ainda por cima com status 200 — o pior dos dois mundos para quem diagnostica.
+    //
+    // ⛔ NÃO use `req.accepts('html')` aqui. Foi o que escrevi primeiro e o teste reprovou: um
+    // pedido com `Accept: */*` (que é o que `fetch` manda por padrão, e o que várias sondas mandam)
+    // CASA com 'html', e o arquivo inexistente voltava 200 com a página dentro.
+    // Os dois filtros abaixo são o discriminador certo:
+    //   · navegador navegando manda `Accept: text/html,…` explícito; buscar módulo/imagem, não;
+    //   · caminho com extensão é pedido de ARQUIVO, e arquivo que não existe é 404, ponto.
+    if (!(req.get('Accept') || '').includes('text/html')) return next();
+    if (path.extname(req.path)) return next();
+    res.set('Cache-Control', 'no-store');   // o index aponta para arquivos com hash; cachear o
+    return res.sendFile(path.join(PASTA_INTERFACE, 'index.html'));   // index serve a versão velha
+  });
+
+  logger.info(`[ragnabot] interface servida de ${PASTA_INTERFACE}`);
+} else {
+  logger.warn('[ragnabot] interface NÃO encontrada — o motor sobe sem tela (só API)');
+}
+
+export async function iniciar({ porta = Number(process.env.PORT || 3000) } = {}) {
   await ligarTrabalhadores();
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
   servidorHttp = app.listen(porta, () => logger.info(`[ragnabot] ouvindo na porta ${porta}`));
   for (const s of ['SIGTERM', 'SIGINT']) {
     process.on(s, () => { desligar(s).then(() => process.exit(0)); });

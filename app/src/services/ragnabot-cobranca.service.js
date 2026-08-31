@@ -94,8 +94,14 @@ export function configuracao() {
     aplicarNaConta: env('RAGNABOT_COBRANCA_APLICAR') === '1',
     // Banco do RAGNABOT (Chatwoot). Ex.: postgres://usuario:SENHA@172.17.20.132:5432/chatwoot
     urlBancoRagnabot: env('RAGNABOT_DB_URL'),
-    // URL pública do NOC — usada para montar a notification_url entregue ao provedor.
-    urlPublicaNoc: env('NOC_PUBLIC_URL', 'https://ia.ragnatela.com.br').replace(/\/$/, ''),
+    // ⚠️ CORRIGIDO em 30/08/2026 (separação, doc 33). Este campo apontava para o NOC
+    // (`https://ia.ragnatela.com.br`) e era o endereço que o PROVEDOR DE PAGAMENTO guardava para
+    // avisar que uma cobrança foi paga. Era uma dependência escondida e das piores: com o NOC fora,
+    // o motor continuaria atendendo normalmente, e a confirmação de pagamento bateria numa porta
+    // fechada — falha silenciosa, em dinheiro, descoberta só na conciliação.
+    // Agora é o endereço PÚBLICO DO PRÓPRIO RAGNABOT. Quem cobra e quem recebe o aviso são o mesmo
+    // sistema, como tem de ser.
+    urlPublicaRagnabot: env('RAGNABOT_PUBLIC_URL', 'https://bot.ragnatela.com.br').replace(/\/$/, ''),
     // Segredo do webhook: vai como segmento da URL registrada no provedor.
     segredoWebhook: env('RAGNABOT_COBRANCA_WEBHOOK_SEGREDO'),
     // Pix estático do ManualAdapter (funciona com qualquer banco, sem API).
@@ -320,7 +326,7 @@ class AdaptadorEfi {
   _urlNotificacao() {
     const segredo = this.cfg.segredoWebhook;
     if (!segredo) throw new Error('RAGNABOT_COBRANCA_WEBHOOK_SEGREDO não definido — sem ele o webhook fica aberto.');
-    return `${this.cfg.urlPublicaNoc}/api/webhooks/ragnabot-cobranca/${segredo}`;
+    return `${this.cfg.urlPublicaRagnabot}/api/webhooks/ragnabot-cobranca/${segredo}`;
   }
 
   // POST /v1/plan — cria o plano no provedor (nome, intervalo em meses, repetições).

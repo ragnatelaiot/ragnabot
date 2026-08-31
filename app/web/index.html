@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="description" content="RAGNABOT — editor de fluxo de conversa" />
+  <title>RAGNABOT — Fluxos de conversa</title>
+  <meta name="theme-color" content="#061218" />
+  <!-- ⛔ AQUI HAVIA `<script src="/interface/configuracao.js">`, e ele FOI REMOVIDO em 30/08/2026
+       (contrato S4-AUTH). Aquele script era a costura que injetava `window.__RAGNABOT__ = { token,
+       ator, … }` no navegador — ou seja, entregava o RAGNABOT_SERVICE_TOKEN a quem alcançasse a
+       página, e deixava o papel do operador viajar em cabeçalho que o próprio cliente escolhe.
+       A credencial agora é um COOKIE de sessão HttpOnly, emitido por `/sessao/entrar` depois de a
+       plataforma conferir e-mail e senha. O navegador o envia sozinho; não há nada para injetar,
+       e de propósito não há nada que um script da página consiga ler.
+       ⚠️ NÃO reponha este script: repô-lo reabre a escalada de privilégio que o teste (c) de
+       `app/src/base/testes/auth.test.mjs` existe para barrar. -->
+</head>
+<body>
+  <div id="raiz"></div>
+  <script type="module" src="/src/main.jsx"></script>
+</body>
+</html>

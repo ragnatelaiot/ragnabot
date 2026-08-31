@@ -1,6 +1,6 @@
 {
   "name": "ragnabot",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "private": true,
   "description": "Ragnabot — motor de fluxo, portaria, relógios de atendimento, SaaS, protocolo e auditoria. Aplicação própria, independente do NOC.",
   "type": "module",

@@ -1,0 +1,29 @@
+{
+  "name": "ragnabot-web",
+  "version": "1.3.0",
+  "private": true,
+  "description": "Interface do Ragnabot — editor de fluxo de conversa. Pacote estático servido pelo próprio motor (doc 33, Etapa 4).",
+  "type": "module",
+  "engines": {
+    "node": ">=18.18"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "npm run test:servir && npm run test:montar",
+    "test:servir": "node tests/servir.smoke.mjs",
+    "test:montar": "vite build --ssr tests/_monta-entrada.jsx --outDir tests/.ssr --logLevel warn && node tests/monta.smoke.mjs"
+  },
+  "dependencies": {
+    "@fontsource/inter": "^5.2.8",
+    "lucide-react": "^0.300.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "express": "^4.21.0",
+    "vite": "^5.4.0"
+  }
+}

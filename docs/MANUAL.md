@@ -18,6 +18,7 @@
 5. [Fluxo de conversa (chatbot)](#5-fluxo-de-conversa-chatbot)
 6. [Multiempresa, planos e cobrança](#6-multiempresa-planos-e-cobrança)
 7. [Protocolo e auditoria](#7-protocolo-e-auditoria)
+7-A. [Entrar no Ragnabot (login da tela)](#7-a-entrar-no-ragnabot-login-da-tela)
 8. [Infraestrutura (o que sustenta tudo)](#8-infraestrutura)
 9. [Backup e recuperação](#9-backup-e-recuperação)
 
@@ -220,6 +221,33 @@ uma empresa não enxerga outra (provado contra o ataque real).
 **Como funciona por dentro.** O protocolo (`RGT-0000000001`, três letras por empresa) é gerado quando
 a conversa nasce, à prova de corrida (25 emissões simultâneas → 25 números únicos). A auditoria
 registra acesso, atendimento, configuração e dados — com quem, quando, onde e o antes/depois.
+
+---
+
+## 7-A. Entrar no Ragnabot (login da tela)
+
+**O que faz.** Quem abre a tela do Ragnabot entra com **a conta dele da plataforma de atendimento**
+— o mesmo e-mail e a mesma senha do painel de conversas. Não existe senha separada.
+
+**Como funciona por dentro.** O motor manda e-mail e senha para a plataforma (`POST /auth/sign_in`)
+e é ela quem confere. A senha **não é guardada em lugar nenhum**. Da resposta saem o nome, o e-mail
+e o **papel real** na conta (`administrator` ou `agent`), e daí o motor emite um **cookie de sessão
+assinado**: `HttpOnly` (nenhum script da página consegue lê-lo), `SameSite=Strict`, `Secure` e
+validade de no máximo **8 horas**. O papel viaja **dentro** do conteúdo assinado — não em cabeçalho.
+
+**Segundo fator.** Se a conta tem verificação em duas etapas na plataforma, a tela pede o código de
+6 dígitos do aplicativo autenticador (ou um código de recuperação). O bilhete intermediário dessa
+etapa nunca chega ao navegador: nasce e morre dentro do motor.
+
+**O que cada papel pode.** *Administrador da conta* administra os fluxos da empresa dele.
+*Atendente* entra, mas com alcance de leitura do que é dele. **Nenhum dos dois** mexe em cobrança
+nem cria/exclui empresa — isso é operação da Ragnatela, feita pelo NOC, e continua trancada.
+
+**Sair.** Encerra a sessão na hora e apaga o cookie. Trocar de pessoa na mesma máquina recarrega a
+tela, para que nenhum rascunho da pessoa anterior sobreviva.
+
+**Limite honesto.** O encerramento imediato vale na réplica que atendeu o pedido; a sessão vence
+sozinha em até 8 horas de qualquer jeito.
 
 ---
 

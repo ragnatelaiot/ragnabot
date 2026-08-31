@@ -19,6 +19,66 @@
 
 ---
 
+## v1.05.00 — Casa própria de verdade (30/08/2026)
+
+O Ragnabot deixou de depender do NOC para **qualquer coisa** de atendimento e administração.
+
+- **Interface própria.** A tela do editor de fluxo é servida pelo próprio Ragnabot, não mais pelo
+  NOC. Junto veio uma **tela de cadastro de empresas**, que nunca existiu — até agora só dava para
+  cadastrar empresa por chamada de programação, o que na prática queria dizer "só o Claude cadastra".
+- **Login próprio.** Você entra com a **sua conta da plataforma** — nada de senha nova. E a trava
+  que importa: o papel de quem entra vem **assinado pelo servidor**, nunca do que o navegador diz.
+  Sem isso, qualquer um se declararia super usuário e passaria pelas travas de cobrança e de criação
+  de empresa.
+- **Segundo fator próprio**, usando o e-mail que a plataforma já conhece.
+- **E-mail próprio.** A configuração de envio vinha de uma tabela **do NOC** — uma dependência que
+  nenhuma linha de código denunciava. Agora é do Ragnabot.
+- **Permissão por grupo removida** — era conceito do NOC. Aqui o que separa é a empresa.
+
+### Depende de
+- O código do segundo fator vive na memória da réplica que o emitiu: com duas réplicas, parte das
+  confirmações pede um segundo envio. A falha é fechada (nunca aprova o que não emitiu).
+- Continua sem caixa de WhatsApp: nada foi exercitado com conversa real.
+
+---
+
+
+## v1.04.00 — A tela do fluxo saiu do NOC e ganhou login próprio (30/08/2026)
+
+O editor de fluxo passou a ser servido pelo **próprio motor do Ragnabot** — e, com ele, veio a
+**entrada de sessão**: quem abre a tela agora **entra com a conta dele da plataforma de
+atendimento**. Não há senha nova para decorar e não há identidade emprestada do NOC.
+
+- **Entrar com a conta da plataforma.** E-mail e senha são conferidos pelo Chatwoot, não por nós.
+  Quem tem verificação em duas etapas informa o código de 6 dígitos (ou um código de recuperação).
+- **O papel vem de quem confere, não de quem pede.** Administrador da conta entra como
+  administrador; atendente entra como atendente. O papel viaja **dentro de um cookie assinado**,
+  que o navegador não consegue reescrever.
+- **Sessão curta e trancada.** Cookie `HttpOnly` (script da página não o lê), `SameSite=Strict`,
+  `Secure`, validade máxima de **8 horas**. Sair encerra na hora.
+- **A auditoria voltou a registrar QUEM.** Antes o plano era registrar um "operador" genérico para
+  todo mundo; agora entra o nome e o identificador de quem realmente entrou.
+- **Freio de tentativas** por IP + e-mail, além do que a própria plataforma já tem.
+
+### O defeito que esta versão fecha
+No desenho anterior, para servir a tela o motor teria de **entregar ao navegador o token de serviço**
+(a credencial que o NOC usa para falar com o Ragnabot) e o papel do operador viajaria num
+**cabeçalho que o próprio cliente escolhe**. Na prática: quem alcançasse a página recebia a
+credencial, e bastava declarar-se `super` para passar pelo que tranca **cobrança e criação de
+empresa**. A tela nunca chegou a ir ao ar assim — o defeito foi apontado antes de ligar, e esta
+versão o fecha. Há um teste dedicado só para impedir que ele volte.
+
+### Depende de
+- **Uma conta real da plataforma para a primeira entrada de verdade.** Todo o mecanismo está
+  testado (13 verificações automáticas), mas a conversa com o Chatwoot só se prova com uma conta
+  existente — e o cadastro real ainda não foi exercitado por ninguém.
+- **O endereço interno da plataforma** (`RAGNABOT_PLATAFORMA_INTERNA`): pelo endereço público, a
+  entrada passa pelo guarda do "não sou robô", que um servidor não resolve.
+- **Super usuário continua sendo só do NOC.** Administrador de empresa é dono da empresa dele, não
+  do SaaS: cobrança e criação de empresa seguem trancadas para a tela.
+
+---
+
 ## v1.03.00 — Lista com seções, botão de link e e-mail no fluxo (29/08/2026)
 
 Os blocos do montador de fluxo passaram a ter o que o bot atual tem — desenhado a partir da leitura

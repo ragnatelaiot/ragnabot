@@ -1,0 +1,235 @@
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+   TEMA DO RAGNABOT — o MÍNIMO que a tela do editor de fluxo consome
+   ════════════════════════════════════════════════════════════════════════════════════════════════
+   Doc 33, Etapa 4: a tela muda de casa. Ela não podia trazer junto o `styles/index.css` do NOC
+   (3.127 linhas, 48 telas de regra) — arrastar a folha inteira seria mudar de casa levando a mobília
+   do vizinho. Este arquivo tem SÓ o que a tela usa de verdade, medido por `grep`:
+
+     · os 22 tokens `var(--…)` que aparecem em FluxosRagnabot.jsx;
+     · os tokens de que ESSES tokens e as classes abaixo dependem (espaço, raio, sombra, peso, fonte);
+     · as classes `.btn`, `.btn-primary`, `.btn-secondary`, `.spinner` (as únicas classes globais que
+       a tela nomeia) e `@keyframes spin`;
+     · a família `.capa*`, porque `CapaSecao.jsx` veio junto;
+     · o reinício de caixa, o corpo e a barra de rolagem, que a tela pressupõe.
+
+   ⚠️ OS VALORES SÃO CÓPIA LITERAL do NOC, e não uma releitura. Se um dia a paleta do Ragnabot se
+   separar da do NOC, é AQUI que ela se separa — e aí será uma decisão, não um desvio silencioso.
+   ⛔ O que NÃO veio, de propósito: severidade (`--sev-*`), séries de gráfico (menos a `--serie-5`,
+   que o anel de foco usa), tema de impressão, esqueleto, aviso flutuante, menu lateral, e as ~40
+   outras famílias de classe do NOC. Nenhuma delas é referida por esta tela.
+   ════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── Fundo ───────────────────────────────────────────────────────────────────────────────── */
+  --bg-primary:   #061218;
+  --bg-secondary: #0b1e28;
+  --bg-surface:   #102a36;
+  --bg-elevated:  #163644;
+  --bg-hover:     #193c4b;
+  --bg-input:     #0a1b24;
+
+  /* ── Bordas ──────────────────────────────────────────────────────────────────────────────── */
+  --border-primary:   rgba(111, 231, 255, 0.14);
+  --border-secondary: rgba(111, 231, 255, 0.24);
+  /* Contorno de CONTROLE tem piso de 3:1. As duas de cima não chegam lá (a primária mede 1,33:1
+     contra o cartão e some no celular). Esta é o mesmo ciano com alfa suficiente: 3,89:1 medido. */
+  --border-campo:     rgba(111, 231, 255, 0.52);
+
+  /* ── Ação ────────────────────────────────────────────────────────────────────────────────── */
+  --primary:      #2ee879;
+  --primary-dim:  #23c463;
+  --on-primary:   #04171f;   /* texto SOBRE o verde. NUNCA branco: 1,62:1 */
+
+  /* ── Sinal. Os quatro "-dim" são a própria cor a ~13% — fundo de selo e de faixa ──────────── */
+  --success: #2ee879;   --success-dim: rgba( 46, 232, 121, .13);
+  --warning: #ffb020;   --warning-dim: rgba(255, 176,  32, .13);
+  --danger:  #ff5c5c;   --danger-dim:  rgba(255,  92,  92, .13);
+  --info:    #4aa8ff;   --info-dim:    rgba( 74, 168, 255, 0.14);
+
+  /* Única cor de série que veio: é a do anel de foco por teclado (`.btn:focus-visible`). */
+  --serie-5: #37dff7;
+
+  /* ── Texto ───────────────────────────────────────────────────────────────────────────────── */
+  --text-primary:   #eaf2f6;
+  --text-secondary: #b3c6cf;
+  --text-muted:     #8fa7b2;   /* pior caso 4,66:1, medido contra TODAS as superfícies */
+
+  /* ── Tipografia ──────────────────────────────────────────────────────────────────────────── */
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --peso-titulo: 800;
+  --peso-forte:  700;
+
+  /* ── Espaço, raio, sombra, transição ─────────────────────────────────────────────────────── */
+  --space-2xs: 2px;
+  --space-xs:  4px;
+  --space-sm:  8px;
+  --space-md:  12px;
+  --space-lg:  16px;
+  --space-xl:  24px;
+  --space-2xl: 32px;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --radius-full: 9999px;
+
+  --sh1: 0 1px 2px rgba(0,0,0,0.45);
+  --sh2: 0 6px 18px rgba(0,0,0,0.42), 0 1px 2px rgba(0,0,0,0.5);
+  --sh3: 0 20px 48px rgba(0,0,0,0.58), 0 2px 6px rgba(0,0,0,0.5);
+  --shadow-lg: var(--sh3);
+
+  --transition-fast: 150ms ease;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { font-size: 16px; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+
+body {
+  font-family: var(--font-family);
+  background-color: var(--bg-primary);
+  /* Dois brilhos de canto, muito baixos: dão matéria ao fundo sem virar decoração. */
+  background-image:
+    radial-gradient(1100px 460px at 78% -12%, rgba(46, 232, 121, 0.055), transparent 62%),
+    radial-gradient(760px 380px at 8% 108%, rgba(74, 168, 255, 0.045), transparent 60%);
+  background-attachment: fixed;
+  color: var(--text-primary);
+  line-height: 1.6;
+  min-height: 100vh;
+  /* ⚠️ `hidden` faz o `overflow-y` computar como `auto`: o body vira container de rolagem e todo
+     `position: sticky` de dentro perde a referência — foi assim que a capa deixou de grudar.
+     `clip` corta o transbordo do mesmo jeito SEM criar container. As duas linhas, nesta ordem. */
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+
+/* Quem pede menos movimento não ganha nenhum. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+a { color: var(--primary); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-secondary); }
+::-webkit-scrollbar-thumb { background: var(--border-secondary); border-radius: var(--radius-full); }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ═══ A moldura da página. No NOC quem dava este respiro era `.main-content` do layout, que ficou
+   lá. Aqui a tela é a página inteira, então o respiro (e a sangria que a capa lê) vive nela. ═══ */
+.pagina {
+  padding: var(--space-lg);
+  --capa-sangria: var(--space-lg);
+  min-height: 100vh;
+}
+@media (max-width: 480px) {
+  .pagina { padding: var(--space-sm); --capa-sangria: var(--space-sm); }
+}
+
+/* ═══ Botões ═══ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  font-weight: 600;
+  font-family: var(--font-family);
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Foco por teclado: anel ciano de 3px. Sem ele, quem navega por Tab não sabe onde está. */
+.btn:focus-visible, a:focus-visible { outline: 3px solid var(--serie-5); outline-offset: 2px; }
+
+.btn-primary { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+.btn-primary:hover:not(:disabled) { background: var(--primary-dim); border-color: var(--primary-dim); }
+/* Carregando ≠ desligado: continua VERDE a 70%. Cinza é "não dá para clicar". */
+.btn-primary[aria-busy="true"],
+.btn-primary[aria-busy="true"]:disabled {
+  background: var(--primary); border-color: var(--primary); color: var(--on-primary); opacity: 0.7;
+}
+.btn-primary .spinner { border-color: rgba(4,23,31,0.28); border-top-color: var(--on-primary); }
+/* ⚠️ MEDIDO: o `.btn:disabled` genérico (opacity:.5) rebaixava o verde e o texto caía para 3,84:1. */
+.btn-primary:disabled:not([aria-busy="true"]) {
+  background: var(--bg-surface); border-color: var(--border-campo); color: var(--text-muted); opacity: 1;
+}
+
+.btn-secondary { background: var(--bg-surface); color: var(--text-primary); border-color: var(--border-campo); }
+.btn-secondary:hover:not(:disabled) { background: var(--bg-hover); border-color: var(--border-secondary); }
+
+/* ═══ Girador ═══ */
+.spinner {
+  width: 20px; height: 20px;
+  border: 2px solid var(--border-secondary);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ═══ Capa de seção — ela SUBSTITUI a barra de título, não é acrescentada acima dela ═══ */
+.capa {
+  position: relative;
+  height: 130px;
+  flex: 0 0 130px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border-secondary);
+  background-size: cover;
+  background-position: center;
+  box-shadow: var(--sh1);
+  /* A sangria SEGUE O RESPIRO do container (`--capa-sangria`), não um número fixo: sangria fixa
+     fazia a capa nascer mais larga que a tela no celular, com o título deslocado junto. */
+  margin: calc(-1 * var(--capa-sangria, var(--space-lg))) calc(-1 * var(--capa-sangria, var(--space-lg))) var(--space-lg);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background-color: var(--bg-secondary);
+  transition: height 180ms ease, flex-basis 180ms ease;
+}
+.capa::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  /* ⚠️ MEDIDO: com o véu do desenho original o olho da seção dava 3,70:1 — reprovado. A força sobe
+     do lado ESQUERDO, onde o texto assenta; o direito segue claro para a foto aparecer. */
+  background: linear-gradient(90deg, rgba(6,18,24,0.80) 0%, rgba(6,18,24,0.46) 52%, rgba(6,18,24,0.66) 100%);
+}
+.capa__foto { position: absolute; inset: 0; background-size: cover; background-position: center; transition: opacity 180ms ease; }
+.capa__txt {
+  position: relative; z-index: 2; height: 100%; display: flex; flex-direction: column;
+  justify-content: center; padding: 0 calc(var(--space-lg) + var(--space-xl)); max-width: 860px;
+}
+.capa__olho { font-size: 0.625rem; letter-spacing: 1.5px; text-transform: uppercase; font-weight: var(--peso-forte); color: var(--primary); margin-bottom: 7px; text-shadow: 0 1px 3px rgba(0,0,0,0.7); }
+.capa__titulo { font-size: 1.6875rem; font-weight: var(--peso-titulo); letter-spacing: -0.7px; color: #fff; line-height: 1.1; text-shadow: 0 2px 10px rgba(0,0,0,0.62); }
+.capa__apoio { font-size: 0.84375rem; color: #d3e2e8; margin-top: 7px; line-height: 1.55; max-width: 640px; text-shadow: 0 1px 6px rgba(0,0,0,0.6); }
+.capa__acoes { position: absolute; right: var(--space-xl); top: 50%; transform: translateY(-50%); z-index: 3; display: flex; gap: 9px; align-items: center; }
+.capa__txt, .capa__titulo, .capa__apoio, .capa__olho { transition: all 180ms ease; }
+
+/* A partir de 120px de rolagem a capa encolhe para 56px e a FOTO SAI; a orientação fica.
+   `.capa.capa--compacta` (dois nomes) e não `.capa--compacta`: as alturas de tablet e celular
+   estão em @media MAIS ABAIXO e, com especificidade igual, a última declaração ganharia. */
+.capa.capa--compacta { height: 56px; flex-basis: 56px; box-shadow: var(--sh2); }
+.capa.capa--compacta .capa__foto { opacity: 0; }
+.capa.capa--compacta::after { opacity: 0; }
+.capa.capa--compacta .capa__olho,
+.capa.capa--compacta .capa__apoio { opacity: 0; height: 0; margin: 0; overflow: hidden; }
+.capa.capa--compacta .capa__titulo { font-size: 0.9375rem; letter-spacing: -0.2px; text-shadow: none; color: var(--text-primary); }
+
+@media (max-width: 900px) {
+  .capa { margin-bottom: var(--space-md); }
+  .capa__acoes { display: none; }
+  .capa__txt { padding-right: var(--space-md); }
+}
+@media (max-width: 768px) { .capa { height: 112px; } .capa__titulo { font-size: 1.375rem; } }
+@media (max-width: 480px) { .capa { height: 96px; } .capa__titulo { font-size: 1.1875rem; } .capa__apoio { display: none; } }

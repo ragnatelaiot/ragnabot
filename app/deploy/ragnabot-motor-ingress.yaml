@@ -1,0 +1,47 @@
+# ════════════════════════════════════════════════════════════════════════════════════════════════
+# ENTRADA DO MOTOR — só para o console de operação (o NOC).
+#
+# POR QUE EXISTE: na Etapa 4 o NOC deixa de ler o banco do produto e passa a CONSUMIR a API do
+# motor. Para isso ele precisa alcançá-lo, e o serviço do motor é interno ao cluster.
+#
+# DUAS TRAVAS, e a segunda existe porque a primeira pode vazar:
+#   1. `RAGNABOT_SERVICE_TOKEN` — sem ele, tudo que é privado devolve 401 (falha fechada);
+#   2. lista de permissão por ORIGEM — mas NO PROXY, não aqui (ver a anotação abaixo e
+#      `deploy/nginx/bot-motor-api.conf`). Uma trava só é uma trava; duas são uma decisão.
+#
+# ⚠️ O host é o MESMO da plataforma, num caminho separado (`/motor-api`). Não criei subdomínio novo
+# de propósito: subdomínio novo pede certificado novo, e certificado que ninguém lembra de renovar
+# derruba a integração num sábado.
+# ════════════════════════════════════════════════════════════════════════════════════════════════
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ragnabot-motor
+  namespace: ragnabot
+  annotations:
+    # O caminho público `/motor-api/...` chega ao motor como `/...` — a aplicação não sabe (nem
+    # precisa saber) que está atrás de um prefixo.
+    # ⚠️ NÃO existe filtro de origem aqui, e isso foi MEDIDO, não esquecido: o tráfego entra por
+    # NodePort e o Kubernetes MASCARA o IP de origem — o cluster enxerga o IP do NÓ, nunca o de quem
+    # chamou. Uma lista de permissão aqui recusaria todo mundo (403) e, pior, daria a impressão de
+    # estar protegendo. A trava por origem fica no PROXY, que vê o IP verdadeiro
+    # (`deploy/nginx/bot-motor-api.conf`), e a trava de identidade é o token de serviço.
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/proxy-body-size: "20m"
+    # O cabeçalho do ator asserido tem SUBLINHADO; sem isto o nginx o descarta em silêncio e a
+    # auditoria registraria "operador desconhecido" para todo mundo. Lição de 30/08.
+    nginx.ingress.kubernetes.io/enable-underscores-in-headers: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: bot.ragnatela.com.br
+      http:
+        paths:
+          - path: /motor-api(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: ragnabot-motor
+                port:
+                  number: 3000

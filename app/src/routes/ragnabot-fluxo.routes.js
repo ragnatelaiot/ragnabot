@@ -288,28 +288,54 @@ function documentoTemForma(d) {
  * ⚠️ 2FA RECUSADO DEVOLVE 403 COM `code: 'INVALID_2FA'`, NUNCA 401. No frontend desta casa, 401
  * fora da tela de login significa "sua sessão morreu" e dispara logout global: um código digitado
  * errado derrubaria a sessão inteira do operador. Regra permanente da casa.
+ *
+ * ── S5-INDEPENDENCIA (30/08/2026): QUEM É A PESSOA SAI DA SESSÃO, NÃO DA TABELA DO NOC ──────────
+ * Este trecho lia `prisma.user` — a tabela de usuários DO NOC. Ela não existe na base do Ragnabot
+ * (o `schema.prisma` daqui tem só os 40 modelos do produto), então `prisma.user` é `undefined` e a
+ * chamada estourava. Agora o e-mail vem de `req.user`, que `base/auth.js` montou a partir do que a
+ * PLATAFORMA respondeu na entrada — é o mesmo dado, medido na fonte certa.
+ *
+ * ⛔ E QUANDO A SESSÃO NÃO TEM E-MAIL, A OPERAÇÃO É RECUSADA — nunca "passa batido". Isso acontece
+ * na ponte de serviço (NOC → Ragnabot): ela afirma um operador em cabeçalho, sem endereço de
+ * pessoa. Publicar fluxo é mandar um robô falar com o cliente de alguém; fazer isso sem confirmar
+ * quem apertou o botão transformaria a ponte no contorno do segundo fator.
  */
 async function conferir2FA(req, res) {
   const { otpChannel, otpCode } = req.body || {};
-  if (!otpCode) {
-    const u = await prisma.user.findUnique({
-      where: { id: req.user.id }, select: { email: true, totpEnabled: true },
+  const otp = await import('../services/otp.service.js');
+  const canais = otp.canaisDe(req.user);
+
+  if (!canais.email) {
+    res.status(403).json({
+      error: 'Esta ação exige confirmação em duas etapas, e esta sessão não tem e-mail de pessoa '
+        + 'para receber o código. Entre pela plataforma com a sua conta.',
+      code: 'SEM_CANAL_2FA',
     });
+    return false;
+  }
+
+  if (!otpCode) {
     res.status(428).json({
       error: 'Confirmação em duas etapas necessária.',
       code: 'NEEDS_2FA',
       needs2fa: true,
-      channels: { email: !!u?.email, totp: !!u?.totpEnabled },
-      emailHint: u?.email ? u.email.replace(/^(.).*(@.*)$/, '$1***$2') : null,
+      channels: canais,
+      emailHint: otp.dicaDeEmail(req.user.email),
     });
     return false;
   }
-  const otp = await import('../services/otp.service.js');
   const vr = otpChannel === 'totp'
     ? await otp.verifyTotp(req.user.id, otpCode)
     : await otp.verifyEmailOtp(req.user.id, otpCode, 'access_2fa');
   if (!vr?.ok) {
-    res.status(403).json({ error: 'Código de verificação inválido ou expirado.', code: 'INVALID_2FA' });
+    // A razão do serviço volta quando existe (ex.: código queimado por excesso de tentativas,
+    // envio de e-mail não configurado). Mensagem genérica manda todo mundo tentar de novo o que
+    // já não vai funcionar.
+    res.status(403).json({
+      error: vr?.error || 'Código de verificação inválido ou expirado.',
+      code: 'INVALID_2FA',
+      motivo: vr?.code || undefined,
+    });
     return false;
   }
   return true;
@@ -323,15 +349,41 @@ router.post('/request-otp', async (req, res) => {
   try {
     const canal = req.body?.channel === 'totp' ? 'totp' : 'email';
     const otp = await import('../services/otp.service.js');
+    const canais = otp.canaisDe(req.user);   // ← S5: da SESSÃO, não de `prisma.user` (tabela do NOC)
     if (canal === 'email') {
-      const u = await prisma.user.findUnique({ where: { id: req.user.id }, select: { email: true } });
-      if (!u?.email) return res.status(400).json({ error: 'Seu usuário não tem e-mail para receber o código.' });
-      await otp.createAndSendEmailOtp(req.user.id, 'access_2fa');
-      return res.json({ channel: 'email', sent: true });
+      if (!canais.email) {
+        return res.status(400).json({
+          error: 'Esta sessão não tem e-mail de pessoa para receber o código. '
+            + 'Entre pela plataforma com a sua conta.',
+          code: 'SEM_CANAL_2FA',
+        });
+      }
+      // ⚠️ O terceiro argumento é o ator: é dele que sai o endereço de destino. Sem tabela de
+      // usuários, não há de onde adivinhar — e adivinhar destino de código de segurança seria
+      // exatamente o erro a evitar.
+      const r = await otp.createAndSendEmailOtp(req.user.id, 'access_2fa', req.user);
+      if (!r?.ok) {
+        // NÃO respondemos `sent:true` quando nada saiu. A tela pediria o código e a pessoa ficaria
+        // esperando um e-mail que nunca chega, procurando o defeito na caixa de spam dela.
+        const status = r?.code === 'SMTP_NAO_CONFIGURADO' ? 503
+          : r?.code === 'MUITOS_ENVIOS' ? 429 : 400;
+        return res.status(status).json({
+          error: r?.error || 'Não consegui enviar o código.',
+          code: r?.code || 'FALHA_NO_ENVIO',
+        });
+      }
+      return res.json({
+        channel: 'email', sent: true,
+        emailHint: otp.dicaDeEmail(req.user.email), ttlMinutes: r.ttlMinutes,
+      });
     }
-    const u = await prisma.user.findUnique({ where: { id: req.user.id }, select: { totpEnabled: true } });
-    if (!u?.totpEnabled) return res.status(400).json({ error: 'App autenticador não configurado no seu perfil.' });
-    res.json({ channel: 'totp', sent: false });
+    // Aplicativo autenticador não existe neste serviço, e isso é DITO — o segredo do autenticador
+    // ficou na tabela do NOC e o da plataforma só ela confere. Ver `otp.service.js`, decisão 5.
+    return res.status(400).json({
+      error: 'O aplicativo autenticador não é conferido pelo Ragnabot. Use o código por e-mail.',
+      code: 'TOTP_INDISPONIVEL',
+      channels: canais,
+    });
   } catch (e) { erro(res, e, 500); }
 });
 
