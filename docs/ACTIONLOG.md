@@ -2,6 +2,71 @@
 > LOG CANÔNICO local da construção (regra do dono, 27/08). Espelho versionado no repo:
 > `ragnatelaiot/ragnabot` → docs/ACTIONLOG.md. Sem segredos, por lei.
 
+## 2026-09-02 — S-DEPLOY-2: a caixa de atendimento entrou no ar (v1.08.00)
+
+Publicação do lote acumulado desde a v1.07.01. **Nada mudou para quem conversa com a gente hoje**:
+o executor de fluxo continua em `0` e a plataforma segue com **zero webhooks** — medidos os dois.
+
+### A migração primeiro, no líder MEDIDO NA HORA
+`prisma/sql/caixa-atendimento/01-rb_caixa_atendimento.sql` — 3 tabelas + 12 índices, **zero `DROP`
+executável** (a única palavra «drop» do arquivo está num comentário). Nenhum `prisma db push`.
+
+⚠️ **O líder tinha trocado no mesmo dia.** Medido antes de escrever: `pg133` / `172.17.20.133` /
+`rgtpstgsql002`, com `SELECT NOT pg_is_in_recovery()` = `t`. Presumir o de ontem teria mandado a
+migração para a réplica. Aplicado com `psql -v ON_ERROR_STOP=1 --single-transaction` e
+`SET ROLE ragnabot_app` — sem o `SET ROLE`, as 3 novas nasceriam com dono diferente das outras 40.
+
+Medido depois: 3 tabelas · 15 índices (12 + 3 chaves primárias) · base de 40 → 43 tabelas · as
+**3 chaves estrangeiras compostas** (`rb_no/rb_aresta/rb_exec_versao_fk`) de pé · réplica `pg132`
+com as 3 tabelas e os 15 índices, **lag 0**.
+
+### A imagem
+`ragnabot-motor:1.08.00`, construída com `--build-arg RAGNABOT_PREFIXO_WEB=/painel/` — conferido no
+próprio índice da imagem **antes** de subir (`/painel/assets/…`), porque esquecer o argumento não dá
+erro: dá **tela branca com 200 na rede**. Importada no containerd de `rgtk8s001` e `rgtk8s002`
+(o motor não roda no nó do XSE, por afinidade). Rollout limpo, 2/2, **zero reinícios**.
+`ragnabot-web` e `ragnabot-worker` **não foram tocados** (idade de 6 dias, intacta).
+
+### A retrocarga contra dado real — e a divergência que vale dizer
+Primeira execução contra a conta de verdade: **7 lidas · 7 criadas**; segunda passada **0 criadas ·
+7 atualizadas** (idempotência), e 7 linhas no banco — uma por conversa, nenhuma duplicada.
+
+⚠️ **A divergência, sem arredondar:** as 7 são **conversas de teste do próprio dono**, todas já
+resolvidas (`open: 0 · pending: 0 · resolved: 7 · snoozed: 0`) e **todas sem setor**. Não existe
+tráfego de cliente na conta. Consequência prática: a tela nasce com a aba **Resolvidos = 7** e as
+outras zeradas, e um atendente que não seja o dono não vê nada — o que é o comportamento correto da
+regra, não defeito. A prova de fila cheia só existirá quando houver conversa de verdade.
+
+### Provado por observação
+- Suites contra o banco DE VERDADE (por túnel do NOC → nó k8s → líder, porque o `pg_hba` recusa o
+  NOC direto, e com razão): **isolamento 63/63 · retrocarga 43/43**, esquema temporário derrubado,
+  **zero sobra** (`zz_teste%` = 0). ⚠️ O `MANUAL.md` dizia 57 no isolamento; **o número real é 63** —
+  corrigido no texto.
+- `/painel/` e `/painel/caixa` **200 de fora**, pelo vhost real com `--resolve` (o teste pelo NOC
+  mente por hairpin NAT). ⚠️ E um `curl` cru também mente: o desvio-para-a-página exige
+  `Accept: text/html` de propósito, então `curl` sem cabeçalho de navegador devolve **404** e parece
+  falha de publicação. Com o cabeçalho: índice do pacote novo (`index-KHGN-DXf.js`), F5 em
+  `fluxos/testador/caixas/respostas-rapidas/caixa/empresas` = 200, arquivo inexistente = 404,
+  `/painel/api/…` = 401.
+- `/saude`: `versao 1.08.00` · `interface {servida, /painel/}` · `tokenConfigurado: true` ·
+  `caixasNaPlataforma: 4` · `ultimoErro: null` · `status: no ar`.
+- Caixa respondendo (não mais `503 MODELO_AUSENTE`): `/opcoes`, `/contadores`, `/conversas`,
+  `/setores` em 200. Sincronização trouxe **1 time e 5 vínculos de membro**.
+- Painel de atendimento **intacto**: raiz 200 com tema/carregando/turnstile, `/app/login` 200,
+  `POST /auth/sign_in` sem verificação 401. `/motor-api/` segue **403** para quem não é o NOC.
+  Vizinhança do proxy compartilhado intacta (chat001 200 · painel 200 · sisac 302 · site 200);
+  **nada foi tocado no nginx** (`nginx -t` aprovado, symlinks com data de 28/08).
+
+### Backup, depois de validado, no líder medido de novo
+`ragnabot-completo_2026-09-02T23-06-44-649Z.sql.gz` — 84 966 bytes no bucket **imutável**, Object
+Lock `GOVERNANCE` retido até 12/09. Conferido por leitura direta do objeto (`head_object`), não pela
+listagem — o iDrive e2 já devolveu listagem instável para o mesmo prefixo.
+
+### ⛔ Continua desligado, de propósito
+`RAGNABOT_EXECUTOR_FLUXO=0` (medido no processo do pod, não só no ConfigMap) e **zero webhooks**
+(medido: `SELECT … FROM webhooks` = 0 linhas). Ligar é passo separado — recomendação registrada:
+**primeiro numa caixa de teste, com o dono do outro lado**.
+
 ## 2026-09-02 — S-PUBLICAR: o painel do Ragnabot abriu para o dono (v1.07.01)
 
 ### O gargalo, medido
