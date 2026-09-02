@@ -404,9 +404,10 @@ await verificar('22. o catálogo ganhou `email` e continua entregando os tipos a
   assert.ok(EXECUTORES.email, 'EXECUTORES.email precisa existir');
   const tipos = Object.keys(EXECUTORES);
   // Eram 17 quando este arquivo nasceu (29/08). Viraram 19 em 02/09 com `agente_ia` (S5) e
-  // `pagamento_pix` (S-EFÍ). O número é conferido de propósito: nó que some do catálogo é fluxo
-  // publicado que para de andar, e isso tem de reprovar aqui e não em produção.
-  assert.equal(tipos.length, 19);
+  // `pagamento_pix` (S-EFÍ), e 21 no mesmo dia com `atendente` e `randomizador` (contrato S3).
+  // O número é conferido de propósito: nó que some do catálogo é fluxo publicado que para de
+  // andar, e isso tem de reprovar aqui e não em produção.
+  assert.equal(tipos.length, 21);
   for (const t of ['inicio', 'texto', 'lista', 'botoes', 'http', 'chamado', 'encerrar']) {
     assert.ok(tipos.includes(t), `tipo ${t} sumiu`);
   }

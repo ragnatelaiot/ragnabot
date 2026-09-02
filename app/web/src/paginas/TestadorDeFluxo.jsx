@@ -314,6 +314,11 @@ export default function TestadorDeFluxo() {
   const [digitado, setDigitado] = useState('');
   const [ocupado, setOcupado] = useState(false);
   const [varsIniciais, setVarsIniciais] = useState('');
+  // Saídas FORÇADAS, no formato `no_id=saida`, uma por linha. É como o testador percorre o ramo que
+  // o motor não tomaria hoje — o outro lado de um randomizador (contrato S3, §F3.5) ou o `falso` de
+  // uma condição cujos dados de teste não satisfazem. Sem isso, testar um fluxo com teste A/B
+  // aprovaria metade dele e chamaria isso de aprovação.
+  const [saidasForcadas, setSaidasForcadas] = useState('');
 
   useEffect(() => {
     let vivo = true;
@@ -328,12 +333,22 @@ export default function TestadorDeFluxo() {
 
   const reiniciar = useCallback(() => { setPassos([]); setEstado(null); setDigitado(''); setErroDeRede(null); }, []);
 
+  /** `no_id=saida` por linha → `{ no_id: 'saida' }`. Mesmo formato simples das variáveis. */
+  const forcarSaidas = useMemo(() => {
+    const mapa = {};
+    for (const linha of String(saidasForcadas).split('\n')) {
+      const corte = linha.indexOf('=');
+      if (corte > 0) mapa[linha.slice(0, corte).trim()] = linha.slice(corte + 1).trim();
+    }
+    return mapa;
+  }, [saidasForcadas]);
+
   const dar = useCallback(async (opcoes) => {
     if (!fluxoId) return;
     setOcupado(true);
     setErroDeRede(null);
     try {
-      const r = await passoDoTeste(fluxoId, { origem, ...opcoes });
+      const r = await passoDoTeste(fluxoId, { origem, forcarSaidas, ...opcoes });
       setPassos((p) => [...p, r]);
       setEstado(r.estado || null);
       setDigitado('');
@@ -342,7 +357,7 @@ export default function TestadorDeFluxo() {
     } finally {
       setOcupado(false);
     }
-  }, [fluxoId, origem]);
+  }, [fluxoId, origem, forcarSaidas]);
 
   const comecar = useCallback(() => {
     reiniciar();
@@ -432,6 +447,21 @@ export default function TestadorDeFluxo() {
                 style={{ ...campoEstilo, fontFamily: 'monospace', minHeight: 72 }}
               />
 
+              <Rotulo dica="uma por linha, no formato bloco=saida. Serve para percorrer o outro lado de um randomizador ou de uma condição. Opcional.">
+                Forçar caminho
+              </Rotulo>
+              <textarea
+                value={saidasForcadas}
+                onChange={(ev) => setSaidasForcadas(ev.target.value)}
+                rows={2}
+                placeholder={'no_randomizador=b\nno_condicao=falso'}
+                style={{ ...campoEstilo, fontFamily: 'monospace', minHeight: 56 }}
+              />
+              <div style={{ fontSize: '0.74rem', color: T.mut, marginTop: -4 }}>
+                O randomizador sorteia sempre o MESMO ramo para a mesma conversa — é o que impede um
+                cliente de receber as duas variantes. Aqui é onde você vê a outra.
+              </div>
+
               <button
                 type="button"
                 onClick={comecar}
@@ -451,6 +481,17 @@ export default function TestadorDeFluxo() {
                 {p.origem ? <span style={{ color: T.mut, fontSize: '0.75rem' }}>origem: {p.origem}</span> : null}
               </div>
               <Conversa saidas={p.saidas} />
+              {p.forcadas?.length ? (
+                <div style={{
+                  margin: '10px 0', padding: '8px 12px', borderRadius: 8,
+                  border: `1px solid ${T.aviso}`, background: 'var(--aviso-dim, transparent)',
+                  color: T.ink, fontSize: '0.78rem',
+                }}>
+                  <b>Este caminho foi desviado por você.</b>{' '}
+                  {p.forcadas.map((f) => `no "${f.noId}" o motor iria por "${f.sorteada}" e o teste foi por "${f.forcada}"`).join('; ')}.
+                  Numa conversa real, quem decide é o motor.
+                </div>
+              ) : null}
               <ListaDeProblemas problemas={p.problemas} />
               {i === passos.length - 1 ? (
                 <PainelDeResposta

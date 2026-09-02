@@ -213,6 +213,11 @@ const CATALOGO_ESPELHO = {
   variavel:  { rotulo: 'Definir variável',     sigla: 'VR', familia: 'controle', estaciona: false, saidas: () => ['padrao', 'erro'],        falha: [] },
   etiqueta:  { rotulo: 'Etiqueta',             sigla: 'ET', familia: 'controle', estaciona: false, saidas: () => ['padrao', 'erro_interno'], falha: [] },
   time:      { rotulo: 'Encaminhar para time', sigla: 'TM', familia: 'limite',   estaciona: false, saidas: () => [],                        falha: [] },
+  // Contrato S3 (02/09/2026). `atendente` é terminal como o `time` — a diferença é o destinatário
+  // ser uma PESSOA, e por isso ele muda quem enxerga a conversa na caixa (contrato S2).
+  atendente: { rotulo: 'Encaminhar a atendente', sigla: 'AT', familia: 'limite',   estaciona: false, saidas: () => [],                        falha: [] },
+  // As saídas do randomizador SÃO a configuração dele: uma por faixa de porcentagem.
+  randomizador: { rotulo: 'Randomizador (A/B)', sigla: 'AB', familia: 'controle', estaciona: false, saidas: (c) => (c?.saidas || []).map((x) => x.id).filter(Boolean), falha: ['erro_interno'] },
   notificar: { rotulo: 'Notificar',            sigla: 'NT', familia: 'externo',  estaciona: false, saidas: () => ['padrao', 'erro_interno'], falha: [] },
   email:     { rotulo: 'E-mail',               sigla: 'EM', familia: 'externo',  estaciona: false, saidas: () => ['padrao', 'erro_interno'], falha: [] },
   subfluxo:  { rotulo: 'Sub-fluxo',            sigla: 'SF', familia: 'controle', estaciona: false, saidas: (c) => (c?.modo === 'chamar' ? ['padrao'] : []), falha: [] },
@@ -221,8 +226,8 @@ const CATALOGO_ESPELHO = {
 };
 
 const ORDEM_DA_PALETA = [
-  'inicio', 'texto', 'midia', 'pergunta', 'lista', 'botoes', 'espera', 'condicao',
-  'http', 'variavel', 'etiqueta', 'time', 'notificar', 'email', 'subfluxo', 'chamado', 'encerrar',
+  'inicio', 'texto', 'midia', 'pergunta', 'lista', 'botoes', 'espera', 'condicao', 'randomizador',
+  'http', 'variavel', 'etiqueta', 'time', 'atendente', 'notificar', 'email', 'subfluxo', 'chamado', 'encerrar',
 ];
 
 // Cor da borda por FAMÍLIA de tipo, com os tokens do NOC. Cor sozinha nunca carrega informação
@@ -265,6 +270,9 @@ function saidasDoNo(no, catalogo) {
     if (tipo === 'lista') juntar((no?.config?.itens || []).map((i) => i.id).filter(Boolean));
     else if (tipo === 'botoes') juntar((no?.config?.botoes || []).map((b) => b.id).filter(Boolean));
     else if (tipo === 'subfluxo') juntar(no?.config?.modo === 'chamar' ? ['padrao'] : []);
+    // Mesmo motivo de lista/botões: `saidasFixas` do servidor é calculado com config VAZIA, e as
+    // faixas do randomizador vivem inteiramente na configuração — sem esta linha a lista viria vazia.
+    else if (tipo === 'randomizador') juntar((no?.config?.saidas || []).map((x) => x.id).filter(Boolean));
     else juntar(doServidor.saidasFixas);
     if (doServidor.estaciona) juntar(doServidor.saidasDeExcecao || SAIDAS_DE_EXCECAO);
     juntar(doServidor.saidasDeFalha);
@@ -346,6 +354,16 @@ function configPadrao(tipo) {
     case 'variavel':  return { atribuicoes: [{ para: '', operacao: 'definir', de: '' }] };
     case 'etiqueta':  return { aplicar: [], remover: [] };
     case 'time':      return { time: 'Suporte' };
+    // O setor alternativo nasce PREENCHIDO de propósito: sem ele, atendente que saiu da empresa
+    // faz a transferência falhar e a conversa fica parada. Formulário que deixa esquecer garante
+    // que metade dos fluxos esquece.
+    case 'atendente': return { atendente: '', exigirDisponivel: false, timeAlternativo: 'Suporte' };
+    // 50/50 é o teste A/B honesto de partida, e `contato` é o único modo em que a mesma pessoa vê
+    // sempre a mesma variante — sem isso a comparação mede a alternância, não a variante.
+    case 'randomizador': return {
+      estabilidade: 'contato',
+      saidas: [{ id: 'a', rotulo: 'Variante A', peso: 50 }, { id: 'b', rotulo: 'Variante B', peso: 50 }],
+    };
     case 'notificar': return { canal: 'whatsapp', destinatarios: [{ tipo: 'papel', valor: 'plantao' }] };
     // O e-mail nasce com os três obrigatórios VAZIOS de propósito: assunto de exemplo é assunto
     // que chega ao cliente. Vazio o formulário reclama na hora, e a reclamação é o próprio pedido.
@@ -1360,13 +1378,27 @@ function BlocoDeNo({
           const ligada = saidasLigadas.has(s);
           const corPino = especie === 'falha' ? T.perigo : especie === 'excecao' ? T.aviso : T.borda2;
           const armado = ligacaoEmCurso && ligacaoEmCurso.de === no.id && ligacaoEmCurso.saida === s;
+          // ── ESTATÍSTICA POR SAÍDA (contrato S3, doc 34 §F3.8) ─────────────────────────────
+          // «enviado · clicado · CTR» no próprio conector, como no chat atual. Aparece só com a
+          // camada de números ligada, e só quando houve o que medir: escrever «0 %» num menu que
+          // nunca foi apresentado seria afirmar que ninguém clicou num menu que ninguém viu.
+          const dadoDaSaida = metrica?.porSaida ? metrica.porSaida[s] : null;
+          const mostrarCtr = !!dadoDaSaida && dadoDaSaida.ctr !== null && dadoDaSaida.ctr !== undefined;
+          const tituloDoPino = [
+            ligada ? `Saída "${rotularSaida(s)}" — já ligada` : `Saída "${rotularSaida(s)}" — sem destino`,
+            dadoDaSaida
+              ? `${metrica.apresentados ?? 0} enviado(s) · ${dadoDaSaida.saiu} por aqui`
+                + (mostrarCtr ? ` · CTR ${(dadoDaSaida.ctr * 100).toFixed(1).replace('.', ',')} %` : '')
+                + (dadoDaSaida.excecao ? ' · exceção (não conta como clique)' : '')
+              : null,
+          ].filter(Boolean).join('\n');
           return (
             <button
               key={s}
               type="button"
               className="rgfx-pino"
               disabled={somenteLeitura}
-              title={ligada ? `Saída "${rotularSaida(s)}" — já ligada` : `Saída "${rotularSaida(s)}" — sem destino`}
+              title={tituloDoPino}
               onClick={() => aoTocarPino(no.id, s)}
               style={{ background: armado ? T.infoDim : undefined, height: ALT_PINO }}
             >
@@ -1376,6 +1408,18 @@ function BlocoDeNo({
               }}>
                 {ligada ? rotularSaida(s) : `${rotularSaida(s)} — pendente`}
               </span>
+              {dadoDaSaida ? (
+                <span style={{
+                  flexShrink: 0, fontSize: '0.62rem', fontWeight: 700, marginRight: 4,
+                  // Faixa de cor no CTR, como o dono pediu na lista de fluxos: verde em cima,
+                  // laranja embaixo. A cor NÃO carrega a informação sozinha — o número está ao lado.
+                  color: dadoDaSaida.excecao ? T.aviso
+                    : !mostrarCtr ? T.mut
+                      : dadoDaSaida.ctr >= 0.2 ? T.ok : T.aviso,
+                }}>
+                  {dadoDaSaida.saiu}{mostrarCtr ? ` · ${Math.round(dadoDaSaida.ctr * 100)}%` : ''}
+                </span>
+              ) : null}
               <span style={{
                 width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
                 background: ligada ? corPino : 'transparent',
@@ -1406,6 +1450,8 @@ function resumoDoNo(no) {
     case 'variavel': return (c.atribuicoes || []).map((a) => a.para).filter(Boolean).join(', ') || '(sem atribuição)';
     case 'etiqueta': return `aplica ${(c.aplicar || []).length}, remove ${(c.remover || []).length}`;
     case 'time': return c.time || c.timeId || '(sem time)';
+    case 'atendente': return `${c.atendente || c.atendenteId || '(sem atendente)'}${c.timeAlternativo ? ` · senão ${c.timeAlternativo}` : ''}`;
+    case 'randomizador': return (c.saidas || []).map((x) => `${x.rotulo || x.id} ${x.peso ?? 0}%`).join(' · ') || '(sem faixas)';
     case 'notificar': return `${c.canal || 'canal?'} · ${(c.destinatarios || []).length} destinatário(s)`;
     case 'email': return `${c.para || '(sem destinatário)'} · ${c.assunto || '(sem assunto)'}`;
     case 'subfluxo': return `${c.modo === 'saltar' ? 'saltar para' : 'chamar'} ${c.fluxoId || '(sem fluxo)'}`;
@@ -2502,6 +2548,99 @@ function FormularioDeNo({ no, config, aoMudarConfig, fluxosDaEmpresa, variaveisD
           </Faixa>
         </>
       );
+
+    case 'atendente': {
+      // A recusa por AMBIGUIDADE de nome mora no adaptador (duas «Ana Paula» na mesma conta), mas o
+      // aviso precisa chegar aqui: quem digita o nome não imagina que existe outra pessoa igual.
+      const semDestino = !String(c.atendente ?? '').trim() && !c.atendenteId;
+      return (
+        <>
+          <CampoTexto
+            rotulo="Atendente" dica="nome, e-mail ou id na plataforma — e-mail é o mais seguro"
+            valor={c.atendente} aoMudar={(v) => p('atendente', v)}
+          />
+          {semDestino ? (
+            <Faixa tom="erro" titulo="Sem destinatário a conversa fica sem dono">
+              Escolha a pessoa que vai receber a conversa.
+            </Faixa>
+          ) : null}
+          <Faixa tom="aviso" titulo="Prefira o e-mail ao nome">
+            Nome se repete. Se houver duas pessoas com o mesmo nome nesta conta, a transferência é
+            RECUSADA em vez de sortear uma delas — mandar para a pessoa errada ninguém percebe.
+          </Faixa>
+          <Interruptor marcado={c.exigirDisponivel} aoMudar={(v) => p('exigirDisponivel', v)}>
+            Só transferir se a pessoa estiver disponível
+          </Interruptor>
+          <CampoTexto
+            rotulo="Setor alternativo" dica="para onde a conversa vai se a pessoa não puder receber"
+            valor={c.timeAlternativo} aoMudar={(v) => p('timeAlternativo', v)}
+          />
+          {!String(c.timeAlternativo ?? '').trim() ? (
+            <Faixa tom="aviso" titulo="Sem setor alternativo, a falha para a conversa">
+              Se o atendente não for encontrado (saiu da empresa, mudou de e-mail), a transferência
+              é recusada e a conversa fica parada esperando alguém ler o incidente.
+            </Faixa>
+          ) : null}
+          <CampoTexto rotulo="Mensagem ao encaminhar" linhas={3} valor={c.mensagem} aoMudar={(v) => p('mensagem', v)} />
+          <Faixa tom="info" titulo="Este nó é terminal — e muda quem enxerga a conversa">
+            Depois dele a conversa sai do robô e passa a ser DAQUELA pessoa: ela aparece na caixa
+            dela, e some da fila do setor. Por isso ele não tem saídas.
+          </Faixa>
+        </>
+      );
+    }
+
+    case 'randomizador': {
+      const faixas = Array.isArray(c.saidas) ? c.saidas : [];
+      // A soma é conferida AQUI, enquanto se digita, com a mesma regra do motor (centésimos de
+      // ponto, para 33,33 × 3 fechar sem drama de ponto flutuante).
+      const soma = faixas.reduce((t, x) => t + Math.round((Number(String(x?.peso ?? '').replace(',', '.')) || 0) * 100), 0);
+      return (
+        <>
+          <CampoSelecao
+            rotulo="O sorteio se repete por" valor={c.estabilidade || 'visita'} vazio="visita"
+            aoMudar={(v) => p('estabilidade', v || 'visita')}
+            opcoes={[
+              { valor: 'visita', rotulo: 'Visita — sorteia toda vez que passa aqui' },
+              { valor: 'conversa', rotulo: 'Conversa — a pessoa não muda de variante no meio' },
+              { valor: 'contato', rotulo: 'Contato — a mesma pessoa vê sempre a mesma variante' },
+            ]}
+          />
+          <Faixa tom="info" titulo="Para teste A/B, use «contato»">
+            Se a variante mudar a cada conversa, a comparação mede a alternância, não a variante.
+            O sorteio é reprodutível: repetir o passo dá sempre o mesmo ramo, então uma retentativa
+            nunca manda as duas variantes para o mesmo cliente.
+          </Faixa>
+          <ListaEditavel
+            titulo="Faixas"
+            itens={faixas}
+            aoMudar={(v) => p('saidas', v)}
+            novoItem={(i) => ({ id: `saida_${i + 1}`, rotulo: `Variante ${i + 1}`, peso: 0 })}
+            renderizar={(f, mudar) => (
+              <>
+                <CampoTexto rotulo="Identificador da saída" valor={f.id} aoMudar={(v) => mudar({ ...f, id: v })} />
+                <CampoTexto rotulo="Rótulo" valor={f.rotulo} aoMudar={(v) => mudar({ ...f, rotulo: v })} />
+                <CampoTexto rotulo="Porcentagem" valor={f.peso} aoMudar={(v) => mudar({ ...f, peso: v })} />
+              </>
+            )}
+          />
+          {faixas.length < 2 ? (
+            <Faixa tom="erro" titulo="Menos de duas faixas não divide nada">
+              Um randomizador com uma saída só é um nó de passagem disfarçado.
+            </Faixa>
+          ) : soma !== 10000 ? (
+            <Faixa tom="erro" titulo={`As porcentagens somam ${(soma / 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} %`}>
+              Precisam somar exatamente 100 %. Para três saídas iguais, use 33,33 · 33,33 · 33,34 —
+              a última faixa absorve o arredondamento.
+            </Faixa>
+          ) : (
+            <Faixa tom="ok" titulo="As porcentagens fecham 100 %">
+              Cada faixa vira uma saída no bloco. Ligue todas: faixa sem destino é conversa parada.
+            </Faixa>
+          )}
+        </>
+      );
+    }
 
     case 'notificar':
       return (

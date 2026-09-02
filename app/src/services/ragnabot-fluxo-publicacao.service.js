@@ -163,7 +163,7 @@ export function classificarMudanca(docVigente, docNovo) {
  * @returns {{ ok:boolean, erros:Array, avisos:Array, noInicialId:(string|null),
  *             noResgateId:(string|null), temEstaciona:boolean, perfilLimite:string }}
  */
-export function validarDocumento(documento, { tenantId = null, perfilLimite = PERFIL_LIMITES_PADRAO.perfil } = {}) {
+export function validarDocumento(documento, { tenantId = null, perfilLimite = PERFIL_LIMITES_PADRAO.perfil, fluxoId = null } = {}) {
   const erros = [];
   const avisos = [];
   const push = (p) => (p?.nivel === 'aviso' ? avisos : erros).push(p);
@@ -273,6 +273,22 @@ export function validarDocumento(documento, { tenantId = null, perfilLimite = PE
     }
   }
 
+  // Sub-fluxo apontando para o PRÓPRIO fluxo. É o laço mais comum e o mais barato de pegar: não
+  // precisa de banco, e a mensagem nomeia o nó. O laço INDIRETO (A→B→A) precisa das versões
+  // publicadas dos outros fluxos e é conferido em `conferirLacoDeSubfluxo`, dentro da publicação.
+  if (fluxoId) {
+    for (const n of nos) {
+      if (n?.tipo !== 'subfluxo') continue;
+      if (String(n?.config?.fluxoId ?? '') !== String(fluxoId)) continue;
+      erros.push(problema(
+        'SUBFLUXO_EM_LACO', `nos.${n.id}.config.fluxoId`,
+        `O nó "${n.id}" faz este fluxo chamar a si mesmo. Na conversa real isso anda em círculo até `
+        + 'bater no teto de passos e morrer, depois de gastar mensagens com o cliente.',
+        'Aponte o sub-fluxo para outro fluxo, ou troque o nó por uma ligação dentro deste mesmo desenho.',
+      ));
+    }
+  }
+
   // Nó de resgate: OBRIGATÓRIO quando a versão tem nó que estaciona (I7 / §2.1). É para onde vai a
   // execução órfã num retrofit forçado; sem ele, a migração forçada não teria destino seguro.
   const resgate = nos.find((n) => n?.config?.resgate === true) || (documento?.noResgateId ? nosPorId.get(documento.noResgateId) : null);
@@ -282,6 +298,131 @@ export function validarDocumento(documento, { tenantId = null, perfilLimite = PE
   }
 
   return { ok: erros.length === 0, erros, avisos, noInicialId, noResgateId, temEstaciona, perfilLimite };
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// GUARDA CONTRA LAÇO DE SUB-FLUXO — contrato S3 (02/09/2026), doc 34 §F3.4
+//
+// ── O DEFEITO QUE ISTO IMPEDE ───────────────────────────────────────────────────────────────────
+// O nó `subfluxo` entrega o controle a OUTRO fluxo. Nada, até aqui, impedia o fluxo A de chamar o
+// B e o B de chamar o A de volta. Em produção isso não aparece como erro: aparece como conversa
+// que anda em círculo até bater no teto de passos (`passosTotalMax`) e morrer com
+// `teto_de_passos` — depois de gastar mensagens de verdade com um cliente de verdade e de encher a
+// caixa de incidentes com um sintoma que não nomeia a causa.
+//
+// ── POR QUE NA PUBLICAÇÃO, E NÃO NO RASCUNHO ───────────────────────────────────────────────────
+// Desenhar um laço enquanto se pensa é normal e não faz mal a ninguém; o rascunho é privado. O que
+// não pode é PUBLICAR: publicar é o instante em que o desenho passa a atender cliente. Por isso a
+// guarda mora aqui, dentro da mesma transação que cria a versão — e recusa em vez de avisar.
+//
+// ── O QUE CONTA COMO «O FLUXO B», e por que a leitura é da VERSÃO PUBLICADA ─────────────────────
+// A travessia real do motor segue a versão PUBLICADA do fluxo de destino (`montarSalto`), não o
+// rascunho dele. Então é a versão publicada que este grafo lê. Consequência declarada e correta:
+// um laço que só existe no rascunho do outro fluxo NÃO barra esta publicação — ele barrará a
+// publicação DAQUELE fluxo, que é onde a decisão pertence.
+//
+// ── ALCANCE DA RECUSA ───────────────────────────────────────────────────────────────────────────
+// Recusa qualquer ciclo ALCANÇÁVEL a partir do fluxo publicado, e não apenas o que passa por ele.
+// A razão é simples: uma conversa que entra aqui e cai num ciclo lá adiante morre do mesmo jeito.
+// O caminho inteiro vai na mensagem, com os nomes dos fluxos — «Atendimento → Menu → Atendimento»
+// é acionável; «laço detectado» não é.
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+/** Os fluxos que ESTE documento chama por nó `subfluxo`. Função PURA — a base do grafo. */
+export function subfluxosChamados(documento) {
+  const alvos = [];
+  for (const n of documento?.nos ?? []) {
+    if (n?.tipo !== 'subfluxo') continue;
+    const alvo = n?.config?.fluxoId;
+    if (alvo) alvos.push({ fluxoId: String(alvo), noId: n.id, modo: n?.config?.modo ?? null });
+  }
+  return alvos;
+}
+
+/**
+ * Monta o grafo de chamadas da empresa e procura ciclo alcançável a partir de `fluxoId`.
+ *
+ * @param {object} tx cliente Prisma (ou transação) — recebido para rodar DENTRO da transação de publicação
+ * @param {{tenantId:string, fluxoId:string, documento:object}} p
+ * @returns {Promise<{ok:boolean, ciclos:Array<{fluxos:string[], nomes:string[], noId:string}>}>}
+ */
+export async function conferirLacoDeSubfluxo(tx, { tenantId, fluxoId, documento } = {}) {
+  const proprios = subfluxosChamados(documento);
+
+  // Atalho barato e o caso mais comum: o fluxo chamando a si mesmo. Não precisa de banco nenhum, e
+  // a mensagem é a mais clara de todas.
+  const autoChamada = proprios.find((s) => s.fluxoId === String(fluxoId));
+  if (autoChamada) {
+    return { ok: false, ciclos: [{ fluxos: [String(fluxoId), String(fluxoId)], nomes: [], noId: autoChamada.noId }] };
+  }
+  if (!proprios.length) return { ok: true, ciclos: [] };
+
+  // Todos os fluxos da empresa, com a versão publicada. Uma leitura só: a alternativa (caminhar o
+  // grafo consultando de um em um) faria N idas ao banco DENTRO da transação de publicação.
+  const fluxos = await tx.ragnabotFluxo.findMany({
+    where: { tenantId },
+    select: { id: true, nome: true, versaoPublicadaId: true },
+  });
+  const nomePorId = new Map(fluxos.map((f) => [f.id, f.nome]));
+  const versaoIds = fluxos.map((f) => f.versaoPublicadaId).filter(Boolean);
+  const versoes = versaoIds.length
+    ? await tx.ragnabotFluxoVersao.findMany({
+      where: { id: { in: versaoIds }, tenantId },
+      select: { id: true, fluxoId: true, documento: true },
+    })
+    : [];
+
+  /** fluxoId → [{fluxoId alvo, noId}] */
+  const chamadas = new Map();
+  for (const v of versoes) chamadas.set(v.fluxoId, subfluxosChamados(v.documento));
+  // O fluxo em publicação usa o documento NOVO, não a versão vigente — é justamente a mudança que
+  // está sob julgamento.
+  chamadas.set(String(fluxoId), proprios);
+
+  // Busca em profundidade com pilha explícita de caminho. Marcamos três estados (branco/cinza/
+  // preto) porque só o CINZA — nó ainda na pilha — caracteriza ciclo; um nó já fechado que aparece
+  // de novo é apenas rombo no grafo, e recusar por isso barraria desenhos legítimos.
+  const cor = new Map();
+  const ciclos = [];
+  const caminho = [];
+
+  const caminhar = (atual) => {
+    cor.set(atual, 'cinza');
+    caminho.push(atual);
+    for (const chamada of chamadas.get(atual) ?? []) {
+      const alvo = chamada.fluxoId;
+      if (cor.get(alvo) === 'cinza') {
+        const desde = caminho.indexOf(alvo);
+        const ciclo = [...caminho.slice(desde), alvo];
+        ciclos.push({
+          fluxos: ciclo,
+          nomes: ciclo.map((id) => nomePorId.get(id) || id),
+          noId: chamada.noId,
+        });
+        continue;
+      }
+      if (cor.get(alvo) === 'preto') continue;
+      // Alvo que não é da empresa (ou não publicado) não tem chamadas conhecidas: não segue laço
+      // por aqui. `validarNo` do `subfluxo` já reprova destino de outra empresa; destino sem versão
+      // publicada é recusado em tempo de execução por `montarSalto` (`subfluxo_indisponivel`).
+      caminhar(alvo);
+    }
+    caminho.pop();
+    cor.set(atual, 'preto');
+  };
+
+  caminhar(String(fluxoId));
+  return { ok: ciclos.length === 0, ciclos };
+}
+
+/** A frase que o operador lê. Uma linha por ciclo, com os NOMES — id de fluxo ninguém decora. */
+export function mensagemDeLaco(ciclos = []) {
+  return ciclos.map((c) => {
+    const trilha = (c.nomes.length ? c.nomes : c.fluxos).join(' → ');
+    return c.fluxos.length === 2 && c.fluxos[0] === c.fluxos[1]
+      ? `o nó "${c.noId}" faz o fluxo chamar a si mesmo`
+      : `o nó "${c.noId}" fecha um laço: ${trilha}`;
+  }).join('; ');
 }
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════
@@ -432,10 +573,20 @@ export async function publicar(fluxoId, { userId = null, modoMigracao = 'fixar',
     if (!rascunho) throw Object.assign(new Error('Este fluxo não tem rascunho para publicar.'), { codigo: 'SEM_RASCUNHO' });
     const documento = rascunho.documento;
 
-    const validacao = validarDocumento(documento, { tenantId: fluxo.tenantId });
+    const validacao = validarDocumento(documento, { tenantId: fluxo.tenantId, fluxoId: fluxo.id });
     if (!validacao.ok) {
       throw Object.assign(new Error(`O fluxo tem ${validacao.erros.length} erro(s) e não pode ser publicado.`), {
         codigo: 'VALIDACAO', validacao,
+      });
+    }
+
+    // ⛔ LAÇO DE SUB-FLUXO — recusado AQUI, e não descoberto em produção (contrato S3, §F3.4).
+    // Roda depois da validação de forma (um documento quebrado não merece consulta ao banco) e
+    // antes de qualquer escrita: nenhuma versão nasce com laço.
+    const laco = await conferirLacoDeSubfluxo(tx, { tenantId: fluxo.tenantId, fluxoId: fluxo.id, documento });
+    if (!laco.ok) {
+      throw Object.assign(new Error(`Este fluxo não pode ser publicado: ${mensagemDeLaco(laco.ciclos)}.`), {
+        codigo: 'SUBFLUXO_EM_LACO', ciclos: laco.ciclos,
       });
     }
 
@@ -502,10 +653,20 @@ export async function reverterPara(fluxoId, numero, { userId = null } = {}) {
     // Revalido o conteúdo antigo contra as regras de HOJE: um nó que era válido pode ter deixado de
     // ser (executor removido). Se não valida mais, a reversão é recusada com o motivo — melhor que
     // republicar um grafo que o motor atual não sabe rodar.
-    const validacao = validarDocumento(alvo.documento, { tenantId: fluxo.tenantId, perfilLimite: alvo.perfilLimite });
+    const validacao = validarDocumento(alvo.documento, { tenantId: fluxo.tenantId, perfilLimite: alvo.perfilLimite, fluxoId: fluxo.id });
     if (!validacao.ok) {
       throw Object.assign(new Error(`A versão ${numero} não é mais válida pelas regras atuais e não pode ser revertida.`), {
         codigo: 'VALIDACAO', validacao,
+      });
+    }
+
+    // A mesma guarda da publicação. Reverter é publicar conteúdo antigo: o outro fluxo pode ter
+    // MUDADO desde então e fechado o laço pelo outro lado. Sem esta linha, a reversão seria a porta
+    // dos fundos por onde o laço volta ao ar.
+    const laco = await conferirLacoDeSubfluxo(tx, { tenantId: fluxo.tenantId, fluxoId: fluxo.id, documento: alvo.documento });
+    if (!laco.ok) {
+      throw Object.assign(new Error(`A versão ${numero} não pode voltar ao ar: ${mensagemDeLaco(laco.ciclos)}.`), {
+        codigo: 'SUBFLUXO_EM_LACO', ciclos: laco.ciclos,
       });
     }
 
@@ -599,4 +760,8 @@ export default {
   hashDocumento,
   hashEstrutura,
   hashConteudo,
+  // Contrato S3 (02/09/2026): a guarda contra laço de sub-fluxo.
+  conferirLacoDeSubfluxo,
+  subfluxosChamados,
+  mensagemDeLaco,
 };

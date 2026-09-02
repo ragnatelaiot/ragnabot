@@ -842,7 +842,9 @@ router.post('/fluxos/:id/validar', async (req, res) => {
     if (forma) return res.status(400).json({ error: forma });
 
     const perfilLimite = String(req.query.perfilLimite || req.body?.perfilLimite || 'whatsapp_cloud@2026-08');
-    const r = await pub.validarDocumento(documento, { tenantId: f.tenantId, perfilLimite });
+    // `fluxoId` viaja para o validador reprovar sub-fluxo apontando para o PRÓPRIO fluxo — o
+    // editor precisa ver esse erro enquanto desenha, e não só quando tenta publicar.
+    const r = await pub.validarDocumento(documento, { tenantId: f.tenantId, perfilLimite, fluxoId: f.id });
     res.json(semBigInt(r));
   } catch (e) { erro(res, e, 500); }
 });
@@ -948,7 +950,18 @@ router.post('/fluxos/:id/publicar', async (req, res) => {
       depois: { versaoId: r?.versaoId, numero: r?.numero, modoMigracao, nota: notaPublicacao },
     });
     res.json(semBigInt(r));
-  } catch (e) { erro(res, e, 500); }
+  } catch (e) {
+    // Recusa de LAÇO de sub-fluxo é 409 (conflito no desenho), nunca 500. Devolver 500 mandaria o
+    // operador investigar o servidor por causa de um desenho que ele mesmo consegue corrigir — e a
+    // frase com o caminho do laço (`ciclos`) é justamente o que ele precisa ver na tela.
+    if (e?.codigo === 'SUBFLUXO_EM_LACO') {
+      return res.status(409).json({ error: e.message, code: 'SUBFLUXO_EM_LACO', ciclos: e.ciclos || [] });
+    }
+    if (e?.codigo === 'VALIDACAO') {
+      return res.status(400).json({ error: e.message, code: 'VALIDACAO', validacao: semBigInt(e.validacao) });
+    }
+    return erro(res, e, 500);
+  }
 });
 
 router.get('/fluxos/:id/versoes', async (req, res) => {
@@ -1014,7 +1027,14 @@ router.post('/fluxos/:id/reverter/:numero', async (req, res) => {
       depois: semBigInt(r),
     });
     res.json(semBigInt(r));
-  } catch (e) { erro(res, e, 500); }
+  } catch (e) {
+    // Mesma tradução da publicação: o outro fluxo pode ter mudado desde então e fechado o laço pelo
+    // outro lado. Recusar com o caminho na mensagem é o que permite consertar sem adivinhar.
+    if (e?.codigo === 'SUBFLUXO_EM_LACO') {
+      return res.status(409).json({ error: e.message, code: 'SUBFLUXO_EM_LACO', ciclos: e.ciclos || [] });
+    }
+    return erro(res, e, 500);
+  }
 });
 
 /**
@@ -1118,13 +1138,28 @@ router.get('/fluxos/:id/telemetria', async (req, res) => {
     }
     const janela = { gte: de, lte: ate };
 
-    const [porNo, porCasamento, nos] = await Promise.all([
+    const [porNo, porCasamento, porSaidaBruto, nos] = await Promise.all([
       prisma.ragnabotFluxoEvento.groupBy({
         by: ['noId', 'tipo'], where: { versaoId: versao.id, criadoEm: janela }, _count: { _all: true },
       }),
       prisma.ragnabotFluxoEvento.groupBy({
         by: ['noId', 'viaCasamento'],
         where: { versaoId: versao.id, criadoEm: janela, viaCasamento: { not: null } },
+        _count: { _all: true },
+      }),
+      // ⭐ ESTATÍSTICA POR SAÍDA (contrato S3, doc 34 §F3.8) — «enviado · clicado · CTR» em cada
+      // conector do canvas.
+      //
+      // ⚠️ MEDIDO ANTES DE CONSTRUIR, e o achado contraria o que o plano supunha:
+      // `RagnabotFluxoNoMetricaDia` TEM as colunas `apresentados/respondidos/porSaida`, mas NADA
+      // no repositório escreve nela — é a tabela adiada de propósito (o comentário do schema diz
+      // isso com todas as letras: «o WORKER que a preenche é FASE 2»). Ou seja: o número não
+      // «existia e ninguém via»; ele não existia. O que existe, e é suficiente, é o evento CRU:
+      // o motor grava `no_saiu` com a `saida` em cada passagem. Deriva-se daí, pela MESMA fonte
+      // que já alimenta o funil por nó — uma verdade só, sem agregador novo para manter.
+      prisma.ragnabotFluxoEvento.groupBy({
+        by: ['noId', 'saida'],
+        where: { versaoId: versao.id, criadoEm: janela, tipo: 'no_saiu', saida: { not: null } },
         _count: { _all: true },
       }),
       prisma.ragnabotFluxoNo.findMany({
@@ -1150,6 +1185,7 @@ router.get('/fluxos/:id/telemetria', async (req, res) => {
           apresentados: 0, respondidos: 0, semResposta: 0, invalidos: 0, erros: 0,
           abandonados: 0, textoCortado: 0, entreguesHumano: 0,
           porCasamento: {}, latenciaP50Ms: null, latenciaP95Ms: null, latenciaAmostra: 0,
+          porSaida: {}, saiuTotal: 0, ctr: null,
         });
       }
       return mapa.get(noId);
@@ -1166,6 +1202,33 @@ router.get('/fluxos/:id/telemetria', async (req, res) => {
     for (const linha of porCasamento) {
       if (!linha.noId) continue;
       pegar(linha.noId).porCasamento[linha.viaCasamento] = linha._count._all;
+    }
+    for (const linha of porSaidaBruto) {
+      if (!linha.noId || !linha.saida) continue;
+      const r = pegar(linha.noId);
+      r.porSaida[linha.saida] = { saiu: linha._count._all, ctr: null };
+    }
+    // O CTR de cada saída, e o do nó. Denominador = APRESENTAÇÕES do nó, que é o que a tela do chat
+    // atual chama de «Menus Enviados».
+    //
+    // ⚠️ DUAS DECISÕES DECLARADAS, porque as duas mudam o número que o operador lê:
+    //  (a) `null` quando não houve apresentação nenhuma — e não zero. «0 %» diria «ninguém clicou»
+    //      sobre um menu que nunca foi mostrado, que é uma afirmação falsa sobre o desenho.
+    //  (b) o CTR do NÓ soma só as saídas do CAMINHO DESENHADO. `sem_resposta`, `opcao_invalida`,
+    //      `erro`, `erro_interno` e `sem_janela` são o oposto de um clique: contá-las inflaria o
+    //      CTR justamente nos menus que estão dando errado — que são os que precisam aparecer mal.
+    const SAIDAS_QUE_NAO_SAO_CLIQUE = new Set(['sem_resposta', 'opcao_invalida', 'erro', 'erro_interno', 'sem_janela']);
+    for (const r of mapa.values()) {
+      const base = r.apresentados;
+      let cliques = 0;
+      for (const [saida, dados] of Object.entries(r.porSaida)) {
+        dados.ctr = base > 0 ? dados.saiu / base : null;
+        dados.excecao = SAIDAS_QUE_NAO_SAO_CLIQUE.has(saida);
+        r.saiuTotal += dados.saiu;
+        if (!dados.excecao) cliques += dados.saiu;
+      }
+      r.cliques = cliques;
+      r.ctr = base > 0 ? cliques / base : null;
     }
     const latenciasPorNo = new Map();
     for (const a of amostra) {
@@ -1194,6 +1257,15 @@ router.get('/fluxos/:id/telemetria', async (req, res) => {
           : null,
       },
       itens,
+      // Como ler os números por saída, escrito na própria resposta: quem consome a API não tem
+      // como adivinhar que exceção não conta como clique, e um consumidor que somasse tudo
+      // publicaria um CTR maior que o real.
+      porSaida: {
+        origem: 'RagnabotFluxoEvento.no_saiu',
+        denominador: 'apresentados (eventos no_entrou do mesmo nó, no mesmo período)',
+        ctrNulo: 'nó que não foi apresentado nenhuma vez no período — não é 0 %, é ausência de medida',
+        excecoesForaDoCtr: [...SAIDAS_QUE_NAO_SAO_CLIQUE],
+      },
     }));
   } catch (e) { erro(res, e, 500); }
 });
@@ -1561,6 +1633,20 @@ router.post('/fluxos/:id/testar', async (req, res) => {
       ...(estadoEntrada?.vars && typeof estadoEntrada.vars === 'object' ? estadoEntrada.vars : {}),
       ...(req.body?.vars && typeof req.body.vars === 'object' ? req.body.vars : {}),
     };
+    // ── SAÍDAS FORÇADAS — como o testador conhece um nó que SORTEIA (contrato S3, §F3.5) ────────
+    // O randomizador é determinístico de propósito (mesma visita ⇒ mesmo ramo), e isso é o que o
+    // torna seguro em produção. Mas num TESTE essa mesma virtude vira cegueira: o operador só
+    // conseguiria percorrer uma das variantes, e aprovaria o fluxo sem nunca ter visto a outra —
+    // que é a definição de falsa aprovação. `forcarSaidas` diz «neste nó, siga por ali».
+    //
+    // Vale para QUALQUER nó que devolva `seguir` (condição, randomizador, HTTP): é genérico de
+    // propósito, porque o problema é genérico — conferir o ramo que os dados de hoje não tomam.
+    // ⚠️ Só aceita saída que o nó REALMENTE declara, e registra que forçou. Um teste que desvia o
+    // fluxo em silêncio é pior que teste nenhum.
+    const forcarSaidas = (req.body?.forcarSaidas && typeof req.body.forcarSaidas === 'object' && !Array.isArray(req.body.forcarSaidas))
+      ? req.body.forcarSaidas : {};
+    const forcadas = [];
+
     const visitas = { ...(estadoEntrada?.visitasPorNo && typeof estadoEntrada.visitasPorNo === 'object' ? estadoEntrada.visitasPorNo : {}) };
     const trilha = Array.isArray(estadoEntrada?.trilha) ? estadoEntrada.trilha.slice(-200) : [];
 
@@ -1747,6 +1833,24 @@ router.post('/fluxos/:id/testar', async (req, res) => {
 
       if (resultado.tipo === 'seguir') {
         saidaPendente = resultado.saida;
+        const pedida = forcarSaidas[no.id];
+        if (pedida !== undefined && pedida !== null && String(pedida) !== String(saidaPendente)) {
+          // A saída pedida tem de existir NESTE nó. O documento é a única fonte: aceitar qualquer
+          // texto deixaria o teste seguir por uma aresta que a publicação nunca aceitaria.
+          const existe = [...arestas.keys()].some((k) => k === `${no.id}\0${String(pedida)}`);
+          if (existe) {
+            forcadas.push({ noId: no.id, sorteada: saidaPendente, forcada: String(pedida) });
+            registros.push({ tipo: 'saida_forcada', noId: no.id, saida: String(pedida), detalhe: { emVezDe: saidaPendente } });
+            saidaPendente = String(pedida);
+          } else {
+            problemas.push({
+              nivel: 'aviso', codigo: 'SAIDA_FORCADA_INEXISTENTE', campo: `${no.id}.${pedida}`,
+              mensagem: `Você pediu para forçar a saída "${pedida}" no nó "${no.id}", mas ela não `
+                + 'está ligada a nenhum destino neste documento. O teste seguiu pela saída que o nó decidiu.',
+              comoCorrigir: 'Ligue essa saída a um nó antes de testá-la.',
+            });
+          }
+        }
         continue;
       }
 
@@ -1820,6 +1924,9 @@ router.post('/fluxos/:id/testar', async (req, res) => {
       origem: deOnde,
       // Tudo o que SAIRIA para o cliente, na ordem, sem que nada tenha saído.
       saidas: intencoes,
+      // O que o teste DESVIOU de propósito. Sai declarado para ninguém ler a trilha achando que
+      // foi o motor que escolheu aquele ramo.
+      forcadas,
       parado,
       fim,
       problemas,
@@ -1832,7 +1939,8 @@ router.post('/fluxos/:id/testar', async (req, res) => {
       relogio: { agora, origem: origemDoRelogio },
       limites: { perfil: limites.perfil, origem: limites.origem, unidade: limites.unidade },
       aviso: 'Modo de teste: nenhuma mensagem foi enviada, nenhuma chamada externa foi feita, '
-        + 'nenhum segredo foi decifrado e nada foi gravado.',
+        + 'nenhum segredo foi decifrado e nada foi gravado.'
+        + (forcadas.length ? ` ${forcadas.length} saída(s) foram FORÇADAS por você — a trilha abaixo não é a que o motor teria tomado sozinho.` : ''),
     }));
   } catch (e) { erro(res, e, 500); }
 });

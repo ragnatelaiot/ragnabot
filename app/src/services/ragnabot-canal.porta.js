@@ -516,6 +516,78 @@ async function despacharAtribuir(intencao, alvo) {
   return { idExterno: String(timeId), resumo: 'conversa transferida para o setor' };
 }
 
+/**
+ * TRANSFERÊNCIA PARA UMA PESSOA — o nó `atendente` (contrato S3, doc 34 §F3.3).
+ *
+ * ⚠️ ISTO CONCEDE ACESSO, não só organiza a fila. `RagnabotConversa.cwAssigneeId` é a trava de
+ * visibilidade da caixa (contrato S2): quem recebe a conversa passa a enxergá-la, e quem a tinha
+ * deixa de enxergar. Por isso o destinatário é resolvido AGORA contra o cadastro de atendentes da
+ * plataforma — pessoa que saiu da empresa simplesmente não resolve.
+ *
+ * A ordem dos caminhos, e o porquê de cada um:
+ *   1. `agenteId` numérico  → usa direto (o editor guardou o id ao escolher na lista);
+ *   2. `agente` por referência → id, e-mail ou nome, nessa ordem de precisão. Nome ambíguo NÃO é
+ *      escolhido no chute: recusa com os empates, porque mandar para a Ana errada é pior que
+ *      recusar;
+ *   3. não resolveu (ou `exigirDisponivel` e a pessoa está fora) → cai no SETOR ALTERNATIVO, se
+ *      houver. Sem setor alternativo, recusa BARULHENTA (422): o motor abre incidente e alguém
+ *      conserta. Conversa sem dono, ninguém percebe.
+ */
+async function despacharAtribuirAgente(intencao, alvo) {
+  const cw = exigirChatwoot('atribuirAgente');
+
+  const irParaOSetor = async (motivo) => {
+    const idTime = intencao.timeAlternativoId ?? null;
+    let timeId = idTime;
+    if (!timeId && intencao.timeAlternativo && typeof portas.chatwoot?.timePorNome === 'function') {
+      timeId = (await portas.chatwoot.timePorNome({ cwAccountId: alvo.cwAccountId, nome: intencao.timeAlternativo }))?.id ?? null;
+    }
+    if (!timeId) {
+      const e = new Error(`${motivo} — e não há setor alternativo declarado, então a conversa ficaria sem dono`);
+      e.status = 422;
+      throw e;
+    }
+    await cw.transferirTime({
+      cwAccountId: alvo.cwAccountId, cwConversationId: alvo.cwConversationId, tenantId: alvo.tenantId, cwTeamId: timeId,
+    });
+    return { idExterno: `time:${timeId}`, resumo: `atendente indisponível (${motivo}) — conversa foi para o setor alternativo` };
+  };
+
+  let agenteId = Number.isInteger(intencao.agenteId) ? intencao.agenteId : Number(intencao.agenteId);
+  let disponibilidade = null;
+  if (!Number.isInteger(agenteId) || agenteId <= 0) {
+    agenteId = null;
+    const ref = intencao.agente;
+    if (ref && typeof portas.chatwoot?.agentePorReferencia === 'function') {
+      const achado = await portas.chatwoot.agentePorReferencia({ cwAccountId: alvo.cwAccountId, referencia: ref });
+      if (achado?.ambiguo) {
+        // Ambiguidade é recusa DECLARADA, nunca escolha no chute. Vale mesmo com setor alternativo:
+        // o operador precisa corrigir o cadastro, e cair calado no setor esconderia o defeito.
+        const e = new Error(
+          `há mais de um atendente chamado "${ref}" nesta conta (ids ${achado.candidatos.map((x) => x.id).join(', ')}) `
+          + '— escolha pelo e-mail ou pelo id, porque mandar para a pessoa errada ninguém percebe',
+        );
+        e.status = 409;
+        throw e;
+      }
+      if (achado?.id) { agenteId = achado.id; disponibilidade = achado.disponibilidade ?? null; }
+    }
+  }
+
+  if (!agenteId) {
+    return irParaOSetor(`não achei o atendente "${intencao.agente ?? intencao.agenteId ?? ''}" nesta conta`);
+  }
+  if (intencao.exigirDisponivel === true && disponibilidade && disponibilidade !== 'online') {
+    return irParaOSetor(`o atendente está "${disponibilidade}"`);
+  }
+
+  await cw.atribuirAgente({
+    cwAccountId: alvo.cwAccountId, cwConversationId: alvo.cwConversationId, tenantId: alvo.tenantId,
+    cwAssigneeId: agenteId,
+  });
+  return { idExterno: String(agenteId), resumo: `conversa atribuída ao atendente ${agenteId}` };
+}
+
 async function despacharResolver(intencao, alvo) {
   const cw = exigirChatwoot('resolver');
   await cw.resolver({ cwAccountId: alvo.cwAccountId, cwConversationId: alvo.cwConversationId, tenantId: alvo.tenantId });
@@ -659,6 +731,7 @@ const DESPACHOS = Object.freeze({
   nota: (i, a) => despacharNota(i, a),
   etiqueta: (i, a) => despacharEtiqueta(i, a),
   atribuir: (i, a) => despacharAtribuir(i, a),
+  atribuir_agente: (i, a) => despacharAtribuirAgente(i, a),
   resolver: (i, a) => despacharResolver(i, a),
   carimbar: (i, a) => despacharCarimbo(i, a),
   http: (i) => despacharHttp(i),

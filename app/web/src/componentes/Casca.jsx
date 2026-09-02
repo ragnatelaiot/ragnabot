@@ -26,14 +26,14 @@
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { Building2, FlaskConical, Inbox, LogOut, Menu, Workflow, X, Zap } from 'lucide-react';
+import { Building2, FlaskConical, Inbox, LogOut, Menu, MessagesSquare, Workflow, X, Zap } from 'lucide-react';
 
 import { atorAtual, empresaAtual, sair, versaoDoMotor } from '../lib/api.js';
 import { ehItemAtivo, itemPorCaminho, itensVisiveis } from '../lib/navegacao.js';
 
 /** O catálogo guarda o NOME do ícone (é JavaScript puro e não pode conter JSX); a tradução para o
  *  componente mora aqui. Ícone desconhecido cai no de fluxo em vez de derrubar a tela. */
-const ICONES = { Workflow, Zap, Building2, FlaskConical, Inbox };
+const ICONES = { Workflow, Zap, Building2, FlaskConical, Inbox, MessagesSquare };
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 // MENU LATERAL

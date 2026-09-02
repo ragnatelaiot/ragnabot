@@ -43,13 +43,20 @@ export async function listarFluxos({ busca = '', limite = 100 } = {}) {
  * reconfere o fluxo e o escopo a cada passo. Ou seja: mexer no estado aqui não abre porta nenhuma,
  * só quebra o próprio teste de quem mexeu.
  */
-export async function passoDoTeste(fluxoId, { origem = 'rascunho', versaoNumero = null, estado = null, resposta = null, vars = null } = {}) {
+export async function passoDoTeste(fluxoId, {
+  origem = 'rascunho', versaoNumero = null, estado = null, resposta = null, vars = null,
+  forcarSaidas = null,
+} = {}) {
   const corpo = {};
   if (origem === 'versao' || versaoNumero != null) corpo.origem = 'versao';
   if (versaoNumero != null) corpo.versaoNumero = Number(versaoNumero);
   if (estado) corpo.estado = estado;
   if (resposta != null) corpo.resposta = resposta;
   if (vars && Object.keys(vars).length) corpo.vars = vars;
+  // Saídas FORÇADAS: `{ noId: 'saida' }`. É como o testador percorre o ramo que o motor não
+  // tomaria hoje — o outro lado de um randomizador, o `falso` de uma condição. Sem isso, testar um
+  // fluxo com teste A/B aprovaria metade dele e chamaria isso de aprovação.
+  if (forcarSaidas && Object.keys(forcarSaidas).length) corpo.forcarSaidas = forcarSaidas;
   return chamarFluxo(`/fluxos/${encodeURIComponent(fluxoId)}/testar`, { metodo: 'POST', corpo });
 }
 
@@ -95,6 +102,10 @@ const ROTULOS = Object.freeze({
   nota: 'Nota interna (só a equipe vê)',
   etiqueta: 'Etiqueta na conversa',
   atribuir: 'Transferência para setor',
+  // Contrato S3: transferir para uma PESSOA. Rótulo próprio, e não «transferência» genérica — o
+  // operador precisa ver, na prévia, que a conversa vai sair da fila do setor e entrar na caixa de
+  // alguém específico (é o isolamento do contrato S2 mudando de dono).
+  atribuir_agente: 'Transferência para um atendente',
   resolver: 'Encerrar a conversa',
   carimbar: 'Carimbo na conversa',
   http: 'Chamada a sistema externo',
@@ -176,6 +187,19 @@ export function resumirIntencao(intencao = {}) {
 
   if (tipo === 'atribuir') {
     return { ...base, detalhes: [['Setor', String(intencao.time ?? intencao.nomeTime ?? intencao.timeId ?? '—')]] };
+  }
+
+  if (tipo === 'atribuir_agente') {
+    const d = [['Atendente', String(intencao.agente ?? intencao.agenteId ?? '—')]];
+    if (intencao.exigirDisponivel) d.push(['Só se estiver disponível', 'sim']);
+    // O destino alternativo aparece SEMPRE que existe: é ele que decide o que acontece quando a
+    // pessoa não está lá, e é a metade da regra que ninguém lembra de conferir.
+    if (intencao.timeAlternativo || intencao.timeAlternativoId) {
+      d.push(['Se não puder receber, vai para', String(intencao.timeAlternativo ?? intencao.timeAlternativoId)]);
+    } else {
+      d.push(['Se não puder receber', 'a transferência é RECUSADA e a conversa fica parada']);
+    }
+    return { ...base, detalhes: d };
   }
 
   if (tipo === 'carimbar') {

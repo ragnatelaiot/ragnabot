@@ -2963,6 +2963,310 @@ const noTime = {
   },
 };
 
+// ── 12b. atendente ──────────────────────────────────────────────────────────────────────────────
+// TRANSFERIR PARA UMA PESSOA. Contrato S3 (02/09/2026), doc 34 §F3.3.
+//
+// ── POR QUE NÃO BASTAVA O NÓ `time` ─────────────────────────────────────────────────────────────
+// Até aqui o motor só sabia entregar a conversa a um SETOR. O chat atual tem os dois nós, e a
+// diferença não é de conveniência: entregar ao setor é «alguém dali pega»; entregar à pessoa é
+// «é com você». Fluxo de carteira de clientes, retorno de chamado e escalonamento nominal precisam
+// do segundo — e sem ele o desenhista escrevia o nome da pessoa no texto e torcia.
+//
+// ── ⚠️ A AMARRA COM O CONTRATO S2 (isolamento) ─────────────────────────────────────────────────
+// `RagnabotConversa.cwAssigneeId` é a trava de visibilidade da caixa: transferir para uma pessoa
+// MUDA QUEM ENXERGA a conversa. Um nó de fluxo que atribui é, portanto, um nó que concede acesso —
+// e é por isso que o destinatário é NOMEADO e resolvido em tempo de execução contra o cadastro de
+// atendentes da plataforma, nunca um número solto dentro do documento. Pessoa que saiu da empresa
+// deixa de resolver, e a conversa cai no destino alternativo em vez de ficar com um fantasma.
+//
+// ── A DECISÃO DIFÍCIL: o que fazer quando a pessoa não está lá ──────────────────────────────────
+// Três caminhos possíveis, e escolhi o do meio, declarado:
+//   (a) atribuir mesmo assim  → a conversa fica com quem está de férias, e ninguém vê;
+//   (b) recusar sempre        → a conversa morre com incidente por um detalhe de cadastro;
+//   (c) DESTINO ALTERNATIVO   → `timeAlternativo` recebe a conversa, e o resumo do efeito diz qual
+//                               dos dois caminhos foi tomado. É o que este nó faz.
+// Sem `timeAlternativo` declarado, a falha é BARULHENTA (o adaptador recusa com 422 e o motor abre
+// incidente). Falha barulhenta alguém conserta; conversa sem dono ninguém percebe.
+const noAtendente = {
+  tipo: 'atendente',
+  efeito: 'condicional',
+  // `atribuir` é escrita de «último a escrever vence» sobre um estado que um humano também edita.
+  // Reaplicar 45 segundos depois rouba a conversa de quem acabou de assumir — mesma razão do `time`.
+  politicaEmDuvida: 'condicional',
+  estaciona: false,
+  aceitaModeloFora: false,
+
+  saidas: () => [], // terminal: a conversa sai do robô e passa a ser de uma pessoa
+
+  validar(no, ctx) {
+    const problemas = [];
+    const c = no?.config ?? {};
+    const ref = String(c.atendente ?? '').trim();
+    if (!ref && !c.atendenteId) {
+      problemas.push(erro(
+        'ARESTA_AUSENTE', 'config.atendente',
+        'Nó de atendente sem destinatário deixa a conversa sem dono.',
+        'Escolha o atendente (nome, e-mail ou id na plataforma).',
+      ));
+    }
+    // Número de telefone no lugar do atendente: o defeito D4 tentando entrar por outra porta.
+    if (/^\+?\d[\d\s()-]{7,}$/u.test(ref)) {
+      problemas.push(erro(
+        'ARESTA_AUSENTE', 'config.atendente',
+        'Isto parece um número de telefone. O destinatário aqui é um ATENDENTE cadastrado na '
+        + 'plataforma — identificado por nome, e-mail ou id.',
+        'Escolha a pessoa na lista de atendentes.',
+      ));
+    }
+    if (c.exigirDisponivel === true && !c.timeAlternativo && !c.timeAlternativoId) {
+      problemas.push(aviso(
+        'ARESTA_AUSENTE', 'config.timeAlternativo',
+        'Você exigiu que o atendente esteja disponível, mas não declarou para onde vai a conversa '
+        + 'quando ele não estiver. Nesse caso a transferência falha e a conversa fica parada.',
+        'Declare um setor alternativo.',
+      ));
+    }
+    if (c.mensagem) {
+      const lim = limitesDe(ctx);
+      problemas.push(...conferirTeto(c.mensagem, lim.valores.corpo_max, 'config.mensagem', lim, { oQueE: 'O aviso ao cliente' }));
+    }
+    conferirTemplateDoNo(no, ctx, problemas, { entrega: 'proibido' });
+    return problemas;
+  },
+
+  preparar(no, ctx) {
+    const c = no?.config ?? {};
+    const intencoes = [];
+    // Mesma regra do `time`: o aviso ao cliente é texto livre e não sai fora da janela de 24 h; a
+    // ATRIBUIÇÃO não depende da janela — é operação na plataforma. Adiar a transferência porque não
+    // dá para avisar seria o pior dos dois mundos.
+    if (c.mensagem && janelaAberta(ctx)) {
+      const lim = limitesDe(ctx);
+      const r = textoDoCampo(c.mensagem, ctx, { teto: lim.valores.corpo_max, campo: 'config.mensagem' });
+      intencoes.push({ tipo: 'texto', corpo: r.valor, sufixo: '', _achados: r });
+    }
+    intencoes.push({
+      tipo: 'atribuir_agente',
+      agenteId: c.atendenteId ?? null,
+      agente: c.atendente ?? null,
+      exigirDisponivel: c.exigirDisponivel === true,
+      timeAlternativoId: c.timeAlternativoId ?? null,
+      timeAlternativo: c.timeAlternativo ?? null,
+      sufixo: '',
+    });
+    return intencoes;
+  },
+
+  async executar(ctx) {
+    anotarAchados(ctx, noAtendente.preparar(ctx.no, ctx).map((i) => i._achados).filter(Boolean));
+    ganchos(ctx).registrar({ tipo: 'entregue_humano', noId: ctx?.no?.id });
+    return { tipo: 'terminar', estado: 'transferido', atendente: ctx?.no?.config?.atendente ?? null };
+  },
+};
+
+// ── 12c. randomizador ───────────────────────────────────────────────────────────────────────────
+// SAÍDAS POR PORCENTAGEM — teste A/B dentro do fluxo. Contrato S3, doc 34 §F3.5.
+//
+// ── ⚠️ POR QUE O SORTEIO É DETERMINÍSTICO, E NÃO `Math.random()` ────────────────────────────────
+// O motor REPETE passos. Um despacho que falha e é retentado volta a executar o nó; um pod que cai
+// entre a decisão e o commit reprocessa o evento. Com dado de verdade, a mesma conversa cairia num
+// ramo na primeira tentativa e no outro ramo na segunda — e o cliente receberia as duas variantes
+// do teste, uma atrás da outra. O sorteio aqui é uma FUNÇÃO da identidade da visita: mesma visita,
+// mesma saída, quantas vezes rodar. Sorteio reprodutível não é sorteio pior; é o único que
+// sobrevive a retentativa.
+//
+// ── AS TRÊS ESTABILIDADES, e por que a escolha importa para o resultado do teste ────────────────
+//   · `visita`   (padrão) sorteia a cada passagem pelo nó — bom para distribuir carga;
+//   · `conversa` fixa o resultado para toda a execução — a pessoa não muda de variante no meio;
+//   · `contato`  fixa por PESSOA, entre conversas diferentes — é o único que faz um teste A/B
+//                honesto, porque o mesmo cliente vê sempre a mesma variante e a comparação mede a
+//                variante, não a alternância.
+//
+// ── O CASO DE ARREDONDAMENTO, COBERTO E NÃO TORCIDO ────────────────────────────────────────────
+// Os pesos viram INTEIROS em centésimos de ponto percentual (33,33 % → 3333). O sorteio é um
+// inteiro em [0, 9999]. A ÚLTIMA faixa absorve qualquer resíduo: com 33,33 + 33,33 + 33,34 o total
+// fecha 10000 exatamente, mas mesmo que um dia não fechasse, nenhum sorteio cairia no vazio — o
+// laço termina sempre na última saída declarada. Um randomizador que às vezes não escolhe nada é
+// um fluxo que às vezes morre calado, que é o defeito mais caro deste arquivo inteiro.
+const CENTESIMOS = 10000;
+const ESTABILIDADES = new Set(['visita', 'conversa', 'contato']);
+
+/** Peso em centésimos de ponto percentual. `33,33` e `33.33` são a mesma coisa para quem digita. */
+function pesoEmCentesimos(v) {
+  const n = Number(String(v ?? '').toString().replace(',', '.'));
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.round(n * 100);
+}
+
+/**
+ * Inteiro em [0, teto) derivado de uma semente estável. Exportado para o teste poder provar a
+ * distribuição sem depender do executor inteiro.
+ *
+ * ⚠️ O `% teto` introduz um viés de módulo da ordem de 1 em 400 mil (2³² não é múltiplo de 10000).
+ * Declarado de propósito: para decidir variante de mensagem isso é irrelevante, e trocá-lo por
+ * rejeição amostral tornaria o sorteio NÃO determinístico no número de tentativas — que é
+ * exatamente a propriedade que este nó precisa preservar.
+ */
+export function sorteioEstavel(semente, teto = CENTESIMOS) {
+  const h = createHash('sha256').update(String(semente), 'utf8').digest();
+  const n = h.readUInt32BE(0);
+  return n % teto;
+}
+
+/** A semente de UMA passagem. PURA — é a regra que decide o ramo, e ela precisa ser lida inteira. */
+export function sementeDoRandomizador(ctx, config = {}) {
+  const noId = ctx?.no?.id ?? '?';
+  const ex = ctx?.execucao ?? {};
+  const estabilidade = ESTABILIDADES.has(config.estabilidade) ? config.estabilidade : 'visita';
+  // `salto` deixa o operador refazer o sorteio de um teste sem mudar a topologia: trocar o valor
+  // redistribui todo mundo. Sem ele, corrigir um teste enviesado exigiria renomear o nó — e
+  // renomear nó órfã as conversas em curso.
+  const salto = String(config.salto ?? '');
+  if (estabilidade === 'contato') {
+    // Sem chave de contato não há como fixar por pessoa. Cair em «conversa» é a degradação certa:
+    // o teste fica menos rigoroso, mas ninguém recebe duas variantes na mesma conversa.
+    const chave = ex.contatoChave ?? ex.cwContactId ?? null;
+    if (chave) return `${salto}|contato|${chave}|${noId}`;
+    return `${salto}|conversa|${ex.id ?? '?'}|${noId}`;
+  }
+  if (estabilidade === 'conversa') return `${salto}|conversa|${ex.id ?? '?'}|${noId}`;
+  return `${salto}|visita|${ex.id ?? '?'}|${noId}|${ex.visitaSeq ?? 0}`;
+}
+
+/**
+ * Escolhe a saída a partir das faixas. PURA, e separada do executor de propósito: é o único pedaço
+ * do nó em que um erro sai caro, e ela cabe inteira na cabeça.
+ */
+export function escolherFaixa(saidas, sorteio) {
+  let acumulado = 0;
+  for (let i = 0; i < saidas.length; i += 1) {
+    acumulado += saidas[i].centesimos;
+    // A última faixa absorve o resíduo: nenhum sorteio cai no vazio (ver o cabeçalho).
+    if (sorteio < acumulado || i === saidas.length - 1) return saidas[i];
+  }
+  return saidas[saidas.length - 1] ?? null;
+}
+
+/** Normaliza a configuração em faixas utilizáveis. Devolve `[]` quando a configuração é inválida. */
+function faixasDe(config = {}) {
+  const lista = Array.isArray(config.saidas) ? config.saidas : [];
+  const faixas = [];
+  for (const s of lista) {
+    const id = String(s?.id ?? '').trim();
+    const c = pesoEmCentesimos(s?.peso);
+    if (!id || c === null) return [];
+    faixas.push({ id, rotulo: s?.rotulo ?? id, centesimos: c });
+  }
+  return faixas;
+}
+
+const noRandomizador = {
+  tipo: 'randomizador',
+  // Não toca em nada fora: nem manda mensagem, nem escreve na plataforma. Repetir é inofensivo —
+  // e, por ser determinístico, repetir dá o MESMO ramo.
+  efeito: 'nenhum',
+  politicaEmDuvida: 'seguir',
+  estaciona: false,
+  aceitaModeloFora: false,
+
+  saidas: (config) => faixasDe(config).map((f) => f.id),
+  // ⚠️ DECLARADA porque `executar()` pode devolvê-la (documento antigo, sem faixas válidas). Foi
+  // exatamente por NÃO declarar a saída que emitia que `sem_janela` virou conector indesenhável em
+  // `pergunta`/`lista`/`botoes` — e a conversa do cliente morria calada. O teste
+  // `tests/ragnabot-nos-novos.test.mjs` pegou esta mesma omissão aqui, antes de publicar.
+  saidasDeFalha: [SAIDA_ERRO_INTERNO],
+
+  validar(no) {
+    const problemas = [];
+    const c = no?.config ?? {};
+    const lista = Array.isArray(c.saidas) ? c.saidas : [];
+
+    if (lista.length < 2) {
+      problemas.push(erro(
+        'ARESTA_AUSENTE', 'config.saidas',
+        'Um randomizador com menos de duas saídas não divide nada — é um nó de passagem disfarçado.',
+        'Declare pelo menos duas saídas com as respectivas porcentagens.',
+      ));
+      return problemas;
+    }
+
+    const vistos = new Set();
+    let soma = 0;
+    let todosValidos = true;
+    lista.forEach((s, i) => {
+      const id = String(s?.id ?? '').trim();
+      if (!/^[\p{L}\p{N}_-]{1,64}$/u.test(id)) {
+        todosValidos = false;
+        problemas.push(erro('ARESTA_AUSENTE', `config.saidas[${i}].id`, `O identificador de saída "${id}" é inválido.`, 'Use letras, números, hífen e sublinhado.'));
+      } else if (vistos.has(id)) {
+        todosValidos = false;
+        problemas.push(erro('ARESTA_AUSENTE', `config.saidas[${i}].id`, `A saída "${id}" está declarada mais de uma vez. Duas faixas com o mesmo nome dariam UMA aresta só, e metade do tráfego sumiria.`, 'Dê um identificador único a cada saída.'));
+      }
+      vistos.add(id);
+
+      const cent = pesoEmCentesimos(s?.peso);
+      if (cent === null) {
+        todosValidos = false;
+        problemas.push(erro('LIMITE_EXCEDIDO', `config.saidas[${i}].peso`, `A porcentagem de "${id}" não é um número maior ou igual a zero.`, 'Informe a porcentagem, por exemplo 50.'));
+      } else {
+        soma += cent;
+        if (cent > CENTESIMOS) {
+          todosValidos = false;
+          problemas.push(erro('LIMITE_EXCEDIDO', `config.saidas[${i}].peso`, `A porcentagem de "${id}" passa de 100 %.`, 'Reduza para no máximo 100.'));
+        }
+      }
+    });
+
+    // A soma é COBRADA, não normalizada. Normalizar em silêncio faria «50 + 40» virar «56 + 44» sem
+    // ninguém pedir, e o operador leria no editor um número diferente do que o motor aplica.
+    if (todosValidos && soma !== CENTESIMOS) {
+      problemas.push(erro(
+        'LIMITE_EXCEDIDO', 'config.saidas',
+        `As porcentagens somam ${(soma / 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} %, e precisam somar exatamente 100 %.`,
+        'Ajuste as porcentagens. Para três saídas iguais use 33,33 · 33,33 · 33,34.',
+      ));
+    }
+
+    if (c.estabilidade !== undefined && !ESTABILIDADES.has(c.estabilidade)) {
+      problemas.push(erro(
+        'LIMITE_EXCEDIDO', 'config.estabilidade',
+        `Estabilidade desconhecida. Aceitas: ${[...ESTABILIDADES].join(', ')}.`,
+        'Use "contato" para um teste A/B de verdade: a mesma pessoa vê sempre a mesma variante.',
+      ));
+    }
+    return problemas;
+  },
+
+  preparar() {
+    return []; // não fala com ninguém: só decide por onde a conversa segue
+  },
+
+  async executar(ctx) {
+    const c = ctx?.no?.config ?? {};
+    const faixas = faixasDe(c);
+    if (faixas.length < 2) {
+      // O validador já barra isto na publicação; aqui é a rede para um documento antigo. Falhar por
+      // `erro_interno` e não por `erro`: o cliente não pode ser transferido a um humano porque um
+      // sorteio de teste A/B está mal configurado.
+      return falhar(
+        SAIDA_ERRO_INTERNO, 'ERRO_NO',
+        'randomizador sem saídas válidas — o documento publicado está fora do contrato',
+        mensagemDeFalha(ctx?.no, ctx),
+      );
+    }
+    const semente = sementeDoRandomizador(ctx, c);
+    const sorteio = sorteioEstavel(semente);
+    const escolhida = escolherFaixa(faixas, sorteio);
+    ganchos(ctx).registrar({
+      tipo: 'no_saiu', noId: ctx?.no?.id, saida: escolhida.id,
+      // O sorteio no detalhe é o que permite auditar a distribuição depois, e reproduzir uma
+      // decisão específica. NÃO carrega dado do cliente — só o número.
+      detalhe: { sorteio, estabilidade: c.estabilidade ?? 'visita' },
+    });
+    return { tipo: 'seguir', saida: escolhida.id };
+  },
+};
+
 // ── 13. notificar ───────────────────────────────────────────────────────────────────────────────
 // O fluxo real cravava DOIS celulares dentro do nó, um deles com espaço no fim ("559883351000 ").
 // Na API oficial isso não sobrevive: é texto livre para números que não iniciaram conversa, e o caso
@@ -4073,6 +4377,10 @@ export const EXECUTORES = Object.freeze({
   variavel: noVariavel,
   etiqueta: noEtiqueta,
   time: noTime,
+  // Contrato S3 (02/09/2026): transferir para uma PESSOA (§F3.3) e dividir o tráfego por
+  // porcentagem (§F3.5). O primeiro casa com o isolamento do S2 — atribuir muda quem enxerga.
+  atendente: noAtendente,
+  randomizador: noRandomizador,
   notificar: noNotificar,
   subfluxo: noSubfluxo,
   chamado: noChamado,

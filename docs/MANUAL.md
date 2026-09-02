@@ -15,6 +15,8 @@
 0-A. [Por onde se anda no Ragnabot (menu e telas)](#0-a-por-onde-se-anda-no-ragnabot-menu-e-telas)
 1. [Conexões e automações](#1-conexões-e-automações)
 1-A. [Caixas de entrada — o cadastro que o robô consulta](#1-a-caixas-de-entrada--o-cadastro-que-o-robô-consulta)
+1-B. [A caixa de atendimento — quem vê qual conversa](#1-b-a-caixa-de-atendimento--quem-vê-qual-conversa)
+1-C. [Retrocarga — trazer para a caixa as conversas que já existiam](#1-c-retrocarga--trazer-para-a-caixa-as-conversas-que-já-existiam)
 2. [Relógios de atendimento](#2-relógios-de-atendimento)
 3. [Expediente, intervalo e feriado](#3-expediente-intervalo-e-feriado)
 4. [Transferência](#4-transferência)
@@ -23,6 +25,7 @@
 5-G. [A tela das respostas rápidas](#5-g-a-tela-das-respostas-rápidas)
 5-H. [O caminho do primeiro "oi"](#5-h-o-caminho-do-primeiro-oi--inteiro-e-por-que-ele-está-desligado)
 5-I. [Ainda não ligado: Capitão e Pix](#5-i-ainda-não-ligado-capitão-agente-de-ia-e-cobrança-por-pix)
+5-J. [Os números em cada saída do fluxo](#5-j-os-números-em-cada-saída-do-fluxo)
 6. [Multiempresa, planos e cobrança](#6-multiempresa-planos-e-cobrança)
 7. [Protocolo e auditoria](#7-protocolo-e-auditoria)
 7-A. [Entrar no Ragnabot (login da tela)](#7-a-entrar-no-ragnabot-login-da-tela)
@@ -84,6 +87,7 @@ ninguém chegava nele, porque não havia caminho.
 
 | Item | Para quê | Quem vê |
 |---|---|---|
+| **Atendimentos** | a sua fila: abertas, resolvidos e grupos | todos |
 | **Fluxos** | desenhar e publicar o atendimento automático | todos |
 | **Respostas rápidas** | os atalhos de texto que a equipe repete o dia inteiro | todos |
 | **Testador de fluxo** | conversar com o fluxo antes de qualquer cliente | todos |
@@ -166,6 +170,94 @@ que serve para saber se o token foi trocado sem nunca poder reconstruí-lo.
 
 **O que esta tela NÃO faz:** criar e remover conexão. As duas pedem segundo fator e credencial de
 canal — continuam em **Empresas** e no painel de atendimento.
+
+---
+
+## 1-B. A caixa de atendimento — quem vê qual conversa
+
+**O que faz.** É a tela **Atendimentos**: a fila do agente, com as abas **Abertas · Resolvidos ·
+Grupos** e, dentro de Abertas, as sub-abas **Atendendo · Aguardando · ChatBot**, cada uma com o seu
+contador. Cada conversa aparece num cartão com **três etiquetas — caixa de entrada · setor ·
+atendente** — para que, olhando a fila, se saiba de quem é o quê sem abrir nada.
+
+**⭐ A regra que define esta tela — quem vê o quê:**
+
+| Quem | Vê |
+|---|---|
+| **Administrador** da empresa | todas as conversas da empresa dele |
+| **Atendente** | as conversas **atribuídas a ele**; as que **ele resolveu**; e a **fila (sem atendente) dos setores de que ele participa** |
+| Qualquer um | **nada** de outra empresa |
+
+E as consequências, ditas em voz alta porque elas se notam no uso:
+
+- **Conversa em aberto de outro atendente você não vê** — nem na lista, nem pedindo pelo número.
+- **Conversa na fila sem setor nenhum** só aparece para o administrador. Não há a que amarrar a
+  permissão, e a regra da casa em caso de dúvida é mostrar **menos**.
+- **Atendente que não está em nenhum setor não vê fila alguma** — só as conversas dele. É proposital:
+  sem saber a que setor a pessoa pertence, mostrar a fila seria mostrar conversa de outra equipe. O
+  administrador resolve isso no botão **«Sincronizar setores»**, que traz da plataforma os times e
+  quem é membro de cada um.
+
+**Resolvidos.** Ordenados pela **resolução mais recente**. O administrador vê todos os da empresa;
+o atendente vê **só os que ele mesmo resolveu**. O que o robô resolveu sozinho aparece para o
+administrador.
+
+**Histórico por setor.** No cartão há **«Histórico do setor»**: os atendimentos anteriores daquele
+contato **naquele setor**. Não existe histórico global — nem para o administrador. O mesmo cliente
+pode falar com o Financeiro e com o Suporte, e uma conversa não entra dentro da outra. Pedir o
+histórico de um setor de que você não participa recebe uma recusa explicada.
+
+**⚠️ O que a tela NÃO guarda.** Nenhum texto de mensagem. O índice de conversas guarda apenas
+roteamento — de quem é, de que setor, em que estado, quando — e o conteúdo continua na plataforma,
+lido só ao abrir a conversa, depois de a permissão já ter sido conferida.
+
+**Como funciona por dentro.** O isolamento é do **servidor**, não da tela: ele é uma cláusula
+`where` na consulta (`ragnabot-caixa.service.js`), e não um botão escondido. Um atendente pedindo a
+conversa de outro **pela API** recebe **404** («não encontrada») — e 404, e não 403, porque um 403
+confirmaria ao curioso que aquele número existe. Filtro mandado pela tela (`?cwAssigneeId=`,
+`?cwTeamId=`, `?tenantId=`) só **estreita** dentro do que já era visível; nunca alarga.
+Os **contadores** das abas saem da **mesma consulta** da lista — contador que mente é pior que
+contador ausente.
+
+O índice se enche pelo aviso da plataforma (webhook), e essa gravação **nunca derruba o webhook**:
+perder uma projeção atrasa uma linha da fila; derrubar o webhook perderia a mensagem do cliente.
+
+*Prova:* `app/tests/ragnabot-caixa-isolamento.test.mjs` — 63 medições contra PostgreSQL de verdade
+e o servidor de verdade, incluindo a recusa por API nos dois sentidos.
+
+---
+
+## 1-C. Retrocarga — trazer para a caixa as conversas que já existiam
+
+**O problema que ela resolve.** A caixa se enche pelo aviso da plataforma (webhook). Conversa que
+começou **antes** de o aviso existir nunca gerou aviso nenhum — então ela não estaria na fila, e a
+tela nasceria vazia sem explicação. A retrocarga vai buscar essas conversas e monta o índice.
+
+**Como o administrador usa.** Botão **«Trazer conversas existentes»** (ou
+`POST /api/ragnabot-caixa/retrocarga`). Só administrador; atendente recebe recusa. Aceita
+`?simular=1`, que **mede e mostra o relatório sem gravar nada** — é como conferir antes.
+
+**O que ela traz, e de onde.** A plataforma não devolve tudo o que o cartão precisa; cada dado vem
+do dono certo:
+
+| Dado | Vem de |
+|---|---|
+| estado, contato, setor, atendente, datas | a **plataforma** (todos os estados: abertas, na fila, resolvidas e adiadas) |
+| **nome da caixa de entrada** | o **nosso** cadastro de conexões (a plataforma só manda o número) |
+| **protocolo** | o **nosso** registro de protocolos |
+| **«está com o robô»** | a **nossa** execução de fluxo viva — a plataforma não sabe distinguir «robô atendendo» de «ninguém atendendo» |
+
+**Pode rodar quantas vezes quiser.** É idempotente: a segunda passada não duplica nem muda uma
+linha. E ela **não piora** o que o aviso já tinha gravado: quem resolveu a conversa e quando são
+informação do **evento**, e a retrocarga não os sobrescreve — a plataforma, lida depois, não guarda
+esses dois campos.
+
+**O que ela deduz, e diz que deduziu.** Numa conversa resolvida, o instante da resolução é
+aproximado (vem da última mudança de estado) e o autor é deduzido do responsável atual. As
+aproximações saem **contadas no relatório**, com o motivo escrito — não escondidas.
+
+*Prova:* `app/tests/ragnabot-caixa-retrocarga.test.mjs` — 43 medições contra PostgreSQL de verdade,
+com o relatório real das conversas indexadas, a idempotência e a recusa por API.
 
 ---
 
@@ -307,12 +399,15 @@ Aplicação e reversão em `deploy/identidade/LEIA-ME.md`.
 
 ---
 
-## 5-E. Os blocos do fluxo (17 tipos)
+## 5-E. Os blocos do fluxo (21 tipos)
 
 **Fala:** início · texto · mídia (imagem, áudio, vídeo, documento).
 **Pergunta:** pergunta · botões · lista · espera.
-**Decide:** condição · variável · subfluxo.
-**Age:** etiqueta · passa para time · abre chamado · aviso interno · chamada externa · **e-mail** · encerra.
+**Decide:** condição · variável · subfluxo · **randomizador**.
+**Age:** etiqueta · passa para time · **passa para atendente** · abre chamado · aviso interno ·
+chamada externa · **e-mail** · encerra.
+**Ainda sem tela no editor:** agente de IA e cobrança por Pix existem no motor e ainda **não**
+aparecem na paleta — ver 5-I.
 
 ### Lista
 Menu de até 10 opções. Aceita **cabeçalho** em negrito, corpo com variáveis, rodapé, rótulo do botão
@@ -325,6 +420,46 @@ Ou até **3 botões de resposta**, ou **1 botão de link** — nunca os dois jun
 nossa: no WhatsApp são tipos de mensagem diferentes, e misturar faz a Meta recusar tudo, com o
 cliente sem receber nada. O **botão de link não espera resposta** (a Meta não avisa o clique), então
 o fluxo segue adiante em vez de ficar parado esperando alguém que já foi embora.
+
+### Passa para atendente
+Entrega a conversa a uma **pessoa**, e não a um setor. A pessoa é escolhida por **e-mail, nome ou
+id** — prefira o e-mail: se houver duas pessoas com o mesmo nome na conta, a transferência é
+**recusada** em vez de sortear uma, porque mandar para a pessoa errada ninguém percebe.
+
+Há um **setor alternativo**: se a pessoa não for encontrada (saiu da empresa, trocou de e-mail) ou,
+opcionalmente, se não estiver disponível, a conversa vai para lá. Sem setor alternativo a
+transferência falha de propósito, com incidente — melhor uma falha barulhenta que alguém conserta
+do que uma conversa sem dono que ninguém vê.
+
+⚠️ Este bloco **muda quem enxerga a conversa**: ela entra na caixa daquela pessoa e sai da fila do
+setor (ver 1-B). Fora da janela de 24 h a transferência **acontece assim mesmo** — só o aviso ao
+cliente é que não sai.
+
+### Randomizador (teste A/B)
+Divide o tráfego por **porcentagem**, uma saída por faixa. As porcentagens têm de somar exatamente
+**100 %** — o editor não «normaliza» números errados em silêncio. Para três saídas iguais use
+**33,33 · 33,33 · 33,34**; a última faixa absorve o arredondamento, e nenhum sorteio cai no vazio.
+
+O sorteio é **reprodutível**: a mesma passagem dá sempre o mesmo ramo. Isso importa porque o motor
+repete passos quando um envio falha — com dado de verdade, o cliente receberia as **duas** variantes
+uma atrás da outra. Você escolhe o que se repete:
+
+| Repete por | Quando usar |
+|---|---|
+| **visita** | sortear a cada passagem — serve para dividir carga |
+| **conversa** | a pessoa não muda de variante no meio do atendimento |
+| **contato** *(recomendado)* | a mesma pessoa vê **sempre** a mesma variante — é o único que faz um teste A/B honesto; do contrário a comparação mede a alternância, não a variante |
+
+No **testador** há o campo **«Forçar caminho»** (`bloco=saida`, uma por linha): é assim que se
+confere a variante que o sorteio não tomou. O testador avisa, no próprio passo, que o caminho foi
+desviado por você.
+
+### Sub-fluxo — a guarda contra laço
+`chamar` volta ao fim do sub-fluxo; `saltar` entrega o controle e não volta. **Fluxo que chama a si
+mesmo — direta ou indiretamente — é recusado na publicação**, com o caminho do laço escrito por
+extenso («Atendimento → Menu → Atendimento»). Antes disso, o laço só aparecia em produção: a
+conversa andava em círculo até bater no teto de passos, depois de gastar mensagens com o cliente.
+A mesma guarda vale ao **reverter** uma versão antiga.
 
 ### E-mail
 Destinatário, assunto, corpo, responder-para e cópia oculta — todos aceitam variáveis. Não espera
@@ -439,6 +574,27 @@ de caracteres.
 ⚠️ **As tabelas das duas frentes ainda não existem no banco.** A publicação de 02/09 aplicou apenas a
 migração da fila. Enquanto isso, abrir uma dessas rotas responde erro — e é por isso que elas não
 estão no menu.
+
+---
+
+## 5-J. Os números em cada saída do fluxo
+
+**O que faz.** Com a camada de números ligada no editor, **cada saída de cada bloco** mostra quantas
+pessoas foram por ali e a porcentagem sobre o total de vezes que aquele bloco foi apresentado —
+«enviado · clicado · CTR». É o que responde, sem adivinhar, qual opção do menu ninguém escolhe.
+
+**Como ler.**
+
+- O **denominador** é sempre quantas vezes **aquele bloco** foi apresentado no período.
+- **Exceção não conta como clique.** «Sem resposta», «opção inválida», «erro» e «fora da janela de
+  24 h» aparecem com o número, mas **fora** do CTR do bloco. Contá-las inflaria justamente os menus
+  que estão dando errado — e são esses que precisam aparecer mal.
+- Bloco que **não foi apresentado nenhuma vez** no período mostra traço, e não «0 %». «0 %» diria
+  que ninguém clicou num menu que ninguém viu.
+
+**De onde sai o número.** Do registro cru de cada passagem do fluxo — o mesmo que alimenta o funil
+por bloco. Não há uma segunda contabilidade a manter, então o número da saída e o número do bloco
+não têm como divergir.
 
 ---
 

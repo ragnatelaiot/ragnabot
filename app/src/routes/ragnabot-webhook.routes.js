@@ -55,6 +55,7 @@ import prismaGlobal from '../base/db.js';
 import * as protocolo from '../services/ragnabot-protocolo.service.js';
 import * as auditoria from '../services/ragnabot-auditoria.service.js';
 import * as portariaModulo from '../services/ragnabot-portaria.service.js';
+import * as caixaModulo from '../services/ragnabot-caixa.service.js';
 import loggerGlobal from '../base/logger.js';
 
 const router = Router();
@@ -68,6 +69,9 @@ const portas = {
   portaria: portariaModulo,
   protocolo,
   auditoria,
+  // Índice da caixa de atendimento (contrato S2). É por aqui que a fila do agente se enche.
+  // ⚠️ NUNCA pode derrubar o webhook: ver `projetarNaCaixa()` mais abaixo.
+  caixa: caixaModulo,
   log: loggerGlobal,
 };
 
@@ -97,6 +101,12 @@ const contadores = {
   contaDesconhecida: 0,
   degradados: 0,       // gravou, mas o resto falhou (a mensagem NÃO se perdeu)
   naoGravados: 0,      // nem gravou → devolvemos 503 e o Chatwoot reentrega
+  // Contador PRÓPRIO da projeção na caixa (contrato S2), e não `degradados`, de propósito:
+  // `degradados` significa «a mensagem do cliente foi gravada mas o resto do processamento dela
+  // falhou». A projeção do índice da caixa não é processamento da mensagem — ela pode falhar sem
+  // que nada do atendimento tenha degradado. Somar as duas coisas no mesmo número faria o /saude
+  // acusar degradação onde não há, e um alarme que dispara à toa é um alarme que se ignora.
+  caixaNaoProjetada: 0,
   porMotivo: Object.create(null),
   ultimoEm: null,
   ultimoErro: null,
@@ -111,6 +121,7 @@ export function estatisticasDoWebhook() {
 export function zerarEstatisticasDoWebhook() {
   contadores.recebidos = 0; contadores.aceitos = 0; contadores.descartados = 0;
   contadores.contaDesconhecida = 0; contadores.degradados = 0; contadores.naoGravados = 0;
+  contadores.caixaNaoProjetada = 0;
   contadores.porMotivo = Object.create(null);
   contadores.ultimoEm = null; contadores.ultimoErro = null;
 }
@@ -266,6 +277,86 @@ export function classificarEvento(evt = {}) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════
+// PROJEÇÃO NA CAIXA DE ATENDIMENTO (contrato S2)
+//
+// O índice `RagnabotConversa` é o que permite impor, num `where`, "aberta só do agente que atende",
+// "resolvidos só os dele" e "histórico por setor". Ele se enche AQUI, no mesmo evento que já chega.
+//
+// ⛔ NUNCA DERRUBA O WEBHOOK. Perder uma projeção atrasa uma linha da fila e a próxima
+// sincronização conserta; derrubar o webhook perderia a MENSAGEM DO CLIENTE, que é
+// incomparavelmente pior. Por isso o `catch` engole, conta e segue.
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * O que o evento diz sobre o ROTEAMENTO da conversa. Função PURA — é o pedaço fácil de errar
+ * (o assignee vem em dois lugares, o time em outros dois) e o barato de provar.
+ *
+ * Campos AUSENTES ficam `undefined` de propósito: `projetarConversa()` só escreve o que veio, e um
+ * evento de mensagem (que não carrega o setor) não pode apagar o setor da conversa.
+ */
+export function roteamentoDoEvento(evt = {}) {
+  const conv = evt.conversation || {};
+  const meta = conv.meta || {};
+  const num = (v) => {
+    if (v === null || v === undefined || v === '') return undefined;
+    const n = Number(v);
+    return Number.isInteger(n) ? n : undefined;
+  };
+
+  // O responsável chega como `conversation.meta.assignee` e, em alguns eventos, no topo como
+  // `evt.assignee`. `assignee_id: null` é informação legítima («devolveram para a fila») — por isso
+  // o nulo EXPLÍCITO é preservado, e só a ausência total vira `undefined`.
+  let assignee;
+  if ('assignee_id' in conv) assignee = conv.assignee_id === null ? null : num(conv.assignee_id);
+  else if (meta.assignee) assignee = num(meta.assignee.id);
+  else if (evt.assignee) assignee = num(evt.assignee.id);
+
+  let team;
+  if ('team_id' in conv) team = conv.team_id === null ? null : num(conv.team_id);
+  else if (meta.team) team = num(meta.team.id);
+
+  const remetente = meta.sender || (String(evt.sender?.type ?? '').toLowerCase() === 'contact' ? evt.sender : null);
+  const chave = remetente?.phone_number ?? remetente?.identifier ?? undefined;
+
+  return {
+    cwInboxId: num(evt.inbox?.id ?? conv.inbox_id ?? evt.inbox_id),
+    caixaNome: evt.inbox?.name ?? undefined,
+    canal: evt.inbox?.channel_type ? String(evt.inbox.channel_type).replace(/^Channel::/u, '').toLowerCase() : undefined,
+    cwTeamId: team,
+    setorNome: meta.team?.name ?? undefined,
+    cwAssigneeId: assignee,
+    atendenteNome: meta.assignee?.name ?? evt.assignee?.name ?? undefined,
+    cwContactId: num(remetente?.id),
+    contatoNome: remetente?.name ?? undefined,
+    contatoChave: chave === undefined ? undefined : String(chave),
+    // Grupo de WhatsApp: o identificador termina em `@g.us`. É o único sinal que a plataforma dá
+    // sem consultar o canal, e é estável — o mesmo sufixo que o NOC já usa nos alertas.
+    ehGrupo: chave === undefined ? undefined : String(chave).endsWith('@g.us'),
+    statusPlataforma: conv.status ?? undefined,
+    abertaEm: carimboDeOrigem(conv.created_at) ?? undefined,
+  };
+}
+
+/** Projeta e NUNCA estoura. Devolve o resultado só para o registro/diagnóstico. */
+async function projetarNaCaixa(tenantId, c, evt, extra = {}) {
+  try {
+    if (!portas.caixa?.projetarConversa) return null;
+    return await portas.caixa.projetarConversa({
+      tenantId,
+      cwAccountId: c.cwAccountId,
+      cwConversationId: c.cwConversationId,
+      ultimaAtividadeEm: c.origemEm instanceof Date ? c.origemEm : new Date(),
+      ...roteamentoDoEvento(evt),
+      ...extra,
+    });
+  } catch (e) {
+    contar('caixaNaoProjetada', 'caixa_nao_projetou');
+    log().warn(`[ragnabot-webhook] caixa não projetada (conversa ${c.cwConversationId}): ${e.message.slice(0, 160)}`);
+    return null;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
 // A ROTA
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 router.post('/', async (req, res) => {
@@ -364,6 +455,14 @@ router.post('/', async (req, res) => {
       contar('descartados', c.motivo);
     }
 
+    // Índice da caixa: a conversa passa a existir na fila do agente. Depois do 2xx garantido pela
+    // portaria e sem poder alterá-lo — ver o aviso de `projetarNaCaixa`.
+    // `comRobo` sai do resultado da própria portaria: se ela acabou de criar (ou já achou) uma
+    // execução de fluxo viva, a conversa está com o ROBÔ, e é isso que separa a sub-aba ChatBot da
+    // sub-aba Aguardando. Sem este campo as duas colunas mostrariam o mesmo número.
+    const comRobo = Boolean(r?.execucaoId);
+    await projetarNaCaixa(tenant.id, c, evt, comRobo ? { comRobo: true } : {});
+
     return res.json({
       ok: true,
       classe: c.classe,
@@ -405,6 +504,10 @@ router.post('/', async (req, res) => {
           descricao: `Conversa ${c.cwConversationId} aberta`,
         });
       }
+      // A conversa nasce na caixa AQUI — antes de qualquer mensagem. Sem isto, uma conversa criada
+      // e nunca respondida ficaria fora da fila, que é justamente a que precisa ser vista.
+      await projetarNaCaixa(tenant.id, c, evt, { protocolo: proto });
+
       contar('aceitos', 'protocolo');
       return res.json({ ok: true, protocolo: proto });
     }
@@ -422,6 +525,17 @@ router.post('/', async (req, res) => {
           protocolo: reg?.protocolo || null, entidade: 'conversation', entidadeId: String(c.cwConversationId),
           descricao: `Conversa ${c.cwConversationId} encerrada`,
         });
+        // Quem resolveu é quem estava com a conversa na mão. É este par (carimbo + autor) que faz
+        // o submenu Resolvidos ordenar por resolução mais recente e mostrar ao agente SÓ o que ele
+        // resolveu — as duas metades do pedido nº 2 do dono.
+        await projetarNaCaixa(tenant.id, c, evt, {
+          statusPlataforma: 'resolved',
+          resolvidaEm: new Date(),
+          resolvidaPorCwUserId: evt.assignee?.id ?? null,
+          resolvidaPorNome: evt.assignee?.name ?? null,
+          protocolo: reg?.protocolo || undefined,
+        });
+
         contar('aceitos', 'encerramento');
         return res.json({ ok: true });
       }

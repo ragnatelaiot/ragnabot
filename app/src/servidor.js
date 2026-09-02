@@ -135,6 +135,10 @@ await montar('/api/ragnabot-respostas-rapidas', './routes/ragnabot-respostas-rap
 // agente de IA (Capitão): mesma regra dos vizinhos — sem `adminOnly` no mount, o isolamento é por
 // `escopoDe()` e o papel é conferido dentro do router.
 await montar('/api/ragnabot-capitao', './routes/ragnabot-capitao.routes.js', autenticar);
+// caixa de atendimento (contrato S2): SEM `adminOnly` no mount — quem vive nesta tela é o
+// ATENDENTE. O isolamento por agente e por setor é imposto no `where` da consulta, dentro do
+// serviço, nunca por esconder item de menu.
+await montar('/api/ragnabot-caixa', './routes/ragnabot-caixa.routes.js', autenticar);
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 // TRABALHADORES
@@ -228,6 +232,26 @@ export async function ligarTrabalhadores() {
     // sem água: a portaria grava o trabalho, o motor sabe executá-lo, o adaptador sabe falar com o
     // cliente — e ninguém tira o trabalho da fila. É a última porta do caminho do primeiro «oi».
     if (amarrado) await ligarExecutorDeFluxo(amarrado);
+
+    // Caixa de atendimento (contrato S2): a porta da plataforma serve às sincronizações de setor e
+    // de membros. As CONSULTAS da caixa não passam por ela — leem o índice do NOSSO banco, que é
+    // onde a regra de visibilidade por agente e por setor pode ser imposta num `where`.
+    //
+    // ⚠️ EM `try` PRÓPRIO, e por último: a caixa é conveniência de LEITURA. Se a amarração dela
+    // falhasse dentro do bloco geral, levaria junto a portaria e o executor — ou seja, o cliente
+    // ficaria sem resposta por causa de uma tela. A ordem do estrago tem de ser a inversa.
+    try {
+      const caixa = await import('./services/ragnabot-caixa.service.js');
+      caixa.configurarCaixa({ plataforma: chatwoot });
+      // Retrocarga (contrato S3): é ela que traz para o índice as conversas que já existiam ANTES
+      // do webhook ser cadastrado. Sem esta amarração a rota responde 503 com o motivo — nunca
+      // grava uma caixa vazia dizendo que deu certo.
+      const retro = await import('./services/ragnabot-caixa-retrocarga.service.js');
+      retro.configurarRetrocarga({ plataforma: chatwoot, caixa });
+    } catch (e) {
+      logger.warn(`[ragnabot] caixa de atendimento sem porta de plataforma: ${e.message} `
+        + '(as consultas seguem funcionando; só a sincronização de setores e a retrocarga ficam indisponíveis)');
+    }
 
     logger.info('[ragnabot] trabalhadores no ar: atendimento(60s), despertar(15s), portaria'
       + (trabalhadores.caixas.ligado ? `, caixas(${Math.round(INTERVALO_CAIXAS_MS / 1000)}s)` : '')

@@ -18,9 +18,10 @@
 // existe para a pessoa não tropeçar em tela que não é dela, não para impedir quem quer entrar.
 //
 // ── ⛔ O QUE EU DELIBERADAMENTE NÃO PUS AQUI ────────────────────────────────────────────────────
-// Atendimentos, Conexões e Configurações — os outros itens do menu do chat atual. As telas NÃO
-// existem. Item de menu que abre tela vazia ensina o operador a desconfiar do menu inteiro; quando
-// cada uma nascer (S6, S7), ela entra aqui em uma linha.
+// Conexões e Configurações — os outros itens do menu do chat atual. As telas NÃO existem. Item de
+// menu que abre tela vazia ensina o operador a desconfiar do menu inteiro; quando cada uma nascer
+// (S6, S7), ela entra aqui em uma linha.
+// (Atendimentos saiu desta lista em 02/09/2026: a tela passou a existir — ver o item `caixa`.)
 //
 // ⭐ 02/09/2026 (contrato S3.1): entrou `testador`. Ele é a prova de que a promessa acima vale nos
 // dois sentidos — o MOTOR do testador já existia desde 28/08 (`POST /fluxos/:id/testar`), e o item
@@ -48,6 +49,21 @@ export const PAPEIS = Object.freeze(['admin', 'user']);
  *   apoio    a linha de explicação do menu recolhido/título acessível
  */
 export const MENU = Object.freeze([
+  {
+    // ⭐ 02/09/2026 (contrato S2). PRIMEIRO item do menu, e não por acaso: é a tela onde o atendente
+    // vive, e o chat atual abre nela. `papeis: null` = todo mundo que estiver logado — inclusive o
+    // atendente, que é justamente quem a usa.
+    //
+    // ⚠️ E vale repetir a regra do topo deste arquivo, porque esta é a tela em que ela mais tenta:
+    // este item aparecer para todos NÃO afrouxa nada. O que cada um ENXERGA dentro dela é decidido
+    // pelo servidor, no `where` da consulta (`ragnabot-caixa.service.js`) — não por este catálogo.
+    id: 'caixa',
+    rotulo: 'Atendimentos',
+    caminho: '/caixa',
+    papeis: null,
+    icone: 'MessagesSquare',
+    apoio: 'A sua fila: abertas, resolvidos e grupos',
+  },
   {
     id: 'fluxos',
     rotulo: 'Fluxos',

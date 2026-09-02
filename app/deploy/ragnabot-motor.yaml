@@ -91,7 +91,7 @@ spec:
           #    debaixo do pé; digest é o mesmo binário para sempre — e é o que faz uma restauração
           #    reproduzir o que estava no ar.
           #    image: registro.interno/ragnabot-motor@sha256:«DEFINIR — digest da imagem construída»
-          image: ragnabot-motor:1.07.01
+          image: ragnabot-motor:1.08.00
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

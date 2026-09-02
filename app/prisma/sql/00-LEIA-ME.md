@@ -38,8 +38,9 @@ Aplique nesta ordem (as dependências de chave estrangeira são entre arquivos, 
 | 12 | `capitao/01-rb_capitao.sql` | `RagnabotCapitaoConfig`, `RagnabotCapitaoDocumento`, `RagnabotCapitaoInteracao`, `RagnabotCapitaoConsumoMes` |
 | 13 | `pagamento-pix/01-rb_pagamento_pix.sql` | `RagnabotPagamentoCredencial`, `RagnabotCobrancaPix`, `RagnabotCobrancaPixEvento` |
 | 14 | **`motor-fluxo/05-rb_fila_idempotencia.sql`** | ⚠️ `RagnabotFluxoFila.chaveIdem` + o índice único **parcial** `rb_fila_idem_pendente` — a mesma visita não entra duas vezes na fila |
+| 15 | `caixa-atendimento/01-rb_caixa_atendimento.sql` | `RagnabotSetor`, `RagnabotAgenteSetor`, `RagnabotConversa` — o índice de conversas e o **isolamento por agente e por setor** (contrato S2). ⚠️ Sem `RagnabotAgenteSetor` preenchido, nenhum agente enxerga fila (falha fechada, de propósito) |
 
-Total: **47 tabelas** — o mesmo número de modelos `Ragnabot*` no `schema.prisma`.
+Total: **50 tabelas** — o mesmo número de modelos `Ragnabot*` no `schema.prisma`.
 
 ## Como aplicar
 

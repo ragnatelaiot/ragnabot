@@ -58,6 +58,7 @@ import RespostasRapidas from './paginas/RespostasRapidas.jsx';
 import TestadorDeFluxo from './paginas/TestadorDeFluxo.jsx';
 import Empresas from './paginas/Empresas.jsx';
 import CaixasDeEntrada from './paginas/CaixasDeEntrada.jsx';
+import CaixaDeAtendimento from './paginas/CaixaDeAtendimento.jsx';
 import { ContextoDaSessao, PortaoDeSessao } from './paginas/Entrada.jsx';
 import { CAMINHO_PADRAO, itensVisiveis } from './lib/navegacao.js';
 import { BASENAME, caminhoDoApp } from './lib/prefixo.js';
@@ -148,6 +149,12 @@ function Miolo() {
       <Route element={<Casca aviso={aviso} versao={versao} />}>
         {/* A raiz manda para o construtor: é o que o dono quer usar, e foi o que ele não achava. */}
         <Route path="/" element={<Navigate to={CAMINHO_PADRAO} replace />} />
+        {/* ⭐ Contrato S2 (02/09/2026). SEM `SoAdministrador`, e é de propósito: quem vive nesta
+            tela é o ATENDENTE. O que cada um enxerga é decidido pelo SERVIDOR, no `where` da
+            consulta — a lista já chega filtrada, e um agente pedindo a conversa de outro pela API
+            recebe 404. Não há aqui nenhum `if` de visibilidade, porque um `if` aqui mascararia um
+            vazamento em vez de impedi-lo. */}
+        <Route path="/caixa" element={<CaixaDeAtendimento />} />
         <Route path="/fluxos" element={<FluxosRagnabot />} />
         <Route path="/respostas-rapidas" element={<RespostasRapidas />} />
         {/* Duas rotas para a MESMA tela: sem fluxo escolhido ela lista; com fluxo, simula. A URL

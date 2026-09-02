@@ -1760,7 +1760,10 @@ async function marchar({ tx, exec, versao, noId, agora, janela, limites, coletor
       resposta.efeitos.push({
         efeito, intencao, politicaEmDuvida: ex.politicaEmDuvida ?? 'conciliar',
         condicional: ex.efeito === 'condicional',
-        interno: ['nota', 'notificar', 'etiqueta', 'atribuir', 'resolver'].includes(intencao.tipo),
+        // `atribuir_agente` entra aqui pela MESMA razão que `atribuir`: entregar a conversa a uma
+        // pessoa é operação NOSSA na plataforma, não mensagem ao cliente. Falha dela vira
+        // `erro_interno` e não transfere ninguém por engano. (Contrato S3, nó `atendente`.)
+        interno: ['nota', 'notificar', 'etiqueta', 'atribuir', 'atribuir_agente', 'resolver'].includes(intencao.tipo),
       });
       resposta.noEfeitoId = atual;
     }

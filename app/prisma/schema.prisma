@@ -1736,3 +1736,155 @@ model RagnabotCobrancaPixEvento {
   @@index([txid, recebidoEm])
   @@index([resultado, recebidoEm])
 }
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// CAIXA DE ATENDIMENTO — ISOLAMENTO POR AGENTE E POR SETOR (contrato S2, 02/09/2026)
+//
+// ── O QUE FOI MEDIDO ANTES DE ESCREVER ESTAS TRÊS TABELAS ───────────────────────────────────────
+// 1. NÃO existia modelo de conversa no Ragnabot. A conversa mora na plataforma; daqui só saíam
+//    PONTEIROS para ela (`RagnabotProtocolo`, `RagnabotAtendRelogio`, `RagnabotAtendTransferencia`,
+//    `RagnabotFluxoExecucao`), todos endereçados por `cwAccountId + cwConversationId`.
+// 2. NÃO existia rota que devolvesse conversa ao navegador — logo, hoje não há vazamento; também
+//    não há caixa de atendimento nossa. O isolamento tem de nascer JUNTO com a caixa.
+// 3. O conceito de SETOR já existe na casa e se chama `cwTeamId` (o time da plataforma). Ele está
+//    em `RagnabotAtendPolitica` (escopo 'time'), `RagnabotAtendTransferencia`, `RagnabotFluxo` e
+//    `RagnabotRespostaRapida`. Inventar aqui um segundo conceito de setor seria criar duas verdades
+//    para a mesma coisa — este arquivo REUSA `cwTeamId`.
+// 4. A leitura da plataforma é feita com o token do ADMINISTRADOR da empresa
+//    (`comoAdminDaEmpresa`, em ragnabot-chatwoot.porta.js). Ou seja: o pouco de isolamento por
+//    agente que a plataforma faria por conta própria NÃO nos alcança — todo pedido nosso chega lá
+//    como administrador. O filtro por agente TEM de ser nosso, no `where` da consulta.
+//
+// ── POR QUE UM ÍNDICE NOSSO, E NÃO CONSULTA DIRETA À PLATAFORMA A CADA TELA ──────────────────────
+// Porque a regra do dono não é expressável lá: "aberta só do agente que atende", "resolvidos do
+// próprio agente", "histórico por setor" e o CONTADOR de cada aba precisam de um `where` sobre
+// atendente/setor/estado, com paginação estável. Fazer isso puxando 25 conversas por página da API
+// e filtrando em memória daria contador que mente — e contador que mente é pior que contador
+// ausente.
+//
+// ── ⛔ O QUE ESTAS TABELAS NÃO GUARDAM, DE PROPÓSITO ────────────────────────────────────────────
+// NENHUM TEXTO DE MENSAGEM. Nem prévia, nem último recado. A regra já escrita em
+// `RagnabotProtocolo` ("nenhum dado de conversa é copiado — só o ponteiro") continua valendo: o que
+// entra aqui é ROTEAMENTO (de quem é, de que setor é, em que estado está), não conteúdo. Uma cópia
+// do que o cliente escreveu multiplicaria a superfície de vazamento e o dever de retenção sem
+// necessidade — a tela lê o conteúdo da plataforma, no momento de abrir a conversa, com a
+// visibilidade já conferida aqui.
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+// SETOR — o time da plataforma, espelhado aqui com nome, para a etiqueta do cartão e para os
+// filtros. Espelho, não fonte: quem cria setor é a plataforma; `sincronizarSetores()` traz.
+model RagnabotSetor {
+  id       String @id @default(uuid())
+  tenantId String // → RagnabotTenant.id (chave lógica, como nos vizinhos)
+
+  cwAccountId Int
+  cwTeamId    Int
+  nome        String
+  descricao   String?
+
+  // `ativo=false` = o setor sumiu da plataforma. A linha NUNCA é apagada: conversa antiga aponta
+  // para ele, e histórico que perde o nome do setor vira histórico ilegível.
+  ativo Boolean @default(true)
+
+  sincronizadoEm DateTime?
+  criadoEm       DateTime  @default(now())
+  atualizadoEm   DateTime  @updatedAt
+
+  @@unique([cwAccountId, cwTeamId])
+  @@index([tenantId, ativo])
+}
+
+// QUEM É DE QUE SETOR. É esta tabela que responde à pergunta mais difícil do contrato: quem vê a
+// conversa que está na FILA, sem atendente nenhum.
+//
+// ⚠️ FALHA FECHADA: agente sem NENHUMA linha aqui não enxerga fila nenhuma — só as conversas dele.
+// É o lado seguro do erro. O lado inseguro seria "sem informação de setor, mostre tudo", que é
+// exatamente como um isolamento morre: por um padrão permissivo escrito num dia de pressa.
+model RagnabotAgenteSetor {
+  id       String @id @default(uuid())
+  tenantId String
+
+  cwAccountId Int
+  cwUserId    Int // o usuário na plataforma — o mesmo número que a sessão traz em `cwUserId`
+  cwTeamId    Int
+
+  agenteNome  String?
+  agenteEmail String?
+
+  sincronizadoEm DateTime?
+  criadoEm       DateTime  @default(now())
+  atualizadoEm   DateTime  @updatedAt
+
+  @@unique([cwAccountId, cwUserId, cwTeamId])
+  @@index([tenantId, cwUserId])
+  @@index([cwAccountId, cwTeamId])
+}
+
+// A CONVERSA — índice de roteamento. Uma linha por conversa da plataforma.
+model RagnabotConversa {
+  id       String @id @default(uuid())
+  tenantId String
+
+  cwAccountId      Int
+  cwConversationId Int
+
+  // ── CAIXA DE ENTRADA (a 1ª etiqueta do cartão) ──────────────────────────────────────────────
+  cwInboxId Int?
+  caixaNome String? // desnormalizado de RagnabotInbox: a fila é lida em relance, não com JOIN
+  canal     String? // whatsapp | web_widget | instagram | facebook | email | telegram | api
+
+  // ── SETOR (a 2ª etiqueta, e o eixo do histórico) ────────────────────────────────────────────
+  cwTeamId  Int?
+  setorNome String?
+
+  // ── ATENDENTE (a 3ª etiqueta, e a trava de visibilidade) ────────────────────────────────────
+  cwAssigneeId  Int?
+  atendenteNome String?
+
+  // ── ESTADO ──────────────────────────────────────────────────────────────────────────────────
+  // Vocabulário NOSSO, derivado por `classificarEstado()` — nunca copiado cru da plataforma, que
+  // não distingue "robô atendendo" de "ninguém atendendo":
+  //   atendendo  — aberta, com atendente
+  //   aguardando — aberta/pendente, sem atendente e sem robô (é a FILA)
+  //   chatbot    — aberta, sem atendente, com execução de fluxo viva
+  //   resolvida  — encerrada
+  //   adiada     — snoozed
+  estado           String
+  estadoPlataforma String? // open | pending | resolved | snoozed — o cru, para diagnóstico
+  comRobo          Boolean @default(false)
+
+  // Conversa de GRUPO tem aba própria no chat atual, e regra de ruído diferente.
+  ehGrupo Boolean @default(false)
+
+  // ── CONTATO ─────────────────────────────────────────────────────────────────────────────────
+  // O MÍNIMO para a fila ser usável e para o histórico casar: quem é, e por qual chave. Sem
+  // conteúdo de mensagem (ver o aviso do bloco acima).
+  cwContactId  Int?
+  contatoNome  String?
+  contatoChave String? // telefone/identificador — é por ela que o histórico do contato se agrupa
+
+  protocolo String? // espelho de RagnabotProtocolo.protocolo, para a fila não precisar de JOIN
+
+  // ── TEMPO ───────────────────────────────────────────────────────────────────────────────────
+  abertaEm          DateTime
+  ultimaAtividadeEm DateTime?
+
+  // "ordem por resolução mais recente" (pedido do dono) sai daqui, não de `atualizadoEm` — que
+  // muda por qualquer sincronização e faria a lista de resolvidos dançar sozinha.
+  resolvidaEm          DateTime?
+  resolvidaPorCwUserId Int?
+  resolvidaPorNome     String?
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  // Idempotência da projeção: o mesmo evento reentregue atualiza a MESMA linha.
+  @@unique([cwAccountId, cwConversationId])
+  // Os índices são os das quatro consultas que a caixa faz, nesta ordem:
+  @@index([tenantId, estado, ultimaAtividadeEm]) // abas Abertas (e os contadores)
+  @@index([tenantId, estado, resolvidaEm]) // aba Resolvidos, por resolução mais recente
+  @@index([tenantId, cwAssigneeId, estado]) // "as minhas"
+  @@index([tenantId, resolvidaPorCwUserId, resolvidaEm]) // "os que EU resolvi"
+  @@index([tenantId, cwTeamId, estado]) // a fila do meu setor
+  @@index([tenantId, cwTeamId, contatoChave, abertaEm]) // histórico do contato DENTRO do setor
+}

@@ -320,14 +320,34 @@ function nomeDeArquivoDaUrl(url) {
  * acrescenta. Por isso lemos as atuais antes: mandar só as de `aplicar` APAGARIA as etiquetas que
  * o atendente pôs na mão — e isso é perda de trabalho de gente, em silêncio.
  */
+/**
+ * A REGRA DA ETIQUETA, isolada e pura — porque a API do Chatwoot SUBSTITUI a lista inteira.
+ *
+ * ⚠️ ISTO É O QUE IMPEDE O ROBÔ DE APAGAR O TRABALHO DO ATENDENTE. `POST .../labels` não
+ * acrescenta: ele troca a lista toda. Um nó de fluxo que mandasse só as suas etiquetas apagaria,
+ * em silêncio, todas as que a pessoa pôs na mão — e ninguém descobriria, porque etiqueta que some
+ * não gera erro nenhum. Por isso o caminho é LER · MESCLAR · GRAVAR, e por isso a mesclagem mora
+ * numa função pura, provável sem rede (`tests/ragnabot-nos-novos.test.mjs`, seção 7).
+ *
+ * @param {string[]} atuais   o que já está na conversa (inclusive o que o atendente pôs)
+ * @param {string[]} aplicar  o que o nó quer acrescentar
+ * @param {string[]} remover  o que o nó quer tirar
+ */
+export function mesclarEtiquetas(atuais = [], aplicar = [], remover = []) {
+  const tirar = new Set((remover || []).map(String));
+  return [...new Set([
+    ...(atuais || []).map(String).filter((e) => !tirar.has(e)),
+    ...(aplicar || []).map(String),
+  ])];
+}
+
 export async function aplicarEtiquetas({ cwAccountId, cwConversationId, aplicar = [], remover = [] } = {}) {
   const tenantId = await empresaDaConta(cwAccountId);
   if (!tenantId) return false;
   const atual = await comoAdminDaEmpresa(tenantId, 'get',
     (conta) => `/api/v1/accounts/${conta}/conversations/${cwConversationId}/labels`);
   const atuais = Array.isArray(atual?.payload) ? atual.payload.map(String) : [];
-  const tirar = new Set((remover || []).map(String));
-  const finais = [...new Set([...atuais.filter((e) => !tirar.has(e)), ...(aplicar || []).map(String)])];
+  const finais = mesclarEtiquetas(atuais, aplicar, remover);
   await comoAdminDaEmpresa(tenantId, 'post',
     (conta) => `/api/v1/accounts/${conta}/conversations/${cwConversationId}/labels`,
     { labels: finais });
@@ -464,6 +484,214 @@ export async function enderecosDoDestinatario({ cwAccountId, destinatario } = {}
   return [];
 }
 
+/**
+ * TODOS os times (setores) da conta — contrato S2.
+ *
+ * `timePorNome()` já lia este mesmo endereço, mas devolvia UM time e escondia a lista. A caixa de
+ * atendimento precisa da lista inteira para espelhar os setores, e ler duas vezes o mesmo endereço
+ * por dois caminhos diferentes é como duas verdades nascem.
+ */
+export async function listarTimes({ cwAccountId } = {}) {
+  const tenantId = await empresaDaConta(cwAccountId);
+  if (!tenantId) return [];
+  const r = await comoAdminDaEmpresa(tenantId, 'get', (conta) => `/api/v1/accounts/${conta}/teams`);
+  const lista = Array.isArray(r?.payload) ? r.payload : (Array.isArray(r) ? r : []);
+  return lista
+    .filter((t) => t && t.id !== undefined && t.id !== null)
+    .map((t) => ({ id: t.id, nome: t.name ?? null, descricao: t.description ?? null }));
+}
+
+/**
+ * Os membros de UM time. É o que decide quem enxerga a fila daquele setor.
+ *
+ * ⚠️ Devolve lista VAZIA quando a plataforma recusa ou o time sumiu — e vazio aqui significa
+ * "ninguém vê esta fila", que é o lado seguro. Estourar faria a sincronização inteira parar no
+ * primeiro time removido e deixaria o espelho pela metade, sem ninguém perceber.
+ */
+export async function membrosDoTime({ cwAccountId, cwTeamId } = {}) {
+  const tenantId = await empresaDaConta(cwAccountId);
+  if (!tenantId || cwTeamId === null || cwTeamId === undefined) return [];
+  try {
+    const r = await comoAdminDaEmpresa(tenantId, 'get',
+      (conta) => `/api/v1/accounts/${conta}/teams/${cwTeamId}/team_members`);
+    const lista = Array.isArray(r?.payload) ? r.payload : (Array.isArray(r) ? r : []);
+    return lista
+      .filter((m) => m && m.id !== undefined && m.id !== null)
+      .map((m) => ({ id: m.id, nome: m.name ?? null, email: m.email ?? null }));
+  } catch (e) {
+    logger.warn(`[cw-porta] membros do time ${cwTeamId} (conta ${cwAccountId}): ${e.message.slice(0, 160)}`);
+    return [];
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// LEITURA RICA DA CONVERSA — contrato S3 (02/09/2026), a RETROCARGA da caixa de atendimento
+//
+// ⚠️ POR QUE ISTO EXISTE, EM VEZ DE REUSAR `conversasEmAtendimento` ────────────────────────────
+// `normalizarConversa()` foi escrita para o TRABALHADOR de automações, que só precisa de relógio e
+// roteamento — e por isso ela DESCARTA o contato, o nome do time e o nome do responsável. Quem
+// enche o índice da caixa precisa exatamente do que ela joga fora: sem nome de contato a fila fica
+// com cartões anônimos, e sem `contatoChave` o histórico por setor não agrupa nada.
+//
+// Somam-se duas diferenças de propósito:
+//   · varre TAMBÉM `resolved` e `snoozed` — a aba «Resolvidos» nasceria vazia sem isso;
+//   · devolve o payload TRADUZIDO mas COMPLETO, não a forma enxuta do trabalhador.
+//
+// Nada aqui substitui `conversasEmAtendimento`: as duas leem o mesmo endereço com finalidades
+// diferentes, e misturá-las faria a varredura do relógio pagar por campos que ela não usa.
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+/** Os quatro estados que a plataforma conhece. A ordem é a da leitura; não muda resultado. */
+export const ESTADOS_DA_PLATAFORMA = Object.freeze(['open', 'pending', 'resolved', 'snoozed']);
+
+/**
+ * Traduz a conversa da API para a forma RICA — a que o índice da caixa precisa.
+ *
+ * Exportada para o teste poder exercitar a tradução com payloads de verdade sem subir HTTP: é o
+ * pedaço fácil de errar (o remetente vem em `meta.sender`, o canal em `meta.channel` com prefixo
+ * `Channel::`, e as datas em epoch de SEGUNDOS) e o barato de provar.
+ */
+export function conversaRica(c, cwAccountId) {
+  if (!c) return null;
+  const meta = c.meta || {};
+  const remetente = meta.sender || null;
+  // `phone_number` primeiro: é a chave que sobrevive a recadastro de contato e a que o histórico
+  // por setor agrupa. `identifier` é o que os canais sem telefone (site, Instagram) trazem.
+  const chave = remetente?.phone_number ?? remetente?.identifier ?? null;
+  const canal = c.channel ?? meta.channel ?? null;
+  return {
+    id: c.id,
+    cwAccountId,
+    cwInboxId: c.inbox_id ?? null,
+    // `Channel::Whatsapp` → `whatsapp`. O mesmo recorte que o webhook faz, para os dois caminhos
+    // gravarem o MESMO vocabulário na coluna `canal` — duas grafias fariam o filtro da tela mentir.
+    canal: canal ? String(canal).replace(/^Channel::/u, '').toLowerCase() : null,
+    cwTeamId: c.team_id ?? meta.team?.id ?? null,
+    setorNome: meta.team?.name ?? null,
+    cwAssigneeId: c.assignee_id ?? meta.assignee?.id ?? null,
+    atendenteNome: meta.assignee?.name ?? null,
+    cwContactId: remetente?.id ?? null,
+    contatoNome: remetente?.name ?? null,
+    contatoChave: chave === null || chave === undefined ? null : String(chave),
+    status: c.status || null,
+    etiquetas: Array.isArray(c.labels) ? c.labels.map(String) : [],
+    abertaEm: paraData(c.created_at ?? c.timestamp),
+    ultimaAtividadeEm: paraData(c.last_activity_at ?? c.timestamp),
+    // A plataforma NÃO diz quando a conversa foi resolvida nem por quem. `status_changed_at` é a
+    // melhor aproximação que ela oferece, e está declarada como aproximação em quem a consome.
+    statusMudouEm: paraData(c.status_changed_at ?? c.updated_at),
+  };
+}
+
+/**
+ * Varre as conversas da conta, por estado, devolvendo a forma RICA.
+ *
+ * @param {{cwAccountId:number, estados?:string[], limite?:number, porEstado?:number}} p
+ * @returns {Promise<{itens:object[], lidasPorEstado:object, truncou:boolean, falhas:object[]}>}
+ *
+ * ⚠️ Devolve o que CONSEGUIU ler, com as falhas ao lado — nunca estoura. Uma conta com 7 conversas
+ * e um estado que a API recusa não pode impedir a retrocarga das outras 6; e esconder a recusa faria
+ * a fila nascer incompleta sem ninguém saber por quê.
+ */
+export async function listarConversasRicas({
+  cwAccountId, estados = ESTADOS_DA_PLATAFORMA, limite = 2000, porEstado = 500,
+} = {}) {
+  const tenantId = await empresaDaConta(cwAccountId);
+  if (!tenantId) return { itens: [], lidasPorEstado: {}, truncou: false, falhas: [{ motivo: 'CONTA_SEM_EMPRESA', cwAccountId }] };
+
+  const itens = [];
+  const lidasPorEstado = {};
+  const falhas = [];
+  let truncou = false;
+
+  for (const estado of estados) {
+    lidasPorEstado[estado] = 0;
+    // A paginação da API é de 25 por página e não há como pedir mais; o teto de páginas é o que
+    // impede uma conta grande de virar varredura infinita numa rota síncrona.
+    for (let pagina = 1; pagina <= Math.ceil(porEstado / 25) && itens.length < limite; pagina += 1) {
+      let r;
+      try {
+        r = await comoAdminDaEmpresa(tenantId, 'get',
+          (conta) => `/api/v1/accounts/${conta}/conversations?status=${estado}&page=${pagina}&sort_by=last_activity_at`);
+      } catch (e) {
+        falhas.push({ estado, pagina, motivo: e.message.slice(0, 160) });
+        logger.warn(`[cw-porta] retrocarga conta ${cwAccountId} estado ${estado} página ${pagina}: ${e.message.slice(0, 160)}`);
+        break;
+      }
+      const lote = r?.data?.payload || r?.payload || [];
+      if (!lote.length) break;
+      for (const c of lote) {
+        if (itens.length >= limite) { truncou = true; break; }
+        const rica = conversaRica(c, cwAccountId);
+        if (rica) { itens.push(rica); lidasPorEstado[estado] += 1; }
+      }
+      if (lote.length < 25) break; // última página deste estado
+      if (pagina === Math.ceil(porEstado / 25)) truncou = true;
+    }
+  }
+  return { itens, lidasPorEstado, truncou, falhas };
+}
+
+/**
+ * TODOS os atendentes da conta — o que o nó `atendente` precisa para transferir para uma PESSOA.
+ *
+ * Devolve `[]` quando a plataforma recusa: quem chama trata vazio como «não achei ninguém» e recusa
+ * a transferência com o nome do destinatário na mensagem. Estourar aqui derrubaria a conversa por
+ * uma leitura de cadastro.
+ */
+export async function listarAgentes({ cwAccountId } = {}) {
+  const tenantId = await empresaDaConta(cwAccountId);
+  if (!tenantId) return [];
+  try {
+    const r = await comoAdminDaEmpresa(tenantId, 'get', (conta) => `/api/v1/accounts/${conta}/agents`);
+    const lista = Array.isArray(r?.payload) ? r.payload : (Array.isArray(r) ? r : []);
+    return lista
+      .filter((a) => a && a.id !== undefined && a.id !== null)
+      .map((a) => ({
+        id: a.id,
+        nome: a.name ?? null,
+        email: a.email ?? null,
+        papel: a.role ?? null,
+        // `availability_status` é `online|busy|offline`; `confirmed` diz se o convite foi aceito.
+        disponibilidade: a.availability_status ?? null,
+        confirmado: a.confirmed !== false,
+      }));
+  } catch (e) {
+    logger.warn(`[cw-porta] agentes da conta ${cwAccountId}: ${e.message.slice(0, 160)}`);
+    return [];
+  }
+}
+
+/**
+ * Acha UM atendente por id, e-mail ou nome — nesta ordem de precisão.
+ *
+ * ⚠️ A ORDEM NÃO É ESTÉTICA. Nome é ambíguo (duas «Ana Paula» numa conta acontecem), e-mail não é.
+ * Quando o nome casa com mais de uma pessoa, esta função devolve `{ambiguo:true}` em vez de
+ * escolher — mandar a conversa para a Ana errada é pior que recusar com a lista dos empates na
+ * mensagem, porque a segunda falha alguém conserta e a primeira ninguém percebe.
+ */
+export async function agentePorReferencia({ cwAccountId, referencia } = {}) {
+  const alvo = String(referencia ?? '').trim();
+  if (!alvo) return null;
+  const todos = await listarAgentes({ cwAccountId });
+  if (!todos.length) return null;
+
+  if (/^\d+$/u.test(alvo)) {
+    const porId = todos.find((a) => String(a.id) === alvo);
+    if (porId) return porId;
+  }
+  const minusculo = alvo.toLocaleLowerCase('pt-BR');
+  const porEmail = todos.find((a) => String(a.email ?? '').toLocaleLowerCase('pt-BR') === minusculo);
+  if (porEmail) return porEmail;
+
+  const porNome = todos.filter((a) => String(a.nome ?? '').trim().toLocaleLowerCase('pt-BR') === minusculo);
+  if (porNome.length === 1) return porNome[0];
+  if (porNome.length > 1) {
+    return { ambiguo: true, referencia: alvo, candidatos: porNome.map((a) => ({ id: a.id, email: a.email })) };
+  }
+  return null;
+}
+
 /** Limpa o cache de conta→empresa. Existe para o teste, e para depois de provisionar empresa. */
 export function esquecerCache() { cache.clear(); }
 
@@ -474,4 +702,12 @@ export default {
   // para despachar as intenções dos nós — antes disto o motor montava a mensagem e ninguém a levava.
   enviarInterativo, enviarAnexo, aplicarEtiquetas, atribuirAgente, carimbar, caixaDaConversa,
   timePorNome, enderecosDoDestinatario,
+  // Contrato S2 (isolamento por agente e por setor): a caixa de atendimento espelha daqui os
+  // setores e quem é membro de cada um.
+  listarTimes, membrosDoTime,
+  // Contrato S3 (02/09/2026): a RETROCARGA da caixa (leitura rica, todos os estados) e o nó
+  // `atendente`, que transfere para uma PESSOA e por isso precisa do cadastro de atendentes.
+  listarConversasRicas, conversaRica, ESTADOS_DA_PLATAFORMA,
+  listarAgentes, agentePorReferencia,
+  mesclarEtiquetas,
 };

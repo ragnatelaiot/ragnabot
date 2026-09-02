@@ -19,6 +19,99 @@
 
 ---
 
+## v1.08.00 — A fila passou a ter dono, e o construtor ganhou cinco peças (02/09/2026)
+
+A frase que resume: **até aqui o Ragnabot sabia atender; agora ele sabe de quem é cada conversa.**
+Esta versão traz a tela **Atendimentos** com isolamento de verdade — por atendente e por setor —, a
+rotina que traz para dentro dela as conversas que já existiam, e cinco peças novas no construtor de
+fluxo.
+
+### A caixa de atendimento — quem vê qual conversa
+
+- **Tela nova, «Atendimentos»**, com as abas **Abertas · Resolvidos · Grupos** e, dentro de Abertas,
+  as sub-abas **Atendendo · Aguardando · ChatBot**, cada uma com o seu contador. Cada conversa é um
+  cartão com **três etiquetas — caixa de entrada · setor · atendente**: olhando a fila já se sabe de
+  quem é o quê, sem abrir nada.
+- **A regra, dita em voz alta.** O administrador vê a operação inteira da empresa dele. O atendente
+  vê **as conversas atribuídas a ele**, **as que ele mesmo resolveu** e a **fila sem atendente dos
+  setores de que ele participa**. Ninguém vê nada de outra empresa.
+- **Falha fechada, de propósito.** Atendente que não está em nenhum setor **não vê fila alguma** —
+  só o que é dele. Sem saber a que equipe a pessoa pertence, mostrar a fila seria mostrar conversa
+  de outro time. O administrador resolve no botão **«Sincronizar setores»**, que traz da plataforma
+  os times e quem é membro de cada um.
+- **O isolamento é do servidor, não da tela.** É uma cláusula da consulta, não um item de menu
+  escondido. Atendente que pedir pela API a conversa de outro recebe **404** — «não encontrada», e
+  não «proibido», porque um «proibido» confirmaria ao curioso que aquele número existe. Filtro
+  mandado pela tela só **estreita** o que já era visível; nunca alarga.
+- **Histórico por setor, e só por setor.** No cartão há «Histórico do setor»: os atendimentos
+  anteriores daquele contato **naquele setor**. Não existe histórico global — nem para o
+  administrador. O mesmo cliente pode falar com o Financeiro e com o Suporte sem que uma conversa
+  entre dentro da outra.
+- **Nenhum texto de mensagem sai do lugar.** As três tabelas novas guardam **só roteamento** — de
+  quem é, de que setor, em que estado, quando. O conteúdo continua na plataforma, lido apenas ao
+  abrir a conversa, depois de a permissão já ter sido conferida.
+
+### Retrocarga — a fila não nasce vazia
+
+A caixa se enche pelo aviso da plataforma. Conversa que começou **antes** de o aviso existir nunca
+gerou aviso nenhum — então a tela nasceria vazia, sem explicação. O botão **«Trazer conversas
+existentes»** vai buscá-las.
+
+- **Cada dado vem do dono certo:** estado, contato, setor, atendente e datas vêm da plataforma; o
+  **nome da caixa de entrada** e o **protocolo** vêm do nosso cadastro (a plataforma só manda o
+  número); e o «está com o robô» vem da nossa execução de fluxo viva — a plataforma não distingue
+  «robô atendendo» de «ninguém atendendo».
+- **Pode rodar quantas vezes quiser** — a segunda passada não duplica nem altera linha nenhuma. E
+  **não piora** o que o aviso já tinha gravado: quem resolveu e quando são informação do evento, e a
+  retrocarga não os sobrescreve.
+- **Tem modo de simulação** (`?simular=1`): mede e mostra o relatório **sem gravar nada**.
+- **O que ela deduz, ela declara.** Numa conversa já resolvida, o instante da resolução é aproximado
+  e o autor é deduzido do responsável atual. As aproximações saem **contadas no relatório, com o
+  motivo escrito** — não escondidas.
+
+### Cinco peças novas no construtor de fluxo
+
+- **Passa para atendente.** Entrega a conversa a uma **pessoa**, e não a um setor — por e-mail, nome
+  ou id. Havendo duas pessoas com o mesmo nome, a transferência é **recusada** em vez de sortear
+  uma: mandar para a pessoa errada ninguém percebe. Há setor alternativo para quando a pessoa não
+  for encontrada; sem ele a transferência falha de propósito, com incidente — melhor uma falha
+  barulhenta que alguém conserta do que uma conversa sem dono que ninguém vê.
+- **Randomizador (teste A/B).** Divide o tráfego por porcentagem, uma saída por faixa, e as
+  porcentagens têm de somar exatamente 100 % — o editor não «normaliza» número errado em silêncio.
+  O sorteio é **reprodutível**, e você escolhe o que se repete: por visita, por conversa ou **por
+  contato** (recomendado — é o único que faz um teste A/B honesto; do contrário a comparação mede a
+  alternância, e não a variante).
+- **Guarda contra laço de sub-fluxo.** Fluxo que chama a si mesmo — direta ou indiretamente — passou
+  a ser **recusado na publicação**, com o caminho do laço escrito por extenso («Atendimento → Menu →
+  Atendimento»). Antes disso o laço só aparecia em produção, como conversa andando em círculo até
+  bater no teto de passos — depois de gastar mensagens com um cliente de verdade. A mesma guarda
+  vale ao **reverter** uma versão antiga. Desenhar o laço no rascunho continua permitido: o rascunho
+  é privado; publicar é o instante em que o desenho passa a atender gente.
+- **Os números em cada saída do bloco.** Cada conector do canvas mostra «enviado · clicado · CTR».
+  **Exceção não conta como clique**: «sem resposta», «opção inválida», «erro» e «fora da janela de
+  24 h» aparecem com o número, mas fora do CTR — contá-las inflaria justamente os menus que estão
+  dando errado, que são os que precisam aparecer mal. Bloco que não foi apresentado no período
+  mostra **traço, e não «0 %»**: «0 %» diria que ninguém clicou num menu que ninguém viu.
+- **«Forçar caminho» no testador.** Campo novo (`bloco=saida`, uma por linha) para conferir a
+  variante que o sorteio não tomou. O testador avisa, no próprio passo, que o caminho foi desviado
+  por você.
+
+### Onde os números moram
+
+Três tabelas novas — `RagnabotSetor`, `RagnabotAgenteSetor` e `RagnabotConversa` — aplicadas no
+**líder do banco medido na hora** (`pg133`, e não o de ontem), em transação única, com **zero
+`DROP`** no arquivo e as três chaves estrangeiras compostas conferidas depois, de pé. O SQL está
+versionado em `app/prisma/sql/caixa-atendimento/01-rb_caixa_atendimento.sql`.
+
+### ⛔ O que continua desligado, de propósito
+
+`RAGNABOT_EXECUTOR_FLUXO=0` e **zero webhooks cadastrados** na plataforma. Ou seja: **nada muda
+para quem conversa com a gente hoje.** A caixa mostra a operação; o robô ainda não responde
+sozinho. Ligar é um passo separado e deliberado, com o dono avisado — e a recomendação registrada é
+fazer isso primeiro numa caixa de teste, com ele do outro lado.
+
+---
+
 ## v1.07.01 — A rota até a plataforma passou a ser uma só (02/09/2026)
 
 Correção apanhada **na própria subida da v1.07.00**, pelo `/saude` novo — antes de qualquer pessoa
