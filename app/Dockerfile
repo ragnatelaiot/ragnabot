@@ -49,11 +49,18 @@ COPY app/web/ ./
 # rede dizendo 200. Com caminho absoluto é preciso DECLARAR o prefixo, e declarar é o que este ARG
 # faz. Padrao `/` (raiz): quem construir sem passar nada continua tendo o pacote de antes.
 #
-# ⚠️ HOJE o motor responde em `bot.ragnatela.com.br/motor-api/` (`deploy/ragnabot-motor-ingress.yaml`,
-# com `rewrite-target: /$2`). Construir com `/` publicaria uma tela que nao carrega em lugar nenhum.
-# Se a interface mudar de caminho (a escolha registrada e `/painel/`), a imagem precisa ser
-# CONSTRUIDA DE NOVO — prefixo e propriedade do pacote, nao do proxy.
-#     docker build -f app/Dockerfile --build-arg RAGNABOT_PREFIXO_WEB=/motor-api/ -t ragnabot-motor:X .
+# ⭐ DECIDIDO EM 02/09/2026 (contrato S-PUBLICAR): a interface e publicada em
+#    **https://bot.ragnatela.com.br/painel/**. Logo, o comando de construcao de producao e:
+#
+#     docker build -f app/Dockerfile --build-arg RAGNABOT_PREFIXO_WEB=/painel/ -t ragnabot-motor:X .
+#
+# ⚠️ ESQUECER O `--build-arg` NAO DA ERRO — da TELA BRANCA com 200 na rede, que e o pior sintoma
+# possivel: o indice pediria `/assets/…` na raiz do host, e a raiz do host e o Ingress da
+# PLATAFORMA de atendimento, nao o motor. Por isso o `/saude` passou a dizer, em
+# `interface.prefixo`, para qual caminho o PACOTE foi construido — lido do proprio indice. Confira
+# ali antes de anunciar que subiu.
+#
+# `/motor-api/` continua sendo a porta de SERVICO (NOC → motor) e nao serve tela nenhuma.
 #
 # ⚠️ ARG NAO SERVE PARA SEGREDO (fica em `docker history` para sempre). Este aqui e um caminho
 # publico, e so.

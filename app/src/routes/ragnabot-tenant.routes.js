@@ -136,6 +136,14 @@ router.get('/tenants', (req, res) => responder(res, tenants.listarEmpresas({ sta
 
 router.get('/tenants/:id', (req, res) => responder(res, tenants.obterEmpresa(req.params.id)));
 
+// A empresa aponta para uma conta que EXISTE na plataforma? (só leitura, não cria nada)
+//
+// POR QUE EXISTE: em 02/09/2026 a única empresa cadastrada apontava para a conta 35 — que não é
+// conta nenhuma, é o id da CAIXA do Facebook dentro da conta 1. Nada no produto reclamava: o
+// webhook descartaria todo evento como "empresa não mapeada" e o sintoma seria apenas "o robô não
+// responde". Esta conferência é o que transforma esse defeito mudo em resposta legível.
+router.get('/tenants/:id/conferir-conta', (req, res) => responder(res, tenants.conferirContaDaEmpresa(req.params.id)));
+
 // PROVISIONAR EM UMA AÇÃO — cria conta, admin e vínculo; rollback se falhar no meio.
 router.post('/tenants', async (req, res) => {
   try {
@@ -218,10 +226,49 @@ router.post('/tenants/:id/sso', somenteSuperuser, async (req, res) => {
 });
 
 // ── MULTICONEXÃO: caixas de entrada da empresa ──────────────────────────────
+//
+// DUAS LEITURAS DIFERENTES, e confundi-las é o erro a evitar:
+//   · `/tenants/:id/inboxes`            → a PLATAFORMA, ao vivo (fonte da verdade lá fora).
+//   · `/tenants/:id/inboxes-registradas`→ o NOSSO cadastro (`RagnabotInbox`), que é o que o motor
+//     consulta em execução. Em 02/09/2026 os dois divergiam totalmente: quatro caixas lá,
+//     zero aqui. A tela mostra o NOSSO, porque é o nosso que cala o robô quando está errado.
 
 router.get('/tenants/:id/inboxes', (req, res) => responder(res, tenants.listarCaixas(req.params.id)));
 
-router.post('/tenants/:id/inboxes/sync', (req, res) => responder(res, tenants.sincronizarCaixas(req.params.id)));
+router.get('/tenants/:id/inboxes-registradas', (req, res) => responder(
+  res,
+  tenants.listarCaixasRegistradas(req.params.id, { incluirRemovidas: req.query.incluirRemovidas !== '0' }),
+));
+
+router.post('/tenants/:id/inboxes/sync', (req, res) => responder(res, tenants.sincronizarCaixas(req.params.id, { ator: req.user })));
+
+// ── O CADASTRO INTEIRO (todas as empresas) — é o que a tela «Caixas de entrada» consome ──────
+//
+// Sem 2FA de propósito: LER o cadastro não muda nada, e exigir código para conferir cadastro é o
+// caminho mais curto para ninguém conferir. O portão de 2FA continua onde muda o mundo (criar e
+// remover conexão), e este router inteiro já é fechado a administrador do grupo RAGNATELA.
+router.get('/inboxes', (req, res) => responder(
+  res,
+  tenants.listarTodasAsCaixasRegistradas({ incluirRemovidas: req.query.incluirRemovidas !== '0' }),
+));
+
+// Estado da rotina: rodou quando, com que resultado, e qual foi o erro se houve.
+router.get('/inboxes/sincronizacao', (req, res) => {
+  res.json({ success: true, data: tenants.estadoDaSincronizacaoDeCaixas() });
+});
+
+// Sincroniza TODAS as empresas, sob demanda. Idempotente: rodar duas vezes não duplica nada —
+// a segunda passada devolve os contadores zerados, e é assim que se confere que ela é honesta.
+router.post('/inboxes/sincronizar', (req, res) => responder(
+  res,
+  tenants.sincronizarCaixasDeTodasAsEmpresas({ ator: req.user, motivo: 'sob demanda' }),
+));
+
+// A caixa informada existe no nosso cadastro? (a mesma conferência que a guarda do fluxo usa)
+router.get('/tenants/:id/caixas/:cwInboxId/conferir', (req, res) => responder(
+  res,
+  tenants.conferirCaixaRegistrada(req.params.id, req.params.cwInboxId),
+));
 
 // Cria a conexão. O corpo carrega credencial de canal (token da Meta, bot do
 // Telegram) — por isso 2FA obrigatório e nada disso volta na resposta.

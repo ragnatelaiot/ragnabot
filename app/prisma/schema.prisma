@@ -239,7 +239,7 @@ model RagnabotTenantEvent {
   id          String         @id @default(uuid())
   tenantId    String
   tenant      RagnabotTenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  type        String // provisioned|plan_changed|suspended|reactivated|closed|purge|inbox_created|inbox_removed|agent_invited|sso_link|limit_warning
+  type        String // provisioned|plan_changed|suspended|reactivated|closed|purge|inbox_created|inbox_removed|inbox_sincronizado|agent_invited|sso_link|limit_warning
   payload     Json?
   actorUserId String? // null = worker automático
   createdAt   DateTime       @default(now())

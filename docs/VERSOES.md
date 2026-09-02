@@ -19,6 +19,78 @@
 
 ---
 
+## v1.07.01 — A rota até a plataforma passou a ser uma só (02/09/2026)
+
+Correção apanhada **na própria subida da v1.07.00**, pelo `/saude` novo — antes de qualquer pessoa
+usar o painel.
+
+- **O que estava errado.** A regra de "por onde o motor fala com a plataforma" existia em **dois
+  lugares**: a nova (com o caminho interno do cluster) e uma antiga, que só sabia sair para a
+  internet. A sincronização das caixas usava a antiga — e, de dentro do cluster, sair para a
+  internet e voltar não funciona. Resultado: a rotina rodava, esperava 20 segundos e desistia, com
+  o cadastro de caixas em zero.
+- **O que mudou.** A regra passou a ter **um dono só**, e há um teste permanente que prende a ordem
+  dos caminhos. As mensagens de erro passaram a dizer **por onde** tentaram — sem isso, "não
+  consegui falar com a plataforma" obriga quem diagnostica a adivinhar entre três rotas.
+- **Como se viu.** O `/saude` da v1.07.00 já dizia `cadastroDeCaixas.ultimoErro` e
+  `caixasNaPlataforma: 0`. Foi ele que denunciou, em vez de a falha aparecer semanas depois como
+  "o robô não responde direito".
+
+---
+
+## v1.07.00 — A porta abriu: o painel do Ragnabot é alcançável por navegador (02/09/2026)
+
+A frase que resume: **o que estava pronto deixou de ser invisível.** Desde 28/08 o construtor de
+fluxo, o testador, as respostas rápidas e a tela de caixas existiam e funcionavam — e ninguém
+conseguia abri-los, porque a interface era servida numa porta de serviço fechada por endereço de
+origem. A partir desta versão o endereço é **https://bot.ragnatela.com.br/painel/**, e quem entra
+usa a conta que já tem na plataforma.
+
+### O que muda para quem usa
+
+- **O painel do Ragnabot abre no navegador**, em `bot.ragnatela.com.br/painel/`. Mesmo domínio de
+  sempre — sem endereço novo para decorar, sem certificado novo para vencer no fim de semana.
+- **A entrada é a mesma conta de sempre.** Nenhuma senha nova e nenhuma trava foi afrouxada para
+  publicar: continua sendo a tela de login do próprio motor, com a conta da plataforma.
+- **O login passou a funcionar de verdade.** Ele estava quebrado e ninguém sabia, porque ninguém
+  alcançava a tela: de dentro do cluster, o motor tentava falar com a plataforma pelo endereço
+  público e o pedido morria no tempo limite. Agora ele fala pelo caminho interno.
+- **As quatro caixas de entrada apareceram no cadastro.** A plataforma tinha quatro conexões (Site,
+  WhatsApp, Facebook e Instagram) e o cadastro do Ragnabot estava **vazio** — a reconciliação
+  existia desde 28/08 e nunca havia sido chamada por ninguém. Agora ela roda sozinha ao subir e a
+  cada 15 minutos, e há uma tela para conferir o resultado.
+- **Uma caixa que não existe deixou de ser aceita num fluxo.** Digitar o número errado ao amarrar um
+  fluxo gravava, publicava e o fluxo simplesmente nunca disparava — sem nenhuma reclamação.
+- **O endereço da empresa na plataforma passou a ser conferido.** Havia o id de uma **caixa** no
+  campo da **conta**; nesse estado, todo evento do robô seria descartado como "empresa não mapeada".
+
+### O que passou a existir por dentro
+
+- **`/painel/` é uma porta própria**, separada do painel de atendimento: nela não entram o tema, a
+  tela de carregamento nem o desafio "não sou robô" do produto de atendimento — cada uma dessas
+  peças serve à outra tela e atrapalharia esta.
+- **`/motor-api/` continua restrita** ao console de operação. Publicar a interface não abriu a porta
+  de serviço; são duas portas, com duas travas diferentes, de propósito.
+- **A credencial que faltava entrou no cofre.** O motor rodava sem o token da plataforma, e por isso
+  toda leitura falhava em silêncio. Havia um "plano B" que lia uma tabela de configurações —
+  **código morto**, porque essa tabela ficou no NOC. Foi removido: plano B que não pode funcionar
+  esconde a causa em vez de cobrir a falha.
+- **O `/saude` ficou mais honesto.** Passou a dizer se o token está configurado (sim/não, nunca o
+  valor), quando a última reconciliação de caixas rodou e **para qual caminho a tela foi
+  construída** — este último resolve de véspera a única armadilha séria desta publicação.
+
+### Depende de / ainda não está pronto
+
+- ⛔ **O executor de fluxo continua DESLIGADO**, e **nenhum webhook está cadastrado** na plataforma.
+  Ou seja: esta publicação **não muda nada** para quem conversa com a gente hoje. Ligar o motor é um
+  passo separado, deliberado e com aviso.
+- **Nenhum fluxo cadastrado ainda.** O painel abre no construtor, e ele está vazio — é exatamente o
+  que esta versão existe para destravar.
+- **Sem caixa de WhatsApp própria.** Muita coisa "por caixa" só se prova de verdade quando a
+  primeira existir.
+
+---
+
 ## v1.06.00 — O Ragnabot ganhou casa: menu, telas e o caminho do primeiro "oi" (02/09/2026)
 
 Esta versão junta o trabalho de um dia inteiro. A frase que resume: **o produto passou a ter uma

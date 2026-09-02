@@ -48,6 +48,9 @@ const CAIXA    = 3;
 const AGORA    = new Date('2026-09-02T14:00:00.000Z'); // quarta-feira, 11h em Fortaleza
 
 let db; let fila; let enviados; let politicasNoBanco; let servidor; let base;
+// O que está GRAVADO em RagnabotTenant.cwAccountId. Em produção é dado de cadastro; aqui é o
+// botão que o caso (J) gira para reproduzir o erro real de 02/09/2026.
+let contaNoCadastro;
 const avisos = [];
 const logMudo = {
   info: () => {}, debug: () => {},
@@ -127,15 +130,19 @@ function comTabelasDeFora(cliente, { falharAoGravarEntrada = false } = {}) {
   cliente.ragnabotAtendExpediente = { findMany: async () => [] };
   cliente.ragnabotAtendExcecaoData = { findMany: async () => [] };
   cliente.ragnabotAtendRelogio    = { findMany: async () => [], deleteMany: async () => ({ count: 0 }) };
-  // A ponte empresa↔plataforma que a rota consulta.
+  // A ponte empresa↔plataforma que a rota consulta. O número CADASTRADO é variável de propósito:
+  // é ele que estava errado no ambiente real em 02/09/2026 (id de caixa no campo da conta), e o
+  // caso (J) precisa poder errá-lo do mesmo jeito.
   cliente.ragnabotTenant = {
-    findUnique: async ({ where }) => (where?.cwAccountId === TENANT.cwAccountId ? { ...TENANT } : null),
+    findUnique: async ({ where }) => (where?.cwAccountId === contaNoCadastro
+      ? { ...TENANT, cwAccountId: contaNoCadastro } : null),
   };
   cliente.ragnabotProtocolo = { findUnique: async () => null };
   return cliente;
 }
 
-async function montar({ falharAoGravarEntrada = false } = {}) {
+async function montar({ falharAoGravarEntrada = false, contaCadastrada = TENANT.cwAccountId } = {}) {
+  contaNoCadastro = contaCadastrada;
   db = comTabelasDeFora(criarFake(), { falharAoGravarEntrada });
   enviados = [];
   politicasNoBanco = [];
@@ -531,6 +538,41 @@ teste('(I) conversation_created continua emitindo protocolo — o caminho antigo
   assert.equal((await db.ragnabotFluxoEntrada.findMany({})).length, 0,
     'criação de conversa NÃO vira entrada de fluxo — não é resposta de pergunta');
   return { protocolo: r.json.protocolo };
+});
+
+teste('(J) O ERRO DE CADASTRO DE 02/09/2026: id de CAIXA no campo da conta cala o robô inteiro', async () => {
+  // Reprodução fiel do que estava gravado antes da correção: a empresa apontando para 35, que na
+  // plataforma é a CAIXA do Facebook da conta 1 — não é conta nenhuma (medido: a Platform API
+  // responde 404 "Not Found" para 35 e 401 "Non permissible" para 1, que é a conta de verdade).
+  const ID_DE_CAIXA = 35;
+  const CONTA_REAL = 7; // = TENANT.cwAccountId, o número certo neste teste
+  await montar({ contaCadastrada: ID_DE_CAIXA }); await semearFluxoPublicado();
+
+  // O cliente manda "oi" na conta REAL. Nada de errado com o evento — o errado está no cadastro.
+  const r = await postar(mensagemDoCliente({ account: { id: CONTA_REAL, name: 'Ragnatela' } }));
+
+  assert.equal(r.status, 200);
+  assert.equal(r.json.descartado, 'empresa não mapeada',
+    'com o id de caixa no campo da conta, TODO evento é descartado — e o sintoma visível é só "o robô não responde"');
+  assert.equal((await db.ragnabotFluxoEntrada.findMany({})).length, 0, 'nada gravado');
+  assert.equal(fila.itens.length, 0, 'nada enfileirado');
+  assert.equal(enviados.length, 0, 'o cliente fala sozinho');
+  assert.equal(estatisticasDoWebhook().contaDesconhecida, 1);
+  assert.equal(estatisticasDoWebhook().porMotivo.empresa_nao_mapeada, 1,
+    'o contador por motivo é o único lugar onde este defeito aparece — por isso ele existe');
+
+  // ── E agora, com o cadastro CORRIGIDO, o mesmo evento é aceito ────────────────────────────────
+  await montar({ contaCadastrada: CONTA_REAL }); await semearFluxoPublicado();
+  const ok = await postar(mensagemDoCliente({ account: { id: CONTA_REAL, name: 'Ragnatela' } }));
+  assert.equal(ok.status, 200);
+  assert.equal(ok.json.descartado, undefined, 'corrigido o cadastro, o mesmo evento deixa de ser descartado');
+  assert.equal(ok.json.resultado, 'execucao_iniciada');
+  assert.equal(estatisticasDoWebhook().contaDesconhecida, 0);
+
+  await motor.rodadaDoExecutor({ workerId: 'w-teste' });
+  assert.ok(enviados.length > 0, 'e o cliente finalmente é atendido');
+
+  return { comIdDeCaixa: r.json.descartado, comContaCerta: ok.json.resultado, enviados: enviados.length };
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════

@@ -34,6 +34,7 @@ import prisma from '../base/db.js';
 import logger from '../base/logger.js';
 import { logAction } from '../base/auditoria.js';
 import { PLANOS, CANAIS, limitesDoPlano, planoExiste, cabeMaisUmaCaixa } from '../config/ragnabot-plans.js';
+import { alvoDaPlataforma } from '../base/plataforma-alvo.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Configuração e rota de rede
@@ -51,38 +52,41 @@ const TEMPO_LIMITE_MS = parseInt(process.env.RAGNABOT_HTTP_TIMEOUT_MS || '20000'
 // Modo de suspensão: 'remover_vinculos' (padrão, reversível) ou 'somente_marcar'.
 const MODO_SUSPENSAO = process.env.RAGNABOT_SUSPENSAO_MODO || 'remover_vinculos';
 
-function hostnameDaPlataforma() {
-  return new URL(URL_PUBLICA).hostname;
-}
 
 /**
- * Token do Platform App. Ordem: .env → tabela Settings (encrypted).
+ * Token do Platform App. **Uma fonte só: o ambiente.**
  * NUNCA é devolvido para fora deste módulo nem escrito em log.
+ *
+ * ⛔ AQUI HAVIA UM SEGUNDO CAMINHO — `prisma.settings.findUnique({ key: 'ragnabot_platform_token' })`
+ * — herdado de quando este serviço morava no NOC. **Removido em 02/09/2026, e o motivo é medido:**
+ * a tabela `settings` NÃO EXISTE no schema do Ragnabot (ficou no NOC, junto com as outras tabelas
+ * de console). `prisma.settings` era `undefined`, o `.findUnique` estourava `TypeError`, o `catch`
+ * engolia e escrevia «não consegui ler o token em Settings» — uma frase que manda quem diagnostica
+ * procurar uma linha de configuração que nunca poderá existir.
+ *
+ * Fallback que não tem como funcionar não é rede de segurança: é uma pista falsa. Sem token, a
+ * mensagem abaixo diz exatamente onde ele mora (o `Secret` do Kubernetes) e como se chega nele.
  */
 let _cacheToken = { valor: null, em: 0 };
 export async function tokenDaPlataforma() {
   if (_cacheToken.valor && Date.now() - _cacheToken.em < 60_000) return _cacheToken.valor;
-  let token = (process.env.RAGNABOT_PLATFORM_TOKEN || '').trim();
-  if (!token) {
-    try {
-      const linha = await prisma.settings.findUnique({ where: { key: 'ragnabot_platform_token' } });
-      if (linha?.value) {
-        const { decrypt } = await import('../base/crypto.js');
-        token = linha.encrypted ? decrypt(linha.value) : linha.value;
-      }
-    } catch (e) {
-      logger.warn(`[ragnabot-tenant] não consegui ler o token em Settings: ${e.message}`);
-    }
-  }
+  const token = (process.env.RAGNABOT_PLATFORM_TOKEN || '').trim();
   if (!token) {
     throw new Error(
-      'Token do Platform App do Ragnabot ausente. Defina RAGNABOT_PLATFORM_TOKEN no .env ' +
-      'ou a chave "ragnabot_platform_token" (encrypted) em Configurações. ' +
-      'O token é criado no console /super_admin da plataforma, menu "Platform Apps".',
+      'Token do Platform App do Ragnabot ausente: a variável RAGNABOT_PLATFORM_TOKEN não está '
+      + 'definida neste processo. Ela vive no Secret `ragnabot-motor-env` do Kubernetes '
+      + '(namespace `ragnabot`) e o valor é criado no console /super_admin da plataforma, menu '
+      + '"Platform Apps". Sem ela, nenhuma leitura da plataforma funciona — nem a sincronização '
+      + 'das caixas de entrada, nem o provisionamento de empresa.',
     );
   }
   _cacheToken = { valor: token, em: Date.now() };
   return token;
+}
+
+/** O token existe neste processo? Responde SIM/NÃO sem tocar no valor — é o que o `/saude` mostra. */
+export function tokenDaPlataformaConfigurado() {
+  return Boolean((process.env.RAGNABOT_PLATFORM_TOKEN || '').trim());
 }
 
 /** Remove qualquer segredo conhecido de um texto antes de logar/propagar. */
@@ -112,22 +116,36 @@ export class ErroPlataforma extends Error {
 }
 
 function montarCliente(cabecalhos, { multipart = false } = {}) {
-  const hostname = hostnameDaPlataforma();
-  const base = IP_PROXY ? `https://${IP_PROXY}` : URL_PUBLICA;
+  // ⭐ MUDOU EM 02/09/2026 (contrato S-PUBLICAR), e a mudança é de rota, não de estilo.
+  //
+  // Aqui estava `IP_PROXY ? https://<ip> : URL_PUBLICA` — duas rotas, ambas SAINDO do cluster. De
+  // dentro do Kubernetes as duas falham por motivos diferentes (a pública por hairpin NAT, a do
+  // proxy porque a variável não está definida no pod), e o resultado medido minutos depois de
+  // publicar a v1.07.00 foi a sincronização das caixas devolvendo `timeout of 20000ms` com
+  // `caixasNaPlataforma: 0`. A rota que funciona de dentro é o Service (`ragnabot-web:3000`), e ela
+  // já estava implementada — só que em OUTRO módulo (`rotas-sessao.js`). Agora a regra tem um dono
+  // só: `base/plataforma-alvo.js`. Ver o cabeçalho de lá para o porquê de cada degrau.
+  const alvo = alvoDaPlataforma(URL_PUBLICA);
   // ⚠️ Em multipart o `Content-Type` NÃO pode ser fixado aqui: quem escreve o cabeçalho é o axios,
   // porque só ele conhece a fronteira (`boundary`) que separa as partes. Cravar
   // `multipart/form-data` sem a fronteira faz o Rails do Chatwoot devolver 422 com o corpo vazio —
   // um erro que parece de permissão e é de formato.
   const tipo = multipart ? {} : { 'Content-Type': 'application/json' };
-  return axios.create({
-    baseURL: base,
+  const cliente = axios.create({
+    baseURL: alvo.baseURL,
     timeout: TEMPO_LIMITE_MS,
-    // `servername` faz o SNI E a validação do certificado usarem o nome real.
-    httpsAgent: new https.Agent({ servername: hostname, keepAlive: false }),
-    headers: { Host: hostname, ...tipo, Accept: 'application/json', ...cabecalhos },
+    // `servername` faz o SNI E a validação do certificado usarem o nome real. No caminho INTERNO
+    // não há TLS nem nome a forçar — `hostname` vem `null`, e forçar `Host` ali só serviria para
+    // confundir quem lesse o log do Rails.
+    ...(alvo.hostname ? { httpsAgent: new https.Agent({ servername: alvo.hostname, keepAlive: false }) } : {}),
+    headers: { ...(alvo.hostname ? { Host: alvo.hostname } : {}), ...tipo, Accept: 'application/json', ...cabecalhos },
     maxRedirects: 0,
     validateStatus: () => true, // tratamos o status na mão, para mensagem em PT-BR
   });
+  // Viaja junto para a mensagem de erro poder dizer POR ONDE tentou. Sem isso, «não consegui falar
+  // com a plataforma» obriga quem diagnostica a adivinhar entre três rotas — foi o que aconteceu.
+  cliente.defaults.caminhoDaRota = alvo.caminho;
+  return cliente;
 }
 
 async function requisitar(cliente, metodo, caminho, corpo = null) {
@@ -135,7 +153,8 @@ async function requisitar(cliente, metodo, caminho, corpo = null) {
   try {
     resp = await cliente.request({ method: metodo, url: caminho, data: corpo ?? undefined });
   } catch (e) {
-    throw new ErroPlataforma(`Falha de rede ao falar com a plataforma (${metodo.toUpperCase()} ${caminho}): ${redigir(e.message)}`, { caminho });
+    const rota = cliente?.defaults?.caminhoDaRota || 'desconhecida';
+    throw new ErroPlataforma(`Falha de rede ao falar com a plataforma (${metodo.toUpperCase()} ${caminho}, caminho ${rota}): ${redigir(e.message)}`, { caminho });
   }
   if (resp.status >= 200 && resp.status < 300) return resp.data;
   const detalhe = typeof resp.data === 'string' ? resp.data.slice(0, 500) : JSON.stringify(resp.data ?? {}).slice(0, 500);
@@ -231,9 +250,9 @@ function traduzirErroDePrisma(e) {
 // 3. Eventos do tenant (trilha própria, além do AuditLog do NOC)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export async function registrarEvento(tenantId, tipo, payload = null, atorUserId = null) {
+export async function registrarEvento(tenantId, tipo, payload = null, atorUserId = null, { db = prisma } = {}) {
   try {
-    return await prisma.ragnabotTenantEvent.create({
+    return await db.ragnabotTenantEvent.create({
       data: { tenantId, type: tipo, payload: payload ?? undefined, actorUserId: atorUserId },
     });
   } catch (e) {
@@ -264,7 +283,15 @@ async function avisarNoWhatsapp(texto) {
 export async function verificarIntegracao() {
   const saida = {
     urlPublica: URL_PUBLICA,
-    rota: IP_PROXY ? `proxy interno ${IP_PROXY} (Host/SNI ${hostnameDaPlataforma()})` : 'direto pela URL pública',
+    // A rota REAL, calculada pela mesma regra que a chamada usa. Antes esta linha tinha uma
+    // cópia da regra e por isso podia MENTIR — dizer «direto pela URL pública» enquanto a chamada
+    // ia por outro lugar. Diagnóstico que descreve outra coisa é pior que diagnóstico nenhum.
+    rota: (() => {
+      const a = alvoDaPlataforma(URL_PUBLICA);
+      if (a.caminho === 'interna') return `serviço interno do cluster (${a.baseURL})`;
+      if (a.caminho === 'proxy') return `proxy interno ${IP_PROXY} (Host/SNI ${a.hostname})`;
+      return 'direto pela URL pública';
+    })(),
     tokenConfigurado: false,
     plataformaResponde: false,
     modelosInstalados: true,
@@ -320,6 +347,113 @@ export async function verificarIntegracao() {
   }
   saida.pronto = saida.modelosInstalados && saida.tokenConfigurado && saida.plataformaResponde;
   return saida;
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4.1 GUARDA CONTRA O ERRO "ID DE CAIXA NO CAMPO DA CONTA"
+//
+// POR QUE EXISTE (falha REAL, medida em 02/09/2026): `RagnabotTenant.cwAccountId`
+// da única empresa cadastrada estava em **35**, e 35 não é conta nenhuma — é o id
+// da CAIXA DE ENTRADA do Facebook dentro da conta 1, que é a conta de verdade.
+// A origem foi um provisionamento de 30/08 que criou uma conta duplicada (id 35)
+// para uma empresa que já tinha a conta 1 feita à mão; a duplicada foi apagada
+// depois e o ponteiro ficou apontando para o vazio.
+//
+// O QUE ISSO CAUSARIA, se ninguém tivesse olhado: `tenantDaAccount()` no webhook
+// não acharia empresa nenhuma, TODO evento cairia em "empresa não mapeada" (2xx,
+// descartado, com registro) e o sintoma para quem olha de fora seria só "o robô
+// não responde" — sem nada apontando para o cadastro. É o pior tipo de defeito:
+// silencioso e longe da causa.
+//
+// COMO A PLATAFORMA RESPONDE (medido, não suposto — Chatwoot 4.17.1):
+//   · conta que EXISTE mas não pertence a este Platform App → 401 "Non permissible resource"
+//   · conta que NÃO existe                                  → 404 "Not Found"
+//   · conta que existe E é deste Platform App               → 200
+// Um Platform App só enxerga o que ELE criou; a conta 1 foi criada à mão e por
+// isso responde 401. Portanto: **só o 404 é prova de que o número está errado.**
+// Qualquer outra resposta — inclusive falha de rede — NÃO recusa nada. Guarda que
+// bloqueia por dúvida vira guarda contornada.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * O número informado é mesmo uma CONTA da plataforma?
+ *
+ * @param {number} cwAccountId
+ * @returns {Promise<{id:number, situacao:'confere'|'inexistente'|'indeterminado',
+ *                    existe:boolean|null, mensagem:string}>}
+ */
+export async function conferirIdDeConta(cwAccountId, { consultar = null } = {}) {
+  // `consultar` é a costura de teste: por padrão pergunta à plataforma de verdade. O teste injeta
+  // as QUATRO respostas medidas (200 / 401-permissible / 404 / rede fora) sem precisar de
+  // plataforma no ar — e sem criar outro caminho de código, que é o vício que faz teste mentir.
+  const perguntar = consultar || ((id) => plataforma('get', `/platform/api/v1/accounts/${id}`));
+  const id = Number(cwAccountId);
+  if (!Number.isInteger(id) || id < 1) {
+    return {
+      id: cwAccountId, situacao: 'inexistente', existe: false,
+      mensagem: 'O id da conta na plataforma tem de ser um número inteiro positivo.',
+    };
+  }
+  try {
+    await perguntar(id);
+    return { id, situacao: 'confere', existe: true, mensagem: `A conta ${id} existe na plataforma.` };
+  } catch (e) {
+    const status = e?.status ?? null;
+    const corpo = JSON.stringify(e?.corpo ?? '').toLowerCase();
+    // 401 "Non permissible" = a conta EXISTE; o Platform App é que não a administra.
+    if (status === 401 && corpo.includes('permissible')) {
+      return {
+        id, situacao: 'confere', existe: true,
+        mensagem: `A conta ${id} existe na plataforma (fora do Platform App — resposta esperada para conta criada à mão).`,
+      };
+    }
+    if (status === 404) {
+      return {
+        id, situacao: 'inexistente', existe: false,
+        mensagem:
+          `Não existe conta ${id} na plataforma de atendimento. ` +
+          'Confira se você não informou o id de uma CAIXA DE ENTRADA: na URL do painel, ' +
+          '/app/accounts/«CONTA»/inbox/«CAIXA», o primeiro número é a conta e o segundo é a caixa — ' +
+          'e é o primeiro que vai neste campo. Com o número errado aqui, TODO evento do webhook é ' +
+          'descartado como "empresa não mapeada" e o robô simplesmente não responde.',
+      };
+    }
+    // Token recusado, plataforma fora, rede ruim: não sabemos, e não sabendo NÃO recusamos.
+    return {
+      id, situacao: 'indeterminado', existe: null,
+      mensagem: `Não consegui conferir a conta ${id} na plataforma agora (${redigir(e?.message || 'motivo desconhecido')}). O valor foi aceito sem conferência.`,
+    };
+  }
+}
+
+/**
+ * Recusa DURA de um id de conta que a plataforma prova não existir.
+ * Usada onde o número é digitado por gente — o único lugar por onde ele entra à mão.
+ * @throws {Error} com a mensagem em PT-BR pronta para a tela
+ */
+export async function exigirIdDeContaValido(cwAccountId, opcoes = {}) {
+  const r = await conferirIdDeConta(cwAccountId, opcoes);
+  if (r.situacao === 'inexistente') throw new Error(r.mensagem);
+  if (r.situacao === 'indeterminado') logger.warn(`[ragnabot-tenant] ${r.mensagem}`);
+  return r;
+}
+
+/**
+ * A empresa aponta para uma conta que existe? É a conferência que teria pego o
+ * defeito de 02/09/2026 sozinha, sem esperar o primeiro cliente reclamar.
+ * @param {string} tenantId
+ */
+export async function conferirContaDaEmpresa(tenantId) {
+  const t = await exigirTenant(tenantId);
+  if (!t.cwAccountId) {
+    return {
+      tenantId: t.id, empresa: t.name, cwAccountId: null, situacao: 'sem_conta', existe: false,
+      mensagem: `A empresa "${t.name}" não tem conta na plataforma (nunca provisionada, ou já excluída definitivamente).`,
+    };
+  }
+  const r = await conferirIdDeConta(t.cwAccountId);
+  return { tenantId: t.id, empresa: t.name, cwAccountId: t.cwAccountId, ...r };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -568,10 +702,10 @@ function resumirTenant(t) {
   };
 }
 
-async function exigirTenant(id, { permitirEncerrado = false } = {}) {
-  exigirModelos();
+async function exigirTenant(id, { permitirEncerrado = false, db = prisma } = {}) {
+  if (db === prisma) exigirModelos();
   let t;
-  try { t = await prisma.ragnabotTenant.findUnique({ where: { id } }); }
+  try { t = await db.ragnabotTenant.findUnique({ where: { id } }); }
   catch (e) { throw traduzirErroDePrisma(e); }
   if (!t) throw new Error('Empresa não encontrada.');
   if (!permitirEncerrado && t.status === 'closed') throw new Error(`A empresa "${t.name}" está encerrada. Reabra o contrato antes de operar nela.`);
@@ -898,22 +1032,59 @@ export async function comoAdminDaEmpresaMultipart(tenantId, caminhoOuFabrica, fo
 }
 
 /** Lista as caixas de entrada AO VIVO na plataforma (fonte da verdade). */
-export async function listarCaixas(tenantId) {
-  const t = await exigirTenant(tenantId);
+export async function listarCaixas(tenantId, { db = prisma } = {}) {
+  // `db` é a MESMA costura de `sincronizarCaixas`: permite medir a leitura da plataforma DE VERDADE
+  // sem um Postgres alcançável — que é o caso desta estação de trabalho, onde o `pg_hba` do cluster
+  // do Ragnabot não a autoriza. A chamada à plataforma continua sendo a real.
+  const t = await exigirTenant(tenantId, { db });
   const token = await tokenDeAdminDoTenant(t.cwAdminUserId);
   const r = await aplicacao(token, 'get', `/api/v1/accounts/${t.cwAccountId}/inboxes`);
   const lista = Array.isArray(r?.payload) ? r.payload : Array.isArray(r) ? r : [];
-  return lista.map((i) => ({
-    id: i.id,
-    nome: i.name,
-    tipoCanal: normalizarTipo(i.channel_type),
-    canalRotulo: CANAIS[normalizarTipo(i.channel_type)] || i.channel_type,
-    numero: i.phone_number || null,
-    siteUrl: i.website_url || null,
-    email: i.email || null,
-    identificadorWidget: i.website_token || null,
-    callbackWebhook: i.callback_webhook_url || null,
-  }));
+  return lista.map((i) => {
+    // ⛔ `provider_config` do WhatsApp carrega `api_key` e `webhook_verify_token` — CREDENCIAL.
+    // Daqui saem só os IDENTIFICADORES (`phone_number_id`, `business_account_id`) e a IMPRESSÃO
+    // DIGITAL da chave. O segredo em si não sai desta função, não vai para o banco e não entra em
+    // log — é a mesma regra que `criarCaixa` já seguia, agora também no caminho de leitura.
+    const cfg = (i.provider_config && typeof i.provider_config === 'object') ? i.provider_config : {};
+    return {
+      id: i.id,
+      nome: i.name,
+      tipoCanal: normalizarTipo(i.channel_type),
+      canalRotulo: CANAIS[normalizarTipo(i.channel_type)] || i.channel_type,
+      numero: i.phone_number || null,
+      siteUrl: i.website_url || null,
+      email: i.email || null,
+      identificadorWidget: i.website_token || null,
+      callbackWebhook: i.callback_webhook_url || null,
+      // Identificadores próprios de cada canal. `pageId`/`instagramId` são o que dá um
+      // identificador ESTÁVEL às caixas de Facebook e Instagram — sem eles, a única coisa que
+      // restava era o próprio id da caixa, e a chave ativa deixava de dizer o que identifica a
+      // conexão. `phoneNumberId` é o que a janela de 24 h precisa (ver `phoneNumberIdDaCaixa`
+      // em `ragnabot-atend-despertar.service.js`).
+      pageId: i.page_id || null,
+      instagramId: i.instagram_id || null,
+      phoneNumberId: cfg.phone_number_id || null,
+      wabaId: cfg.business_account_id || null,
+      digitalDaCredencial: digitalDoSegredo(cfg.api_key || null),
+    };
+  });
+}
+
+/**
+ * O que IDENTIFICA a conexão, na ordem do canal mais específico para o mais genérico.
+ *
+ * Existe como função (e não solto no meio da sincronização) porque é ele que compõe a `activeKey`
+ * — a trava que garante que um número de WhatsApp pertence a UMA empresa por vez. Regra escrita
+ * uma vez, usada em todos os caminhos; duas cópias divergindo aqui significaria a mesma caixa
+ * ganhando duas chaves diferentes conforme quem a registrou.
+ *
+ * ⚠️ O último recurso é o próprio id da caixa. É pior que os outros (o id não diz nada a quem lê),
+ * mas `identifier` é obrigatório no schema e um identificador feio é melhor que uma linha ausente.
+ */
+export function identificadorDaCaixa(c) {
+  return String(
+    c.numero || c.email || c.siteUrl || c.pageId || c.instagramId || c.identificadorWidget || c.id,
+  );
 }
 
 /** `Channel::Whatsapp` → `whatsapp`, `Channel::WebWidget` → `web_widget`, … */
@@ -1065,54 +1236,446 @@ export async function removerCaixa(tenantId, cwInboxId, { ator = null, req = nul
   return { removida: true, cwInboxId: Number(cwInboxId) };
 }
 
-/** Reconcilia o cadastro do NOC com o que existe DE FATO na plataforma. */
-export async function sincronizarCaixas(tenantId) {
-  const t = await exigirTenant(tenantId);
-  const vivas = await listarCaixas(tenantId);
-  const idsVivos = new Set(vivas.map((c) => c.id));
-  const registradas = await prisma.ragnabotInbox.findMany({ where: { tenantId, removedAt: null } });
+// ═════════════════════════════════════════════════════════════════════════════
+// 8.1 SINCRONIZAÇÃO DAS CAIXAS — o cadastro do nosso lado (contrato S-CAIXAS, 02/09/2026)
+//
+// POR QUE ISTO GANHOU CORPO: em 02/09/2026 a plataforma tinha QUATRO caixas na conta 1
+// (1 Site, 34 WhatsApp, 35 Facebook, 36 Instagram) e 7 conversas reais — e `RagnabotInbox`
+// estava VAZIA. A função de reconciliação existia desde 28/08, com rota e tudo, e nunca havia
+// sido chamada por ninguém: não rodava no arranque e não havia tela que a acionasse.
+//
+// O QUE UM CADASTRO VAZIO CUSTA (medido no código, não suposto):
+//   · `caixaDaConversa()` (ragnabot-chatwoot.porta.js) devolve `channelType: null` → quem chama
+//     trata «não sei» como «o canal mais pobre», e o fluxo manda texto numerado onde caberia botão;
+//   · `phoneNumberIdDaCaixa()` (ragnabot-atend-despertar.service.js) devolve `null` → a janela de
+//     24 h do WhatsApp fica «indeterminada» em vez de conhecida;
+//   · e não há de onde tirar a lista de caixas para o operador ESCOLHER ao amarrar um fluxo —
+//     sobra digitar o número na mão, que é exatamente como nasceu o defeito do contrato anterior
+//     (id de CAIXA no campo da CONTA).
+//
+// ⚠️ O QUE ESTA ROTINA NUNCA FAZ: apagar linha. Caixa que sumiu da plataforma é MARCADA como
+// removida (`removedAt` + `activeKey: null`). Conversa, protocolo, política de atendimento e
+// fluxo apontam para o id daquela caixa; apagar a linha transformaria histórico em número solto.
+// ═════════════════════════════════════════════════════════════════════════════
 
-  let criadas = 0; let marcadasRemovidas = 0;
-  // Reconciliação que MENTE no número é pior que reconciliação nenhuma: o
-  // contador só sobe quando a linha realmente entrou. O que não entrou vai para
-  // `naoRegistradas`, com o motivo — tipicamente a chave ativa já estar presa
-  // por uma reserva órfã ou por outra empresa.
+/** Junta o que a plataforma sabe com o que já estava gravado, SEM perder o que só nós temos.
+ *  (`wabaId`/`phoneNumberId` vêm do provisionamento; `websiteToken`/`callbackWebhook`, da leitura.
+ *  Um `null` vindo da plataforma não pode apagar um valor bom que já existia.) */
+function mesclarMetadados(anterior, c, quando) {
+  const base = (anterior && typeof anterior === 'object' && !Array.isArray(anterior)) ? { ...anterior } : {};
+  const talvez = (chave, valor) => { if (valor !== null && valor !== undefined && valor !== '') base[chave] = valor; };
+  talvez('wabaId', c.wabaId);
+  talvez('phoneNumberId', c.phoneNumberId);
+  talvez('websiteToken', c.identificadorWidget);
+  talvez('callbackWebhook', c.callbackWebhook);
+  talvez('pageId', c.pageId);
+  talvez('instagramId', c.instagramId);
+  // Carimbo da última conferência. Fica no `metadata` de propósito: dá a informação que a tela
+  // precisa («isto foi conferido quando?») sem uma coluna nova — e coluna nova neste schema é
+  // migração escrita à mão, com as três chaves compostas para não esbarrar (LEI 2 da casa).
+  base.sincronizadoEm = quando.toISOString();
+  return base;
+}
+
+/**
+ * Reconcilia o cadastro do Ragnabot com o que existe DE FATO na plataforma.
+ *
+ * IDEMPOTENTE por construção: a segunda passagem não cria nada, não altera nada e devolve os
+ * mesmos contadores zerados. As quatro situações que ela cobre, e por que cada uma existe:
+ *
+ *   1. caixa NOVA na plataforma            → cria a linha
+ *   2. caixa que MUDOU (nome, número…)     → atualiza a linha, sem criar outra
+ *   3. caixa que VOLTOU (estava removida)  → reativa a MESMA linha (`removedAt: null`)
+ *   4. caixa que SUMIU da plataforma       → marca removida; NUNCA apaga
+ *
+ * A (3) é a que faltava e é a mais traiçoeira: a versão anterior só olhava linhas com
+ * `removedAt: null`, então uma caixa desativada e recriada com o mesmo id ganharia uma SEGUNDA
+ * linha para o mesmo `cwInboxId` — e a partir daí `findFirst` passaria a devolver ora uma, ora
+ * outra, com metadados diferentes. Duplicata silenciosa é pior que ausência.
+ *
+ * @param {string} tenantId
+ */
+export async function sincronizarCaixas(tenantId, {
+  ator = null,
+  // ── COSTURA DE TESTE, no mesmo desenho de `conferirIdDeConta({ consultar })` ──────────────────
+  // Por padrão é o banco de verdade e a plataforma de verdade. O teste troca as duas pontas e
+  // exercita ESTA função — não uma cópia dela. Teste que refaz a lógica prova a cópia.
+  db = prisma,
+  caixasDaPlataforma = null,
+} = {}) {
+  const t = await exigirTenant(tenantId, { db });
+  if (!t.cwAccountId) {
+    throw new Error(
+      `A empresa "${t.name}" não tem conta na plataforma de atendimento — não há caixas para sincronizar. `
+      + 'Provisione a empresa (ou informe o id da conta) antes.',
+    );
+  }
+  const vivas = caixasDaPlataforma ? await caixasDaPlataforma(tenantId, t) : await listarCaixas(tenantId, { db });
+  const idsVivos = new Set(vivas.map((c) => c.id));
+  // TODAS as linhas da empresa, inclusive as já marcadas como removidas — é isso que permite
+  // reativar em vez de duplicar.
+  const registradas = await db.ragnabotInbox.findMany({ where: { tenantId } });
+  const porId = new Map(registradas.filter((r) => r.cwInboxId != null).map((r) => [r.cwInboxId, r]));
+  const agora = new Date();
+
+  let criadas = 0; let atualizadas = 0; let reativadas = 0; let adotadas = 0; let marcadasRemovidas = 0;
+  // Reconciliação que MENTE no número é pior que reconciliação nenhuma: o contador só sobe quando
+  // a linha realmente entrou/mudou. O que não passou vai para `naoRegistradas`, com o motivo.
   const naoRegistradas = [];
+
   for (const c of vivas) {
-    const existe = registradas.find((r) => r.cwInboxId === c.id);
-    if (existe) continue;
-    const identificador = c.numero || c.email || c.siteUrl || String(c.id);
+    const identificador = identificadorDaCaixa(c);
+    const chave = `${c.tipoCanal}:${identificador}`;
+    // Casar por id é o caminho normal. O segundo casamento é a RESERVA ÓRFÃ: `criarCaixa` grava a
+    // linha ANTES de criar na plataforma (é o que impede duas empresas prenderem o mesmo número);
+    // se o processo morreu entre as duas coisas, sobrou uma linha ativa, com a chave presa e sem
+    // id. Adotá-la é o oposto de duplicar — e é o único jeito de a chave presa se soltar sozinha.
+    const existente = porId.get(c.id)
+      || registradas.find((r) => r.cwInboxId == null && r.removedAt == null && r.activeKey === chave);
+
+    if (existente) {
+      const voltou = existente.removedAt != null;
+      const adotando = existente.cwInboxId == null;
+      const mudou = existente.name !== c.nome
+        || existente.channelType !== c.tipoCanal
+        || existente.identifier !== identificador
+        || existente.activeKey !== chave
+        || existente.cwInboxId !== c.id
+        || voltou;
+      const metadata = mesclarMetadados(existente.metadata, c, agora);
+      try {
+        await db.ragnabotInbox.update({
+          where: { id: existente.id },
+          data: {
+            cwInboxId: c.id,
+            name: c.nome,
+            channelType: c.tipoCanal,
+            identifier: identificador,
+            activeKey: chave,
+            removedAt: null,
+            metadata,
+            // A impressão digital só é reescrita quando a plataforma devolveu uma: caixa sem
+            // credencial exposta (Site, Facebook, Instagram) não pode apagar a do WhatsApp.
+            ...(c.digitalDaCredencial ? { credentialFingerprint: c.digitalDaCredencial } : {}),
+          },
+        });
+        if (voltou) reativadas++;
+        else if (adotando) adotadas++;
+        else if (mudou) atualizadas++;
+      } catch (e) {
+        naoRegistradas.push(`caixa ${c.id} (${c.nome}): ${motivoDeFalhaDeChave(e, chave)}`);
+        logger.warn(`[ragnabot-tenant] sincronização do tenant ${tenantId} não atualizou a caixa ${c.id}: ${redigir(e.message)}`);
+      }
+      continue;
+    }
+
     try {
-      await prisma.ragnabotInbox.create({
+      await db.ragnabotInbox.create({
         data: {
-          tenantId, cwInboxId: c.id, name: c.nome, channelType: c.tipoCanal,
+          tenantId,
+          cwInboxId: c.id,
+          name: c.nome,
+          channelType: c.tipoCanal,
           identifier: identificador,
-          activeKey: `${c.tipoCanal}:${identificador}`,
-          metadata: { websiteToken: c.identificadorWidget, callbackWebhook: c.callbackWebhook },
+          activeKey: chave,
+          credentialFingerprint: c.digitalDaCredencial || null,
+          metadata: mesclarMetadados(null, c, agora),
         },
       });
       criadas++;
     } catch (e) {
-      const motivo = e?.code === 'P2002'
-        ? `a chave "${c.tipoCanal}:${identificador}" já está reservada (reserva órfã de uma criação interrompida, ou outra empresa)`
-        : redigir(e.message);
-      naoRegistradas.push(`caixa ${c.id} (${c.nome}): ${motivo}`);
-      logger.warn(`[ragnabot-tenant] sincronização do tenant ${tenantId} não registrou a caixa ${c.id}: ${motivo}`);
+      naoRegistradas.push(`caixa ${c.id} (${c.nome}): ${motivoDeFalhaDeChave(e, chave)}`);
+      logger.warn(`[ragnabot-tenant] sincronização do tenant ${tenantId} não registrou a caixa ${c.id}: ${redigir(e.message)}`);
     }
   }
+
   for (const r of registradas) {
-    if (r.cwInboxId != null && !idsVivos.has(r.cwInboxId)) {
-      await prisma.ragnabotInbox.update({ where: { id: r.id }, data: { removedAt: new Date(), activeKey: null } }).catch(() => {});
-      marcadasRemovidas++;
-    }
+    if (r.removedAt != null) continue;          // já estava marcada
+    // Reserva em VOO (`criarCaixa` no meio do caminho, ainda sem id) não é caixa sumida. Marcá-la
+    // aqui soltaria a chave por baixo de uma criação em andamento e devolveria a corrida que a
+    // reserva existe para fechar.
+    if (r.cwInboxId == null) continue;
+    if (idsVivos.has(r.cwInboxId)) continue;
+    await db.ragnabotInbox.update({
+      where: { id: r.id },
+      data: { removedAt: agora, activeKey: null },
+    }).catch((e) => logger.warn(`[ragnabot-tenant] não consegui marcar a caixa ${r.cwInboxId} como removida: ${redigir(e.message)}`));
+    marcadasRemovidas++;
   }
+
+  const houveMudanca = criadas || atualizadas || reativadas || adotadas || marcadasRemovidas;
+  if (houveMudanca) {
+    await registrarEvento(tenantId, 'inbox_sincronizado', {
+      caixasNaPlataforma: vivas.length, criadas, atualizadas, reativadas, adotadas, marcadasRemovidas,
+    }, ator?.id || null, { db }).catch(() => {});
+  }
+
   return {
+    tenantId: t.id,
     empresa: t.name,
     caixasNaPlataforma: vivas.length,
     novasNoCadastro: criadas,
+    atualizadas,
+    reativadas,
+    adotadas,
     marcadasComoRemovidas: marcadasRemovidas,
     naoRegistradas,
     caixas: vivas,
+  };
+}
+
+/** Traduz a falha de gravação para uma frase que diz o que fazer. */
+function motivoDeFalhaDeChave(e, chave) {
+  if (e?.code === 'P2002') {
+    return `a chave "${chave}" já está reservada — ou é uma reserva órfã de uma criação interrompida, `
+      + 'ou a mesma conexão está registrada em OUTRA empresa. Um número/endereço pertence a uma empresa só.';
+  }
+  return redigir(e?.message || 'motivo desconhecido');
+}
+
+/**
+ * O cadastro do NOSSO lado (não a plataforma). É o que a tela lista e o que a guarda consulta.
+ * @param {string} tenantId
+ * @param {{incluirRemovidas?: boolean}} opcoes
+ */
+export async function listarCaixasRegistradas(tenantId, { incluirRemovidas = true, db = prisma } = {}) {
+  const where = { tenantId };
+  if (!incluirRemovidas) where.removedAt = null;
+  const linhas = await db.ragnabotInbox.findMany({
+    where,
+    orderBy: [{ removedAt: 'asc' }, { cwInboxId: 'asc' }],
+  });
+  return linhas.map(comoCaixaRegistrada);
+}
+
+/** Todas as caixas registradas, de todas as empresas — a tela de conferência do operador. */
+export async function listarTodasAsCaixasRegistradas({ incluirRemovidas = true, db = prisma } = {}) {
+  const where = incluirRemovidas ? {} : { removedAt: null };
+  const linhas = await db.ragnabotInbox.findMany({
+    where,
+    orderBy: [{ tenantId: 'asc' }, { removedAt: 'asc' }, { cwInboxId: 'asc' }],
+    include: { tenant: { select: { id: true, name: true, slug: true, cwAccountId: true } } },
+  });
+  return linhas.map((l) => ({
+    ...comoCaixaRegistrada(l),
+    empresa: l.tenant ? { id: l.tenant.id, nome: l.tenant.name, slug: l.tenant.slug, cwAccountId: l.tenant.cwAccountId } : null,
+  }));
+}
+
+/** A forma que sai para fora. ⛔ `credentialFingerprint` NÃO é segredo (é sha256 truncado), mas o
+ *  `metadata` cru poderia crescer com qualquer coisa um dia — por isso o que sai é escolhido a dedo. */
+function comoCaixaRegistrada(l) {
+  const meta = (l.metadata && typeof l.metadata === 'object' && !Array.isArray(l.metadata)) ? l.metadata : {};
+  return {
+    id: l.id,
+    tenantId: l.tenantId,
+    cwInboxId: l.cwInboxId,
+    nome: l.name,
+    tipoCanal: l.channelType,
+    canalRotulo: CANAIS[l.channelType] || l.channelType,
+    identificador: l.identifier,
+    ativa: l.removedAt == null,
+    removidaEm: l.removedAt,
+    phoneNumberId: meta.phoneNumberId ?? null,
+    wabaId: meta.wabaId ?? null,
+    sincronizadaEm: meta.sincronizadoEm ?? null,
+    credencial: l.credentialFingerprint || null,
+    criadaEm: l.createdAt,
+  };
+}
+
+/**
+ * A empresa aponta para uma caixa que EXISTE no nosso cadastro?
+ *
+ * ── A REGRA, e ela é deliberada ────────────────────────────────────────────────────────────────
+ * Só recusa quando o cadastro TEM caixas e o número não está entre elas. Cadastro VAZIO devolve
+ * `sem_registro` e NÃO recusa — é a mesma lei do contrato anterior: guarda que trava por dúvida
+ * vira guarda contornada. Um cadastro vazio significa «a sincronização ainda não rodou», e não
+ * «este número é falso»; recusar aí trancaria o produto inteiro para fora enquanto a plataforma
+ * estivesse fora do ar ou o token do Platform App faltasse.
+ *
+ * @param {string} tenantId
+ * @param {number} cwInboxId
+ */
+export async function conferirCaixaRegistrada(tenantId, cwInboxId, { db = prisma } = {}) {
+  const id = Number(cwInboxId);
+  if (!Number.isInteger(id) || id < 1) {
+    return { cwInboxId, situacao: 'invalido', mensagem: 'O id da caixa de entrada tem de ser um número inteiro positivo.' };
+  }
+  const caixas = await listarCaixasRegistradas(tenantId, { db });
+  const ativas = caixas.filter((c) => c.ativa);
+  if (!caixas.length) {
+    return {
+      cwInboxId: id, situacao: 'sem_registro', caixas: [],
+      mensagem: 'O cadastro de caixas desta empresa está vazio — nada a conferir. '
+        + 'Rode a sincronização (tela «Caixas de entrada» → Sincronizar agora) para que o número informado passe a ser conferido.',
+    };
+  }
+  const achada = caixas.find((c) => c.cwInboxId === id);
+  if (achada && achada.ativa) return { cwInboxId: id, situacao: 'confere', caixa: achada, mensagem: `Caixa ${id} — ${achada.nome} (${achada.canalRotulo}).` };
+  if (achada && !achada.ativa) {
+    return {
+      cwInboxId: id, situacao: 'removida', caixa: achada, caixas: ativas,
+      mensagem: `A caixa ${id} ("${achada.nome}") não existe mais na plataforma — foi removida em `
+        + `${new Date(achada.removidaEm).toISOString().slice(0, 10)}. Um fluxo amarrado a ela nunca dispararia. `
+        + `Caixas ativas desta empresa: ${listaLegivelDeCaixas(ativas)}.`,
+    };
+  }
+  return {
+    cwInboxId: id, situacao: 'inexistente', caixas: ativas,
+    mensagem: `Não existe caixa de entrada ${id} nesta empresa. `
+      + `Caixas ativas: ${listaLegivelDeCaixas(ativas)}. `
+      + 'Na URL do painel, /app/accounts/«CONTA»/inbox/«CAIXA», o SEGUNDO número é o da caixa — é ele que vai aqui. '
+      + 'Com o número errado, o fluxo é gravado, fica publicado, e simplesmente nunca dispara: o sintoma é «o robô não responde».',
+  };
+}
+
+function listaLegivelDeCaixas(caixas) {
+  if (!caixas.length) return 'nenhuma (a empresa não tem conexão ativa)';
+  return caixas.map((c) => `${c.cwInboxId} = ${c.nome} (${c.canalRotulo})`).join(' · ');
+}
+
+/** Recusa DURA de um id de caixa que o nosso cadastro prova não existir.
+ *  @throws {Error} com a mensagem em PT-BR pronta para a tela */
+export async function exigirCaixaRegistrada(tenantId, cwInboxId, { db = prisma } = {}) {
+  const r = await conferirCaixaRegistrada(tenantId, cwInboxId, { db });
+  if (r.situacao === 'confere' || r.situacao === 'sem_registro') {
+    if (r.situacao === 'sem_registro') logger.warn(`[ragnabot-tenant] caixa ${cwInboxId} aceita sem conferência: ${r.mensagem}`);
+    return r;
+  }
+  throw new Error(r.mensagem);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 8.2 QUANDO A SINCRONIZAÇÃO RODA
+//
+// No ARRANQUE (uma passada, atrasada alguns segundos para não competir com a subida do processo)
+// e de tempos em tempos, num tique LARGO. Não é fila nem laço apertado: é uma leitura por empresa,
+// e o que ela protege — «a caixa mudou de nome/sumiu lá e ninguém aqui soube» — muda em escala de
+// dias, não de segundos. Sob demanda, a rota do operador chama a MESMA função.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const INTERVALO_SINCRONIA_PADRAO_MS = 15 * 60 * 1000;
+const ATRASO_INICIAL_MS = 10 * 1000;
+
+const estadoSincronia = {
+  ligado: false,
+  intervaloMs: null,
+  ultimaEm: null,
+  ultimoResumo: null,
+  ultimoErro: null,
+  empresasComErro: [],
+};
+
+/** Só o que devolve resposta: empresa encerrada ou sem conta na plataforma não tem o que conferir. */
+async function empresasSincronizaveis(db = prisma) {
+  return db.ragnabotTenant.findMany({
+    where: { cwAccountId: { not: null }, status: { notIn: ['closed'] } },
+    select: { id: true, name: true },
+  });
+}
+
+/**
+ * Uma passada em TODAS as empresas.
+ * Falha de uma empresa não derruba as outras — é o mesmo desenho dos trabalhadores da casa: o
+ * laço nunca lança, porque um `throw` num tique mata o `setInterval` e o worker morre calado.
+ */
+export async function sincronizarCaixasDeTodasAsEmpresas({ ator = null, motivo = 'rotina', db = prisma, caixasDaPlataforma = null } = {}) {
+  const empresas = await empresasSincronizaveis(db);
+  const resultados = [];
+  const erros = [];
+  for (const e of empresas) {
+    try {
+      resultados.push(await sincronizarCaixas(e.id, { ator, db, caixasDaPlataforma }));
+    } catch (err) {
+      erros.push({ tenantId: e.id, empresa: e.name, erro: redigir(err.message) });
+    }
+  }
+  const soma = (campo) => resultados.reduce((n, r) => n + (r[campo] || 0), 0);
+  const resumo = {
+    motivo,
+    empresas: empresas.length,
+    empresasComErro: erros.length,
+    caixasNaPlataforma: soma('caixasNaPlataforma'),
+    novasNoCadastro: soma('novasNoCadastro'),
+    atualizadas: soma('atualizadas'),
+    reativadas: soma('reativadas'),
+    adotadas: soma('adotadas'),
+    marcadasComoRemovidas: soma('marcadasComoRemovidas'),
+  };
+  estadoSincronia.ultimaEm = new Date().toISOString();
+  estadoSincronia.ultimoResumo = resumo;
+  estadoSincronia.empresasComErro = erros;
+  estadoSincronia.ultimoErro = erros.length ? erros[0].erro : null;
+  return { ...resumo, erros, resultados };
+}
+
+/**
+ * O que o `/saude` mostra. Estado, não promessa: se nunca rodou, `ultimaEm` é `null`.
+ *
+ * ⭐ `tokenConfigurado` entrou em 02/09/2026 e é a resposta à pergunta que custou uma tarde: com a
+ * sincronização parada, «o token falta» e «a plataforma está fora» produzem exatamente o mesmo
+ * sintoma visto de fora (cadastro vazio). Aqui os dois casos ficam distinguíveis numa olhada, e
+ * **sem expor o valor** — sai apenas o sim/não.
+ */
+export function estadoDaSincronizacaoDeCaixas() {
+  return { ...estadoSincronia, tokenConfigurado: tokenDaPlataformaConfigurado() };
+}
+
+/**
+ * Liga a rotina. Devolve o desligador (o mesmo contrato dos outros trabalhadores).
+ *
+ * ⚠️ O PRIMEIRO ERRO É LOGADO, OS REPETIDOS NÃO. Hoje o motor sobe SEM `RAGNABOT_PLATFORM_TOKEN`
+ * (medido em 02/09/2026): sem esse token a sincronização não tem como perguntar nada à plataforma.
+ * Repetir a mesma linha de erro a cada tique encheria o log de ruído e afogaria o erro seguinte,
+ * que seria o interessante. Muda o erro, volta a logar.
+ */
+export function iniciarSincronizacaoDeCaixas({ intervaloMs = INTERVALO_SINCRONIA_PADRAO_MS, atrasoInicialMs = ATRASO_INICIAL_MS } = {}) {
+  let ultimoErroLogado = null;
+  let rodando = false;
+
+  const passada = async (motivo) => {
+    if (rodando) return; // tique lento, mas plataforma lenta acontece — não empilhar passadas
+    rodando = true;
+    try {
+      const r = await sincronizarCaixasDeTodasAsEmpresas({ motivo });
+      if (r.empresasComErro) {
+        const msg = r.erros[0]?.erro || 'erro sem mensagem';
+        if (msg !== ultimoErroLogado) {
+          logger.warn(`[ragnabot-caixas] sincronização com ${r.empresasComErro} empresa(s) em erro: ${msg}`);
+          ultimoErroLogado = msg;
+        }
+      } else {
+        ultimoErroLogado = null;
+        if (r.novasNoCadastro || r.atualizadas || r.reativadas || r.adotadas || r.marcadasComoRemovidas) {
+          logger.info(`[ragnabot-caixas] ${r.empresas} empresa(s), ${r.caixasNaPlataforma} caixa(s): `
+            + `${r.novasNoCadastro} nova(s), ${r.atualizadas} atualizada(s), ${r.reativadas} reativada(s), `
+            + `${r.adotadas} adotada(s), ${r.marcadasComoRemovidas} marcada(s) como removida(s)`);
+        }
+      }
+    } catch (e) {
+      // Nunca deixa escapar: um throw aqui mataria o tique e a rotina morreria calada.
+      estadoSincronia.ultimoErro = redigir(e.message);
+      if (estadoSincronia.ultimoErro !== ultimoErroLogado) {
+        logger.error(`[ragnabot-caixas] sincronização falhou: ${estadoSincronia.ultimoErro}`);
+        ultimoErroLogado = estadoSincronia.ultimoErro;
+      }
+    } finally {
+      rodando = false;
+    }
+  };
+
+  const primeira = setTimeout(() => { passada('arranque'); }, atrasoInicialMs);
+  if (typeof primeira.unref === 'function') primeira.unref();
+  const tique = setInterval(() => { passada('rotina'); }, intervaloMs);
+  if (typeof tique.unref === 'function') tique.unref();
+
+  estadoSincronia.ligado = true;
+  estadoSincronia.intervaloMs = intervaloMs;
+  return () => {
+    clearTimeout(primeira);
+    clearInterval(tique);
+    estadoSincronia.ligado = false;
   };
 }
 
@@ -1159,6 +1722,11 @@ export default {
   provisionarEmpresa, listarEmpresas, obterEmpresa,
   alterarPlano, suspenderEmpresa, reativarEmpresa, encerrarEmpresa, excluirDefinitivamente,
   linkDeAcesso, verificarIntegracao,
+  conferirIdDeConta, exigirIdDeContaValido, conferirContaDaEmpresa,
   listarCaixas, criarCaixa, removerCaixa, sincronizarCaixas,
+  // Contrato S-CAIXAS (02/09/2026): o cadastro do NOSSO lado — cadastro, conferência e rotina.
+  listarCaixasRegistradas, listarTodasAsCaixasRegistradas,
+  conferirCaixaRegistrada, exigirCaixaRegistrada, identificadorDaCaixa,
+  sincronizarCaixasDeTodasAsEmpresas, iniciarSincronizacaoDeCaixas, estadoDaSincronizacaoDeCaixas,
   listarAgentes, convidarAgente,
 };

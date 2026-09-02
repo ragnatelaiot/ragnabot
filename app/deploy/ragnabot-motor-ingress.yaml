@@ -38,7 +38,34 @@ spec:
     - host: bot.ragnatela.com.br
       http:
         paths:
+          # ── PORTA DE SERVIÇO — o console de operação (o NOC). Restrita no PROXY. ──────────
           - path: /motor-api(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: ragnabot-motor
+                port:
+                  number: 3000
+          # ── ⭐ PORTA DE GENTE — a interface do motor (contrato S-PUBLICAR, 02/09/2026) ────────
+          #
+          # POR QUE ISTO EXISTE: até hoje o motor só era alcançável por `/motor-api/`, e aquele
+          # caminho tem `allow <IP do NOC>; deny all;` no proxy. Ou seja: o construtor de fluxo, o
+          # testador, as respostas rápidas e a tela de caixas estavam prontos, provados — e o dono
+          # não chegava em nenhum deles. Cada entrega nova nascia invisível.
+          #
+          # POR QUE UM CAMINHO E NÃO UM SUBDOMÍNIO: `bot.ragnatela.com.br` já existe, já tem
+          # certificado emitido e já renova sozinho. Subdomínio novo pede DNS novo e certificado
+          # novo — e certificado que ninguém lembra de renovar derruba o acesso num sábado.
+          #
+          # ⚠️ O `rewrite-target: /$2` desta Ingress vale para AS DUAS entradas: o prefixo some
+          # antes de chegar ao Express. Por isso a IMAGEM tem de ser construída com
+          # `--build-arg RAGNABOT_PREFIXO_WEB=/painel/` — é o pacote que escreve `/painel/assets/…`
+          # no índice, não o proxy. Imagem construída para `/` publicada aqui responde 200 e mostra
+          # TELA BRANCA. O `/saude` passou a dizer o prefixo do pacote justamente para isso.
+          #
+          # ⚠️ NÃO afrouxamos autenticação nenhuma para publicar: a entrada continua sendo a tela
+          # de login do próprio motor (`src/rotas-sessao.js`), com a conta da plataforma.
+          - path: /painel(/|$)(.*)
             pathType: ImplementationSpecific
             backend:
               service:

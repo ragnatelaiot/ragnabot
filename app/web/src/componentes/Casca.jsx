@@ -26,14 +26,14 @@
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { Building2, FlaskConical, LogOut, Menu, Workflow, X, Zap } from 'lucide-react';
+import { Building2, FlaskConical, Inbox, LogOut, Menu, Workflow, X, Zap } from 'lucide-react';
 
 import { atorAtual, empresaAtual, sair, versaoDoMotor } from '../lib/api.js';
 import { ehItemAtivo, itemPorCaminho, itensVisiveis } from '../lib/navegacao.js';
 
 /** O catálogo guarda o NOME do ícone (é JavaScript puro e não pode conter JSX); a tradução para o
  *  componente mora aqui. Ícone desconhecido cai no de fluxo em vez de derrubar a tela. */
-const ICONES = { Workflow, Zap, Building2, FlaskConical };
+const ICONES = { Workflow, Zap, Building2, FlaskConical, Inbox };
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 // MENU LATERAL
@@ -79,8 +79,10 @@ export function MenuLateral({ papel, aberto = false, aoFechar = () => {} }) {
             reparar na falta. Melhor ela ler o motivo aqui do que concluir que o produto perdeu
             funcionalidade. Cada tela nova apaga uma linha desta lista. */}
         <p className="casca__rodape-menu">
-          Atendimentos, Conexões e Configurações ainda não têm tela própria aqui — seguem no painel
-          de atendimento.
+          Atendimentos e Configurações ainda não têm tela própria aqui — seguem no painel de
+          atendimento. Conexões entrou pela metade (contrato S-CAIXAS, 02/09/2026): «Caixas de
+          entrada» CONFERE e sincroniza o cadastro; criar e remover conexão, que pede segundo fator
+          e credencial de canal, continua em Empresas e no painel.
         </p>
       </aside>
     </>

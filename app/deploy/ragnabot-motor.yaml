@@ -91,7 +91,7 @@ spec:
           #    debaixo do pé; digest é o mesmo binário para sempre — e é o que faz uma restauração
           #    reproduzir o que estava no ar.
           #    image: registro.interno/ragnabot-motor@sha256:«DEFINIR — digest da imagem construída»
-          image: ragnabot-motor:1.04.00
+          image: ragnabot-motor:1.07.01
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -207,6 +207,18 @@ data:
   LOG_LEVEL: info
   # URL pública da plataforma (o nome que está no certificado).
   RAGNABOT_BASE_URL: https://bot.ragnatela.com.br
+  # ⭐ COMO O MOTOR FALA COM A PLATAFORMA, DE DENTRO DO CLUSTER (contrato S-PUBLICAR, 02/09/2026).
+  #
+  # Sem esta linha o motor caía na URL PÚBLICA, e a entrada de sessão estava QUEBRADA — medido, não
+  # suposto: `POST /sessao/entrar` devolvia
+  #     503 {"error":"PLATAFORMA_INACESSIVEL","...":"(caminho publica)","detalhe":"ECONNABORTED"}
+  # ou seja, ninguém conseguiria entrar na interface nem se alcançasse a página. Dois motivos
+  # somados: o hairpin NAT (de dentro, o nome público não volta) e o guarda do "não sou robô" no
+  # proxy, que barra `POST /auth/sign_in` antes de chegar ao Chatwoot — e servidor não resolve
+  # desafio de robô.
+  # Pelo Service do Kubernetes nada disso existe. Medido no pod: 401 com o JSON de credencial
+  # inválida, que é a resposta CERTA para uma senha errada.
+  RAGNABOT_PLATAFORMA_INTERNA: http://ragnabot-web:3000
   RAGNABOT_HTTP_TIMEOUT_MS: '20000'
   # Como suspender uma empresa: remover_vinculos (reversível) | somente_marcar
   RAGNABOT_SUSPENSAO_MODO: remover_vinculos
@@ -236,6 +248,15 @@ data:
 #                                    Conferir ANTES de migrar dado: src/base/testes/crypto.test.mjs
 #   RAGNABOT_PLATFORM_TOKEN          token do Platform App da plataforma. É a chave de TODAS as
 #                                    empresas: vazou, comprometeu todo mundo.
+#                                    ⭐ ACRESCENTADA EM 02/09/2026 (contrato S-PUBLICAR). Sem ela o
+#                                    motor sobe, responde e falha em TODA leitura da plataforma —
+#                                    a sincronização das caixas de entrada não tinha como perguntar
+#                                    nada e o cadastro ficava vazio para sempre. Havia um "plano B"
+#                                    lendo a tabela `settings`: era CÓDIGO MORTO (essa tabela ficou
+#                                    no NOC) e foi removido, porque plano B que não pode funcionar
+#                                    esconde a causa em vez de cobrir a falha.
+#                                    Conferir sem ver o valor:
+#                                      GET /saude → cadastroDeCaixas.tokenConfigurado
 #   RAGNABOT_WEBHOOK_SEGREDO         segredo do webhook plataforma → motor
 #   RAGNABOT_COBRANCA_WEBHOOK_SEGREDO segredo do webhook do provedor de cobrança
 #   RAGNABOT_DB_URL                  base `chatwoot` (liberar/suspender conta pelo caminho direto)

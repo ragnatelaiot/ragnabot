@@ -44,6 +44,7 @@ import { Router } from 'express';
 import prisma from '../base/db.js';
 import { escopoDe, registrar } from '../services/ragnabot-auditoria.service.js';
 import { logAction } from '../base/auditoria.js';
+import { exigirIdDeContaValido } from '../services/ragnabot-tenant.service.js';
 // ⚠️ AS DECISÕES DO DOMÍNIO VÊM DAQUI, NÃO DAQUI DE DENTRO. "Está aberto agora?", "qual é a chave do
 // escopo?" e "qual valor prevalece na herança?" são perguntas com UMA resposta no projeto — a do
 // serviço. Reescrevê-las nas rotas produziria a tela dizendo "intervalo" enquanto o trabalhador
@@ -512,8 +513,18 @@ router.post('/politicas', exigeEscrita, async (req, res) => {
     // cwAccountId é DERIVADO da empresa, não aceito da tela: aceitar da tela permitiria configurar
     // a caixa de uma conta em nome de outra. Só cai para o corpo quando a empresa ainda não foi
     // provisionada na plataforma (cwAccountId nulo), e aí a tela precisa dizer qual é.
-    const cwAccountId = empresa.cwAccountId
-      ?? inteiro(corpo.cwAccountId, { min: 1, campo: 'cwAccountId' });
+    let cwAccountId = empresa.cwAccountId;
+    if (cwAccountId == null) {
+      // ⚠️ ESTE é o único ponto do produto por onde um id de conta entra DIGITADO por gente — e é
+      // exatamente o engano que aconteceu de verdade em 02/09/2026: o campo da conta guardando o id
+      // de uma CAIXA DE ENTRADA (35 = caixa do Facebook da conta 1). O estrago é mudo: o webhook
+      // descarta tudo como "empresa não mapeada" e o sintoma é só "o robô não responde".
+      // A conferência pergunta à plataforma e recusa apenas o que ela PROVA não existir (404);
+      // plataforma fora ou token recusado NÃO bloqueia o cadastro (guarda que trava por dúvida
+      // vira guarda contornada).
+      cwAccountId = inteiro(corpo.cwAccountId, { min: 1, campo: 'cwAccountId' });
+      await exigirIdDeContaValido(cwAccountId);
+    }
 
     const jaExiste = await prisma.ragnabotAtendPolitica.findFirst({
       where: { tenantId, escopoChave: esc.escopoChave },

@@ -2,6 +2,79 @@
 > LOG CANÔNICO local da construção (regra do dono, 27/08). Espelho versionado no repo:
 > `ragnatelaiot/ragnabot` → docs/ACTIONLOG.md. Sem segredos, por lei.
 
+## 2026-09-02 — S-PUBLICAR: o painel do Ragnabot abriu para o dono (v1.07.01)
+
+### O gargalo, medido
+Tudo o que foi construído desde 28/08 (construtor de fluxo, respostas rápidas, testador, caixas)
+estava publicado em `bot.ragnatela.com.br/motor-api/`, que tem `allow <IP do NOC>; deny all;` no
+proxy. **Nenhum navegador de usuário chegava lá.** Cada entrega nova nascia invisível.
+
+### O que foi feito
+- **`https://bot.ragnatela.com.br/painel/` no ar.** Mesmo host (sem DNS novo, sem certificado
+  novo). Ingress ganhou `path: /painel(/|$)(.*)` na MESMA Ingress do motor (`rewrite-target: /$2`),
+  e o proxy ganhou `location ^~ /painel/` **antes** do `location /`.
+- **`location` próprio, e não o `location /`:** aquele injeta em todo HTML o tema do painel de
+  atendimento, o `carregando.js` (que só some quando o Chatwoot desenha — sobre a nossa tela
+  ficaria por cima para sempre) e o widget do Turnstile. Sendo `^~`, também impede o cache de 30
+  dias de `~* ^/(vite|packs|assets|brand-assets)/` de sequestrar arquivo nosso.
+- **A imagem foi RECONSTRUÍDA** com `--build-arg RAGNABOT_PREFIXO_WEB=/painel/`. O prefixo é
+  propriedade do pacote, não do proxy: sem isso o índice pediria `/assets/…` na raiz do host — ou
+  seja, ao Ingress da PLATAFORMA — e o resultado seria **tela branca com 200 na rede**.
+- **`/motor-api/` intocada** — continua `allow/deny`. Provado nos dois sentidos: do proxio (origem
+  fora da lista) → **403**; do NOC → **200**.
+- **`RAGNABOT_PLATFORM_TOKEN` entrou no `Secret ragnabot-motor-env`.** O valor nunca passou por
+  argv, histórico, log nem git: viajou pela entrada padrão do SSH, virou arquivo `0600` no nó e foi
+  destruído com `shred`. Conferência pela impressão digital nos dois lados (`sha256:2fbd8ec70174`).
+- **`RAGNABOT_PLATAFORMA_INTERNA=http://ragnabot-web:3000`** no ConfigMap.
+
+### Três defeitos que só apareceram porque fomos medir
+1. **O login estava QUEBRADO e ninguém sabia** (porque ninguém alcançava a tela). Medido no pod:
+   `POST /sessao/entrar` → `503 PLATAFORMA_INACESSIVEL (caminho publica) ECONNABORTED`. De dentro
+   do cluster o nome público não volta (hairpin) e o guarda anti-robô barra `POST /auth/sign_in`.
+   Depois do conserto: **401 CREDENCIAL_INVALIDA** — a resposta certa para senha errada.
+2. **`prisma.settings` era código morto** em `ragnabot-tenant.service.js` e em
+   `ragnabot-sso.service.js`: a tabela `settings` ficou no NOC. O `catch` engolia um `TypeError` e
+   escrevia «não consegui ler o token em Settings» — mandando quem diagnostica procurar uma linha
+   de configuração que nunca poderá existir. **Removidos os dois.**
+3. **A regra de rota até a plataforma existia em DOIS lugares** e as duas divergiram. A
+   sincronização das caixas usava a antiga e devolveu `timeout of 20000ms` com `caixasNaPlataforma:
+   0` — apanhado pelo `/saude` novo, minutos depois de subir a v1.07.00, antes de qualquer pessoa
+   usar. Virou `src/base/plataforma-alvo.js`, com dono único e teste permanente
+   (`tests/ragnabot-plataforma-alvo.test.mjs`, 6 medições). Foi o que motivou a v1.07.01.
+
+### O `/saude` ficou mais honesto
+`interface: {estado, prefixo}` — o prefixo é **lido do índice construído**, não de variável de
+ambiente: uma variável poderia dizer `/painel/` com um pacote feito para `/`, e a divergência só
+apareceria como tela branca no navegador do dono. E `cadastroDeCaixas.tokenConfigurado` (sim/não,
+nunca o valor) separa «falta o token» de «a plataforma está fora», que davam o mesmo sintoma.
+
+### Prova
+```
+/saude  versao 1.07.01 · interface {estado: servida, prefixo: /painel/} · tokenConfigurado: true
+        cadastroDeCaixas.ultimoResumo {empresas:1, empresasComErro:0, caixasNaPlataforma:4,
+                                       novasNoCadastro:4} · ultimoErro: null
+caixas registradas: 1 web_widget Site · 34 whatsapp WhatsApp Ragnatela · 35 facebook · 36 instagram
+/painel/ 200 · /painel 301 → /painel/ · assets 200 · F5 em fluxos/respostas-rapidas/testador/
+        caixas/empresas 200 · arquivo inexistente 404 · /painel/sessao/eu 401 JSON
+        /painel/api/... 401 NAO_AUTENTICADO (a trava de sessão de pé)
+tema do atendimento vazando para /painel/: 0 ocorrências
+painel de atendimento intacto: / 200 com tema+carregando+turnstile · /app/login 200 ·
+        POST /auth/sign_in sem verificação 401 · 7 conversas e 4 caixas na conta 1, inalteradas
+vizinhança: chat001 200 · painel 200 · ia 200 · app.sisacbrasil 302 · ragnatela.com.br 200 ·
+        cloud 302 · `nginx -t` aprovado antes do reload · respaldo em /root/nginx-backups/
+```
+
+### ⛔ O que continua desligado, de propósito
+`RAGNABOT_EXECUTOR_FLUXO=0` e **zero webhooks cadastrados** na plataforma (medido:
+`{"payload":{"webhooks":[]}}`). Ou seja, **nada muda para quem conversa com a gente hoje**. Ligar é
+um passo separado, deliberado, com o dono avisado.
+
+### Observação de passagem (não é desta tarefa)
+O `default_server` da 443 no proxy **não é mais implícito**: existe `listen 443 ssl default_server`
+no arquivo `sites-enabled/redirecionamento` (27/08), e o SNI desconhecido devolve `CN=ragnatela.com.br`.
+O `/ia/CLAUDE.md` ainda diz que o catch-all é o `chat001` por ordem alfabética — está desatualizado.
+Nada foi alterado; fica registrado para quem for mexer em vhost neste proxy.
+
 ## 2026-08-27 — Do zero ao FUNCIONAL em um dia
 
 ### Aprovações do dono

@@ -488,6 +488,38 @@ function sanearMetadados(corpo, { criando }) {
   return { dados };
 }
 
+/**
+ * A CAIXA INFORMADA EXISTE MESMO? (contrato S-CAIXAS, 02/09/2026)
+ *
+ * POR QUE ESTA GUARDA EXISTE: `resolverEntrada()` escolhe o fluxo comparando o `cwInboxId` GRAVADO
+ * aqui com o id da caixa que veio no evento — e não consulta `RagnabotInbox` em momento nenhum.
+ * Ou seja, hoje este campo é um inteiro livre: digitar 35 onde era 34 grava, publica, e o fluxo
+ * simplesmente nunca dispara. Nada reclama, e o sintoma é «o robô não responde» — a mesma família
+ * de defeito mudo do contrato anterior (id de caixa no campo da conta).
+ *
+ * ⚠️ A guarda só recusa o que o cadastro PROVA não existir. Cadastro vazio (a sincronização ainda
+ * não rodou, ou o token do Platform App falta) devolve `sem_registro` e deixa passar com aviso no
+ * log: guarda que trava por dúvida vira guarda contornada.
+ *
+ * @returns {Promise<string|null>} a mensagem de recusa, ou `null` quando pode seguir
+ */
+async function problemaNaCaixaDoFluxo(tenantId, cwInboxId) {
+  if (cwInboxId == null) return null;
+  try {
+    const { exigirCaixaRegistrada } = await import('../services/ragnabot-tenant.service.js');
+    await exigirCaixaRegistrada(tenantId, cwInboxId);
+    return null;
+  } catch (e) {
+    // Só a recusa do cadastro vira 400. Uma falha de infraestrutura na conferência (banco fora,
+    // módulo ausente) NÃO pode impedir alguém de salvar um fluxo — o dado bom continua entrando.
+    if (e?.code === 'ERR_MODULE_NOT_FOUND' || e?.name === 'PrismaClientInitializationError') {
+      logger.warn(`[ragnabot-fluxo] não consegui conferir a caixa ${cwInboxId}: ${e.message}`);
+      return null;
+    }
+    return e.message;
+  }
+}
+
 /** GET /fluxos — lista os fluxos do escopo. */
 router.get('/fluxos', async (req, res) => {
   try {
@@ -525,6 +557,8 @@ router.post('/fluxos', async (req, res) => {
 
     const s = sanearMetadados(req.body, { criando: true });
     if (s.problema) return res.status(400).json({ error: s.problema });
+    const problemaCaixa = await problemaNaCaixaDoFluxo(tenantId, s.dados.cwInboxId);
+    if (problemaCaixa) return res.status(400).json({ error: problemaCaixa, code: 'CAIXA_NAO_REGISTRADA' });
 
     const documento = req.body?.documento ?? { nos: [], arestas: [], variaveis: [] };
     const forma = documentoTemForma(documento);
@@ -588,6 +622,12 @@ router.patch('/fluxos/:id', async (req, res) => {
     const s = sanearMetadados(req.body, { criando: false });
     if (s.problema) return res.status(400).json({ error: s.problema });
     if (!Object.keys(s.dados).length) return res.status(400).json({ error: 'Nada a alterar.' });
+    // Só quando o campo está sendo ESCRITO: reconferir um valor antigo que já está gravado
+    // trancaria a edição do nome de um fluxo por causa de uma caixa removida meses atrás.
+    if ('cwInboxId' in s.dados) {
+      const problemaCaixa = await problemaNaCaixaDoFluxo(f.tenantId, s.dados.cwInboxId);
+      if (problemaCaixa) return res.status(400).json({ error: problemaCaixa, code: 'CAIXA_NAO_REGISTRADA' });
+    }
 
     const novo = await prisma.ragnabotFluxo.update({ where: { id: f.id }, data: s.dados });
     await auditoria.registrar({

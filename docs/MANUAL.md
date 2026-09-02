@@ -5,14 +5,16 @@
 > código). Quando uma versão nova entra em `VERSOES.md`, a função correspondente entra ou muda aqui —
 > os dois arquivos andam juntos.
 >
-> Estado coberto: **v1.06.00**. O que ainda não existe está marcado _(planejado)_ e aponta o item
+> Estado coberto: **v1.07.01**. O que ainda não existe está marcado _(planejado)_ e aponta o item
 > do `docs/32-PLANO-DE-EXECUCAO.md`.
 
 ---
 
 ## Sumário
-0. [Por onde se anda no Ragnabot (menu e telas)](#0-por-onde-se-anda-no-ragnabot-menu-e-telas)
+0. [Como abrir o Ragnabot (o endereço do painel)](#0-como-abrir-o-ragnabot-o-endereço-do-painel)
+0-A. [Por onde se anda no Ragnabot (menu e telas)](#0-a-por-onde-se-anda-no-ragnabot-menu-e-telas)
 1. [Conexões e automações](#1-conexões-e-automações)
+1-A. [Caixas de entrada — o cadastro que o robô consulta](#1-a-caixas-de-entrada--o-cadastro-que-o-robô-consulta)
 2. [Relógios de atendimento](#2-relógios-de-atendimento)
 3. [Expediente, intervalo e feriado](#3-expediente-intervalo-e-feriado)
 4. [Transferência](#4-transferência)
@@ -29,7 +31,50 @@
 
 ---
 
-## 0. Por onde se anda no Ragnabot (menu e telas)
+## 0. Como abrir o Ragnabot (o endereço do painel)
+
+**O que faz.** Dá o caminho para a tela onde se constrói o atendimento automático.
+
+**Como o operador usa.** Abre no navegador:
+
+```
+https://bot.ragnatela.com.br/painel/
+```
+
+Pede e-mail e senha — **a mesma conta da plataforma de atendimento**, sem senha nova (§7-A). Depois
+de entrar, cai direto no construtor de fluxos.
+
+⚠️ **Não confundir com o painel de atendimento.** O mesmo domínio serve duas coisas diferentes:
+
+| Endereço | O que é | Para quem |
+|---|---|---|
+| `bot.ragnatela.com.br/` | painel de **conversas** (atender cliente, ver a caixa de entrada) | a equipe de atendimento |
+| `bot.ragnatela.com.br/painel/` | painel do **Ragnabot** (fluxos, testador, respostas rápidas, caixas) | quem configura o robô |
+| `bot.ragnatela.com.br/motor-api/` | porta de **serviço** do console de operação (NOC) | ninguém, pelo navegador |
+
+A terceira linha é fechada por endereço de origem no proxy: só o NOC passa. **Publicar o painel não
+abriu essa porta** — são duas entradas, com duas travas diferentes, de propósito.
+
+**Como funciona por dentro (e a armadilha que isto evita).** O caminho `/painel/` é *declarado na
+construção do pacote*, não configurado no proxy. Motivo: a tela pede os arquivos dela por caminho
+absoluto, e um pacote construído para a raiz publicado em `/painel/` pediria `/assets/…` — que no
+mesmo domínio é o **painel de atendimento**, não o motor. O resultado seria **tela branca com 200 na
+rede**: o pior sintoma possível, porque tudo parece ter dado certo. Por isso o `/saude` do motor
+passou a dizer, em `interface.prefixo`, para qual caminho o pacote foi construído — confira ali
+antes de acreditar que uma publicação deu certo.
+
+**Se a tela não abrir.**
+
+| Sintoma | Onde olhar |
+|---|---|
+| abre o painel de conversas em vez do Ragnabot | faltou a barra final: use `/painel/` |
+| tela branca | `GET /saude` → `interface.prefixo` tem de ser `/painel/` |
+| "não consegui falar com a plataforma" ao entrar | `RAGNABOT_PLATAFORMA_INTERNA` no pod (§7-A) |
+| "não encontrei esta tela" | é a tela do próprio Ragnabot dizendo que a rota não existe — o painel está de pé |
+
+---
+
+## 0-A. Por onde se anda no Ragnabot (menu e telas)
 
 **O que faz.** É a casca da interface: menu à esquerda, cabeçalho com a empresa e a versão, e o
 botão de sair. Antes disto a interface era **uma página só** — o construtor de fluxo existia e
@@ -42,6 +87,7 @@ ninguém chegava nele, porque não havia caminho.
 | **Fluxos** | desenhar e publicar o atendimento automático | todos |
 | **Respostas rápidas** | os atalhos de texto que a equipe repete o dia inteiro | todos |
 | **Testador de fluxo** | conversar com o fluxo antes de qualquer cliente | todos |
+| **Caixas de entrada** | conferir as conexões que o robô conhece e acertá-las com a plataforma | administrador |
 | **Empresas** | cadastro comercial de quem contrata (é tela de operador do SaaS) | administrador |
 
 O menu recolhe no botão do canto (fica só o ícone) e a escolha é lembrada no navegador. Os itens são
@@ -52,8 +98,8 @@ permite medir "quem vê o quê" sem abrir navegador. ⚠️ **Esconder item de m
 quem tranca é o servidor, e o teste que vale é a API recusando, não o botão sumindo.
 
 ⚠️ **Onde a interface está pendurada é uma declaração, não um palpite.** O pacote é construído com o
-caminho em que vai morar (hoje `/motor-api/`). Mudar esse caminho exige **construir de novo** — não
-basta mexer no proxy.
+caminho em que vai morar (desde a v1.07.00, **`/painel/`** — ver §0). Mudar esse caminho exige
+**construir a imagem de novo**; não basta mexer no proxy.
 
 ---
 
@@ -70,6 +116,56 @@ conta esse silêncio (contato, atendente ou qualquer um), e o que acontece no ve
 empresa, por caixa ou por time. O campo que decide o silêncio é `inatividadeConta`
 (`contato`/`atendente`/`qualquer`) — o mesmo conceito que na origem se chamava
 `inatividadeLastMessageType`. O trabalhador de atendimento (a cada 60s) lê a política e age.
+
+---
+
+## 1-A. Caixas de entrada — o cadastro que o robô consulta
+
+**O que faz.** Mantém, do NOSSO lado, a lista das caixas de entrada que existem na plataforma:
+número da caixa, nome, canal, empresa e se está ativa. É esse cadastro que o robô lê **durante o
+atendimento** — não a plataforma.
+
+**Por que existe.** Em 02/09/2026 a plataforma tinha **quatro** caixas na conta 1 (1 Site ·
+34 WhatsApp · 35 Facebook · 36 Instagram) e o nosso cadastro estava **vazio**. Ninguém tinha como
+perceber: não havia tela e a rotina de conferência nunca era chamada. Cadastro vazio não derruba
+nada de cara — ele **degrada em silêncio**: o robô passa a tratar todo canal como o mais pobre
+(manda lista numerada onde caberia botão) e não conhece a janela de 24 h do WhatsApp.
+
+**Como o operador usa.** Menu → **Caixas de entrada**. A tela lista o que está registrado, com o
+**número da caixa em destaque** — é ele que se informa num fluxo com entrada por caixa. O botão
+**Sincronizar agora** confere tudo com a plataforma e diz, em uma frase, o que mudou.
+
+**As quatro situações que a conferência resolve:**
+
+| Situação | O que acontece |
+|---|---|
+| caixa nova na plataforma | entra no cadastro |
+| caixa que mudou (nome, número) | a linha é atualizada — nunca duplicada |
+| caixa que voltou depois de desligada | a **mesma** linha é reativada |
+| caixa que sumiu da plataforma | é marcada como **inativa** |
+
+⚠️ **Nenhuma linha é apagada, jamais.** Conversa, protocolo, política de atendimento e fluxo apontam
+para o número daquela caixa; apagar a linha transformaria histórico em número solto.
+
+**Rodar duas vezes não duplica nada.** A segunda passada devolve tudo zerado e diz "nada mudou" — é
+assim que se confere que a rotina é honesta.
+
+**Quando roda sozinha.** No arranque do motor (poucos segundos depois de subir, para não competir
+com a partida) e a cada **15 minutos**. `GET /saude` mostra em `cadastroDeCaixas` quando foi a
+última passada e qual foi o último erro.
+
+**A guarda que veio junto.** Ao amarrar um fluxo a uma caixa, o número informado é conferido contra
+este cadastro. Número que não existe é **recusado**, com a lista das caixas que existem — em vez de
+gravar, publicar e o fluxo nunca disparar. ⚠️ Se o cadastro estiver **vazio**, a guarda **deixa
+passar com aviso**: cadastro vazio significa "a conferência ainda não rodou", não "este número é
+falso", e guarda que trava por dúvida vira guarda contornada.
+
+⛔ **Nenhuma credencial passa por aqui.** O token da Meta, o do bot e as senhas de IMAP/SMTP ficam só
+na plataforma. Do nosso lado fica a **impressão digital** da credencial (um resumo irreversível),
+que serve para saber se o token foi trocado sem nunca poder reconstruí-lo.
+
+**O que esta tela NÃO faz:** criar e remover conexão. As duas pedem segundo fator e credencial de
+canal — continuam em **Empresas** e no painel de atendimento.
 
 ---
 

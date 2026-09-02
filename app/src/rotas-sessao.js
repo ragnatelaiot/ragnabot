@@ -45,6 +45,7 @@ import { Router } from 'express';
 import axios from 'axios';
 import logger from './base/logger.js';
 import VERSAO from './base/versao.js';
+import { alvoDaPlataforma as alvoDoModulo } from './base/plataforma-alvo.js';
 import {
   sessaoConfigurada, emitirSessao, verificarSessao, revogarSessao,
   lerCookie, cookieDeSessao, cookieDeSaida, usuarioDaSessao, DURACAO_SESSAO_MS,
@@ -60,16 +61,13 @@ const NOSSO_AGENTE = `ragnabot-motor/${VERSAO} (sessao)`;
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 // 1. Como alcançamos a plataforma
 // ────────────────────────────────────────────────────────────────────────────────────────────────
+// ⭐ A REGRA SAIU DAQUI em 02/09/2026 (contrato S-PUBLICAR) e virou `base/plataforma-alvo.js`.
+// Motivo: `ragnabot-tenant.service.js` tinha a PRÓPRIA versão, mais antiga e sem o caminho interno,
+// e foi ela que rodou na sincronização das caixas — `timeout of 20000ms`, cadastro vazio. A regra
+// estava certa aqui e errada lá porque eram duas. Agora é uma. O comportamento deste arquivo não
+// mudou nem um degrau; só deixou de ser o único lugar onde a regra existia.
 function alvoDaPlataforma() {
-  const hostname = new URL(URL_PUBLICA).hostname;
-  const interna = (process.env.RAGNABOT_PLATAFORMA_INTERNA || '').trim();
-  // Preferido: o Service do Kubernetes. Não passa pelo proxy reverso, não depende de DNS público,
-  // não sofre hairpin NAT e — o que importa aqui — não passa pelo guarda do "não sou robô".
-  if (interna) return { baseURL: interna.replace(/\/+$/, ''), hostname: null, caminho: 'interna' };
-  const ip = (process.env.RAGNABOT_PROXY_IP || '').trim();
-  // Fallback: o proxy pelo IP, forçando Host e SNI (o equivalente ao `curl --resolve` da casa).
-  if (ip) return { baseURL: `https://${ip}`, hostname, caminho: 'proxy' };
-  return { baseURL: URL_PUBLICA, hostname, caminho: 'publica' };
+  return alvoDoModulo(URL_PUBLICA);
 }
 
 class ErroDeEntrada extends Error {

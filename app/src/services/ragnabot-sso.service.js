@@ -12,22 +12,27 @@
 //
 // NOC 2026-08-28.
 // =============================================================================
-import prisma from '../base/db.js';
-import { decrypt } from '../base/crypto.js';
+// ⛔ `prisma` e `decrypt` saíram junto com a leitura da tabela `settings` (ver `tokenPlataforma`
+// abaixo). Import que não é usado é pista falsa: sugere que este módulo fala com o banco, e ele
+// não fala — tudo o que ele faz é conversar com a plataforma.
 
 const BASE = process.env.RAGNABOT_URL || 'https://chat002.ragnatela.com.br';
 
-/** Token do Platform App — vive em Settings (cifrado), nunca no git nem no código. */
+/**
+ * Token do Platform App — vem do ambiente, nunca do git nem do código.
+ *
+ * ⛔ AQUI HAVIA `prisma.settings || prisma.setting` (a tabela de configurações DO NOC), com um
+ * `.catch(() => null)` por cima. **Removido em 02/09/2026:** nenhum dos dois modelos existe no
+ * schema do Ragnabot — `cli` era `undefined` e a linha estourava `TypeError` ANTES do `.catch`,
+ * derrubando a chamada com uma mensagem que não dizia nada. Sobrava um erro de tipo onde devia
+ * haver uma instrução.
+ *
+ * Uma fonte só, a mesma de `ragnabot-tenant.service.js`: reexportamos a função de lá em vez de
+ * repetir a leitura. Duas leituras do mesmo segredo divergem no dia em que uma delas ganha cache.
+ */
 async function tokenPlataforma() {
-  const cli = prisma.settings || prisma.setting;
-  const s = await cli.findUnique({ where: { key: 'ragnabot_platform_token' } }).catch(() => null);
-  if (!s?.value) {
-    throw new Error(
-      'Ponte com o Ragnabot não configurada: falta a chave "ragnabot_platform_token" nas ' +
-      'configurações do NOC. Ela é criada com o Platform App da plataforma.'
-    );
-  }
-  try { return decrypt(s.value); } catch { return s.value; }
+  const { tokenDaPlataforma } = await import('./ragnabot-tenant.service.js');
+  return tokenDaPlataforma();
 }
 
 async function chamar(caminho, opcoes = {}) {

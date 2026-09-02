@@ -154,8 +154,18 @@ const trabalhadores = {
     ligado: false, intervaloMs: null, workerId: null, erro: null,
     motivo: null, // por que NÃO está ligado, quando não está
   },
+  // ⭐ Contrato S-CAIXAS (02/09/2026). Rotina LENTA (tique de 15 min), e não fila: ela reconcilia
+  // `RagnabotInbox` com as caixas que existem de fato na plataforma. Entrou porque em 02/09 a
+  // plataforma tinha 4 caixas e o nosso cadastro estava VAZIO — a função de reconciliação existia
+  // desde 28/08 e nunca havia sido chamada por ninguém.
+  caixas: { ligado: false, intervaloMs: null, erro: null },
 };
 const desligadores = [];
+
+// Tique da reconciliação das caixas. LARGO de propósito: o que ela protege («a caixa mudou de nome
+// ou sumiu lá fora e ninguém aqui soube») muda em escala de dias, e cada passada é uma leitura na
+// plataforma POR EMPRESA. Ajustável por ambiente para quem precisar apertar num diagnóstico.
+const INTERVALO_CAIXAS_MS = Math.max(60_000, Number(process.env.RAGNABOT_CAIXAS_INTERVALO_MS || 15 * 60 * 1000));
 
 /** Identidade desta réplica. No Kubernetes `hostname` é o nome do pod, e é ele que aparece em
  *  `donoWorker` — sem isso, «quem estava com esta conversa quando o pod morreu?» não tem resposta.
@@ -197,6 +207,21 @@ export async function ligarTrabalhadores() {
     app.locals.ragnabotPortaria = portaria;
     trabalhadores.portaria.ligado = true;
 
+    // ⭐ SINCRONIZAÇÃO DAS CAIXAS (contrato S-CAIXAS). Não bloqueia a subida: a primeira passada é
+    // agendada para daqui a alguns segundos e o tique é de 15 minutos. Falha dela NÃO derruba o
+    // processo nem os outros trabalhadores — cadastro desatualizado degrada o canal (fica sem
+    // botão, sem janela de 24 h conhecida); cadastro que impedisse o motor de subir seria pior.
+    try {
+      const tenantsSvc = await import('./services/ragnabot-tenant.service.js');
+      const pararCaixas = tenantsSvc.iniciarSincronizacaoDeCaixas({ intervaloMs: INTERVALO_CAIXAS_MS });
+      desligadores.push(pararCaixas);
+      trabalhadores.caixas.ligado = true;
+      trabalhadores.caixas.intervaloMs = INTERVALO_CAIXAS_MS;
+    } catch (e) {
+      trabalhadores.caixas.erro = e.message;
+      logger.warn(`[ragnabot] sincronização de caixas não subiu: ${e.message}`);
+    }
+
     const amarrado = await amarrarMotorDeFluxo(canalPorta);
 
     // ⭐ O ELO QUE FALTAVA (contrato S-FILA). Sem este laço, tudo o que vem antes é encanamento
@@ -205,6 +230,7 @@ export async function ligarTrabalhadores() {
     if (amarrado) await ligarExecutorDeFluxo(amarrado);
 
     logger.info('[ragnabot] trabalhadores no ar: atendimento(60s), despertar(15s), portaria'
+      + (trabalhadores.caixas.ligado ? `, caixas(${Math.round(INTERVALO_CAIXAS_MS / 1000)}s)` : '')
       + (trabalhadores.executorFluxo.ligado ? `, executor de fluxo(${trabalhadores.executorFluxo.intervaloMs}ms)` : ''));
   } catch (e) {
     trabalhadores.atendimento.erro = trabalhadores.atendimento.erro ?? e.message;
@@ -411,6 +437,27 @@ app.get('/saude', async (req, res) => {
     out.webhookDeEntrada = { erro: e.message };
   }
 
+  // ── O CADASTRO DAS CAIXAS (contrato S-CAIXAS) ─────────────────────────────────────────────────
+  // «Rodou quando, e deu o quê» — sem isto, um cadastro vazio ou defasado só apareceria como
+  // «o robô não responde direito» semanas depois. ⚠️ NÃO derruba a sonda, pelo mesmo motivo dos
+  // dois blocos acima: tirar o pod de serviço não conserta cadastro nenhum.
+  try {
+    const tenantsSvc = await import('./services/ragnabot-tenant.service.js');
+    out.cadastroDeCaixas = tenantsSvc.estadoDaSincronizacaoDeCaixas();
+  } catch (e) {
+    out.cadastroDeCaixas = { erro: e.message };
+  }
+
+  // ── A TELA (contrato S-PUBLICAR, 02/09/2026) ──────────────────────────────────────────────────
+  // Duas perguntas que, sem isto, são indistinguíveis de fora e custam uma tarde cada:
+  //   1. «a imagem subiu COM a tela?»  → `servida` | `ausente`
+  //   2. «a tela foi construída para QUAL caminho?» → `prefixo`, lido do índice de verdade.
+  // A (2) é a armadilha desta entrega: o prefixo é gravado NO PACOTE em tempo de construção
+  // (`RAGNABOT_PREFIXO_WEB`), não é configurável no pod. Uma imagem construída para `/` publicada
+  // em `/painel/` responde 200 e mostra tela BRANCA — o pior sintoma possível. Aqui o número
+  // aparece antes de alguém abrir o navegador.
+  out.interface = { estado: TEM_INTERFACE ? 'servida' : 'ausente', prefixo: PREFIXO_DA_INTERFACE };
+
   const saudavel = out.banco === 'no ar'
     && trabalhadores.atendimento.ligado
     && trabalhadores.despertar.ligado
@@ -461,6 +508,28 @@ const PASTA_INTERFACE = process.env.RAGNABOT_INTERFACE_DIR
   || path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'web', 'dist');
 const TEM_INTERFACE = fs.existsSync(path.join(PASTA_INTERFACE, 'index.html'));
 
+/**
+ * Para QUAL caminho esta tela foi construída — lido do índice, não suposto.
+ *
+ * ⚠️ Por que ler o arquivo em vez de confiar numa variável de ambiente: o prefixo é decidido na
+ * CONSTRUÇÃO (`RAGNABOT_PREFIXO_WEB` no `Dockerfile`) e fica gravado dentro do índice, em cada
+ * `src=`/`href=`. Uma variável no pod poderia dizer `/painel/` com um pacote construído para `/` —
+ * e a divergência só apareceria como tela branca no navegador do dono. O índice é a fonte da
+ * verdade porque é ele que o navegador obedece.
+ *
+ * Devolve `null` quando não há tela, ou quando o índice não tem nenhum arquivo com caminho
+ * absoluto (não inventamos resposta: `null` diz «não sei», que é diferente de «é a raiz»).
+ */
+const PREFIXO_DA_INTERFACE = (() => {
+  if (!TEM_INTERFACE) return null;
+  try {
+    const html = fs.readFileSync(path.join(PASTA_INTERFACE, 'index.html'), 'utf8');
+    const m = html.match(/(?:src|href)="(\/[^"]*\/assets\/[^"]+|\/assets\/[^"]+)"/u);
+    if (!m) return null;
+    return m[1].slice(0, m[1].indexOf('assets/'));
+  } catch { return null; }
+})();
+
 if (TEM_INTERFACE) {
   // ⛔ AQUI HAVIA `app.get('/interface/configuracao.js', …)`. REMOVIDO em 30/08/2026 pelo
   // contrato S4-AUTH — era exatamente a pendência do §3 deste arquivo, e o chefe escolheu o
@@ -501,7 +570,8 @@ if (TEM_INTERFACE) {
     return res.sendFile(path.join(PASTA_INTERFACE, 'index.html'));   // index serve a versão velha
   });
 
-  logger.info(`[ragnabot] interface servida de ${PASTA_INTERFACE}`);
+  logger.info(`[ragnabot] interface servida de ${PASTA_INTERFACE}`
+    + ` (construída para o caminho ${PREFIXO_DA_INTERFACE || '«não declarado»'})`);
 } else {
   logger.warn('[ragnabot] interface NÃO encontrada — o motor sobe sem tela (só API)');
 }

@@ -73,6 +73,17 @@ export const MENU = Object.freeze([
     apoio: 'Conversar com o fluxo antes de qualquer cliente conversar com ele',
   },
   {
+    id: 'caixas',
+    rotulo: 'Caixas de entrada',
+    caminho: '/caixas',
+    // ⭐ 02/09/2026 (contrato S-CAIXAS). Do ADMINISTRADOR, e não de todo mundo: é cadastro de
+    // conexão, o mesmo assunto de Empresas. E entrou aqui só DEPOIS de a tela existir — a regra
+    // deste arquivo, repetida: item de menu vem depois da tela, nunca antes.
+    papeis: ['admin'],
+    icone: 'Inbox',
+    apoio: 'Conferir as conexões que o robô conhece, e acertá-las com a plataforma',
+  },
+  {
     id: 'empresas',
     rotulo: 'Empresas',
     caminho: '/empresas',

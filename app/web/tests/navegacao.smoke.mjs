@@ -144,6 +144,15 @@ medir('o menu desenhado do ADMINISTRADOR traz as três', () => {
   }
 });
 
+medir('Caixas de entrada é do ADMINISTRADOR — o atendente não a vê desenhada', () => {
+  // ⭐ Contrato S-CAIXAS. ⚠️ E vale a regra escrita no topo de `lib/navegacao.js`: esconder item de
+  // menu NÃO é isolamento. Quem tranca é o servidor (o router de empresas já é fechado a
+  // administrador do grupo RAGNATELA); isto aqui só evita o tropeço.
+  assert.doesNotMatch(comoAtendente, /data-item="caixas"/);
+  assert.match(comoAdmin, /data-item="caixas"/);
+  assert.match(comoAdmin, /Caixas de entrada/);
+});
+
 medir('os itens são LINKS de verdade (abrem em nova aba, copiam endereço)', () => {
   // Botão com `navigate()` não faz nada disso — e a dor que este contrato conserta é «não consigo
   // chegar lá». Link que não se pode copiar continua sendo caminho que ninguém acha.
@@ -173,7 +182,11 @@ medir('o rodapé assina o produto (doc 34 §F5.2)', () => {
 });
 
 medir('o menu DIZ o que ainda não tem tela, em vez de fingir que não existe', () => {
-  assert.match(comoAtendente, /Atendimentos, Conexões e Configurações/);
+  assert.match(comoAtendente, /Atendimentos e Configura/);
+  // ⭐ 02/09/2026: «Conexões» deixou de ser ausência total e virou ausência PARCIAL — a tela de
+  // conferência existe, a de criar/remover não. A frase tem de dizer a metade certa; dizer «não
+  // existe» com a tela no ar mandaria o operador procurar no lugar errado.
+  assert.match(comoAtendente, /Conexões entrou pela metade/);
 });
 
 medir('a casca não trouxe nada do NOC pendurado', () => {

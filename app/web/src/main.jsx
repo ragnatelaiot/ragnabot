@@ -57,9 +57,10 @@ import FluxosRagnabot from './paginas/FluxosRagnabot.jsx';
 import RespostasRapidas from './paginas/RespostasRapidas.jsx';
 import TestadorDeFluxo from './paginas/TestadorDeFluxo.jsx';
 import Empresas from './paginas/Empresas.jsx';
+import CaixasDeEntrada from './paginas/CaixasDeEntrada.jsx';
 import { ContextoDaSessao, PortaoDeSessao } from './paginas/Entrada.jsx';
 import { CAMINHO_PADRAO, itensVisiveis } from './lib/navegacao.js';
-import { BASENAME } from './lib/prefixo.js';
+import { BASENAME, caminhoDoApp } from './lib/prefixo.js';
 import { EVENTO_SESSAO_MUDOU, atorAtual, empresaAtual, versaoDoMotor } from './lib/api.js';
 
 /**
@@ -100,7 +101,13 @@ function NaoEncontrada() {
       <ul style={{ marginTop: 'var(--space-md)', paddingLeft: '1.1rem', color: 'var(--text-secondary)' }}>
         {itens.map((i) => (
           <li key={i.id} style={{ marginBottom: 4 }}>
-            <a href={i.caminho}>{i.rotulo}</a> — {i.apoio}
+            {/* ⚠️ `caminhoDoApp` e NÃO o caminho cru. Este é o ÚNICO `<a href>` de navegação da
+                interface (o menu usa `NavLink`, que já respeita o `basename`). Publicada em
+                `/painel/`, uma âncora crua mandaria o navegador para `/fluxos` na RAIZ do host —
+                ou seja, para o Ingress da plataforma de atendimento, não para o motor. O sintoma
+                seria a tela do Chatwoot abrindo no lugar do construtor, o que ninguém liga a um
+                `href` esquecido numa página de "não encontrei". */}
+            <a href={caminhoDoApp(i.caminho)}>{i.rotulo}</a> — {i.apoio}
           </li>
         ))}
       </ul>
@@ -148,6 +155,11 @@ function Miolo() {
             se pede revisão de fluxo na vida real. */}
         <Route path="/testador" element={<TestadorDeFluxo />} />
         <Route path="/testador/:fluxoId" element={<TestadorDeFluxo />} />
+        {/* ⭐ Contrato S-CAIXAS (02/09/2026). Mesma trava de tela de Empresas, e pela mesma razão:
+            é conferência de cadastro de conexão. E vale a mesma ressalva — ISTO NÃO É A TRAVA;
+            quem recusa é o servidor (`ragnabot-tenant.routes.js`, já fechado a administrador do
+            grupo RAGNATELA). Este componente evita o tropeço, não substitui a trava. */}
+        <Route path="/caixas" element={<SoAdministrador><CaixasDeEntrada /></SoAdministrador>} />
         <Route path="/empresas" element={<SoAdministrador><Empresas ehSuperusuario={atorAtual().isSuperuser === true} /></SoAdministrador>} />
         {/* URL do tempo em que a tela morava no NOC. `servir.smoke.mjs` mede que ela devolve a
             página em vez de 404; sem esta linha ela passaria a cair no «não encontrei», que é
