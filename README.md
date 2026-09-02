@@ -46,6 +46,33 @@ organizados em **times e filas** respondem clientes que chegam por **qualquer ca
 - **Multi-tenant nativo**: cada empresa cliente é uma conta isolada
 - Cadastro público **fechado** — tenants são provisionados pelo NOC
 - Modelo "traga sua WABA": cada cliente conecta o próprio número oficial
+- 💳 **Cobrança pelo Efí Bank** (Pix na conversa e dentro do fluxo) — provedor único, por decisão
+- 🤖 **Agente de IA** (Captain) por empresa, com base de conhecimento isolada e teto de consumo
+
+## 🗺️ Onde o produto está (setembro/2026)
+
+O Ragnabot deixou de ser "a plataforma base com a nossa marca" e virou **produto próprio**: um
+**motor** nosso (fluxo, automações, protocolo, cobrança, SaaS) sobre a caixa de atendimento.
+O rumo está escrito, medido e versionado:
+
+| Documento | O que responde |
+|---|---|
+| [`docs/34-PLANO-PARIDADE-CHAT-ATUAL.md`](docs/34-PLANO-PARIDADE-CHAT-ATUAL.md) | **o quê** construir — 10 fases levantadas tela a tela contra o sistema que a empresa usa hoje, com o que já existe **medido** antes de virar tarefa |
+| [`docs/35-EXECUCAO-DETALHADA.md`](docs/35-EXECUCAO-DETALHADA.md) | **em que ordem** — 10 sprints com critério de aceite testável, grafo de dependência e as decisões que dependem do dono |
+| [`docs/36-EFI-BANK-PAGAMENTOS.md`](docs/36-EFI-BANK-PAGAMENTOS.md) | **como se cobra** — integração Efí Bank (Pix), credenciais necessárias e a armadilha do mTLS no webhook |
+
+### Decisões de rumo já tomadas
+- 💳 **Provedor de pagamento: Efí Bank, e só ele.** Pix primeiro; boleto e cartão depois. Quatro
+  provedores seriam quatro contratos e quatro jeitos de falhar de madrugada.
+- 🤖 **Agente de IA: adotar o Captain**, da plataforma base, adaptado ao nosso uso — não construir
+  do zero. O fluxo atende primeiro; a IA entra só onde o fluxo não tem saída; o humano recebe o que
+  a IA não sabe. **Nasce desligado**, por decisão.
+- 📲 **WhatsApp do cliente:** API **oficial** da Meta como produto; caminho não-oficial só como porta
+  de entrada, com o risco escrito em contrato; **intermediário de terceiro, nunca** — a mensagem do
+  cliente não transita pela infra de outra empresa.
+- 🪟 **Painel único.** O construtor de fluxo existia e ninguém usava: morava num aplicativo separado,
+  sem link nem menu a partir do painel do dia a dia. Casca própria com roteador e menu virou
+  pré-requisito de adoção, não enfeite.
 
 ## 🏛️ Arquitetura
 
