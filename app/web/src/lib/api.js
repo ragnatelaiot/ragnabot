@@ -29,11 +29,19 @@
 // consegue copiar a sessão. Guardar qualquer eco dela em `localStorage` jogaria essa proteção fora.
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 
+import { caminhoDoApp } from './prefixo.js';
+
 /** O caminho é o MESMO do NOC de propósito: o motor monta `/api/ragnabot-fluxo` no mesmo lugar
- *  (`app/src/servidor.js`), então nenhuma URL da tela precisou ser reescrita. */
-export const BASE_FLUXO = '/api/ragnabot-fluxo';
+ *  (`app/src/servidor.js`), então nenhuma URL da tela precisou ser reescrita.
+ *
+ *  ⭐ MUDOU EM 02/09/2026 (contrato S1): o caminho passa por `caminhoDoApp`, que acrescenta o
+ *  prefixo do deploy quando existe um. Sem isso, servida em `bot.ragnatela.com.br/motor-api/`, a
+ *  tela pediria `/api/ragnabot-fluxo/…` na RAIZ do domínio — ou seja, no Ingress da plataforma, e
+ *  não no motor. O sintoma seria «não consigo falar com o servidor» com o motor de pé.
+ *  Na raiz (`RAGNABOT_PREFIXO_WEB` ausente) o valor é exatamente o de antes. */
+export const BASE_FLUXO = caminhoDoApp('/api/ragnabot-fluxo');
 /** Onde o motor monta `src/rotas-sessao.js` (ver `app/src/COMO-MONTAR-SESSAO.md`). */
-export const BASE_SESSAO = '/sessao';
+export const BASE_SESSAO = caminhoDoApp('/sessao');
 
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 // QUEM ESTÁ LOGADO

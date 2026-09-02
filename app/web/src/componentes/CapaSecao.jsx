@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { caminhoDoApp } from '../lib/prefixo.js';
 
 /* ═══════════════════════════════════════════════════════════════════════════
    CAPA DE SEÇÃO — 98-PROPOSTA-FRONT-NOC.md §0.2
@@ -129,7 +130,11 @@ export default function CapaSecao({ secao = 'operacao', olho, titulo, apoio, aco
     return () => window.removeEventListener('scroll', aoRolar);
   }, []);
 
-  const foto = FOTO[secao] || FOTO.operacao;
+  // ⭐ 02/09/2026 (contrato S1): a foto passa pelo prefixo do deploy. Os caminhos do mapa `FOTO`
+  // são ABSOLUTOS, e `COMO-SERVIR.md §4` já registrava a consequência: montada sob prefixo, a capa
+  // nascia sem imagem (404 silencioso — a faixa aparece, a foto não). Era defeito pré-existente;
+  // consertado aqui porque foi ao mexer no prefixo que ele apareceu de novo. Na raiz, nada muda.
+  const foto = caminhoDoApp(FOTO[secao] || FOTO.operacao);
 
   return (
     <header className={compacta ? 'capa capa--compacta' : 'capa'}>

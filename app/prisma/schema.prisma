@@ -770,6 +770,18 @@ model RagnabotFluxoFila {
   donoWorker String?
   travadoEm  DateTime?
 
+  // A MESMA VISITA NÃO ENTRA DUAS VEZES. Chave derivada do que torna o trabalho único (a entrada
+  // que chegou, a visita que dorme, o efeito que se concilia) — ver `chaveIdemDe()` em
+  // `ragnabot-fluxo-fila.service.js`. NULO significa «sem dedupe», e é assim de propósito: no
+  // Postgres dois NULOS não são iguais, então quem não tem chave natural nunca colide com ninguém.
+  //
+  // ⚠️ A TRANCA É UM ÍNDICE ÚNICO **PARCIAL** (`rb_fila_idem_pendente`, só sobre status='pendente'),
+  // que o Prisma NÃO sabe declarar — está em `prisma/sql/motor-fluxo/05-rb_fila_idempotencia.sql`.
+  // Um `prisma db push` o apaga em silêncio e a idempotência vira decoração. O escopo é `pendente`
+  // e não «tudo»: o job de despertar que está SENDO processado precisa poder reagendar a si mesmo
+  // para daqui a 90 s, e um escopo maior engoliria esse reagendamento — a conversa congelava.
+  chaveIdem String?
+
   criadoEm     DateTime @default(now())
   atualizadoEm DateTime @updatedAt
 
@@ -1446,4 +1458,281 @@ model RagnabotRespostaRapida {
   @@index([tenantId, visibilidade, userId])
   @@index([tenantId, cwInboxId])
   @@index([tenantId, cwTeamId])
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// CAPITÃO — o agente de IA NATIVO da plataforma base, adaptado ao nosso uso (doc 34 §2.C).
+//
+// Decisão do dono (02/09/2026): *"pode manter o capitão como agente no lugar do chat, não precisa
+// construir do zero, só adequa de como ele é usado para o nosso atual"*. Portanto NÃO existe aqui
+// nenhum modelo de IA nosso: estas tabelas são a CAMADA DA CASA sobre o agente da plataforma —
+// quem está ligado, com que documentos, com que marca, e quanto já gastou.
+//
+// ⚠️ TUDO NASCE DESLIGADO. `RagnabotCapitaoConfig.ativo` é `false` por padrão e o interruptor mestre
+// (`CAPITAO_ATIVO`) também. A chave da OpenAI da plataforma está VAZIA e a licença da edição paga é
+// decisão do dono — o técnico fica pronto, o gasto não começa sozinho.
+//
+// ⚠️ NENHUM TEXTO DE CLIENTE NESTAS TABELAS. A pergunta vira `perguntaHash` (sha256) e a resposta
+// vira contagem de caracteres. Medir consumo não é motivo para guardar conversa de terceiro.
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+model RagnabotCapitaoConfig {
+  id       String @id @default(uuid())
+  tenantId String @unique // → RagnabotTenant.id (chave lógica)
+
+  // Desligado por padrão, de propósito: ligar custa dinheiro por resposta.
+  ativo Boolean @default(false)
+
+  // A6 — MARCA. O agente se apresenta como agente da EMPRESA CLIENTE, nunca como produto de
+  // terceiro. Sem isto o cliente final descobre por acidente qual fornecedor está por trás.
+  nomeAgente String  @default("Assistente")
+  tom        String  @default("cordial") // cordial | direto | formal | descontraido
+  saudacao   String?
+  assinatura String?
+  idioma     String  @default("pt_BR")
+
+  // Id do assistente NA PLATAFORMA. Nulo = ainda não provisionado lá.
+  assistenteExternoId String?
+  modelo              String?
+
+  // A4 — TETO. Nulo = usa o teto do plano (src/config/ragnabot-plans.js). O teto do plano é a
+  // regra de produto; este campo é o acordo individual, e o menor dos dois vence no serviço.
+  tetoRespostasMes     Int?
+  tetoCustoCentavosMes Int?
+
+  // Abaixo desta confiança o agente NÃO responde: devolve ao humano. "Chutar" é pior que
+  // transferir — o cliente acredita na resposta errada e a empresa descobre pelo prejuízo.
+  confiancaMinima Float @default(0.55)
+
+  // Quantas vezes seguidas o agente pode falar sem que a pessoa tenha ido a um humano. Freio
+  // contra o robô que responde "não entendi" em laço.
+  maxRespostasSeguidas Int @default(3)
+
+  atualizadoPorUserId String?
+  criadoEm            DateTime @default(now())
+  atualizadoEm        DateTime @updatedAt
+
+  @@index([ativo])
+}
+
+// A3 — BASE DE CONHECIMENTO POR EMPRESA. `tenantId` entra em TODA consulta; empresa A não pode ser
+// respondida com documento da empresa B, e o teste de isolamento é o que prova.
+model RagnabotCapitaoDocumento {
+  id       String @id @default(uuid())
+  tenantId String
+
+  titulo String
+  tipo   String // url | texto | arquivo
+  origem String // a URL, o nome do arquivo ou um rótulo para o texto colado
+
+  // ⚠️ CALCULADA E NOT NULL — mesma lição de `RagnabotRespostaRapida.chaveAtalho`: um único par
+  // com coluna anulável faria o índice único virar carimbo decorativo. "tipo|origem normalizada".
+  chaveDocumento String
+
+  conteudoHash String? // sha256 do conteúdo: diz se mudou, sem guardar o conteúdo
+  tamanhoBytes Int?
+
+  externoId      String? // id do documento na plataforma (Captain)
+  status         String    @default("pendente") // pendente | sincronizado | erro | removido
+  erro           String?
+  sincronizadoEm DateTime?
+
+  criadoPorUserId String?
+  criadoEm        DateTime @default(now())
+  atualizadoEm    DateTime @updatedAt
+
+  @@unique([tenantId, chaveDocumento])
+  @@index([tenantId, status])
+}
+
+// A2/A4 — UMA LINHA POR TENTATIVA DE RESPOSTA DA IA. É a medição de custo e é a TRAVA que impede
+// duas respostas para a mesma mensagem: `chave` é única e é reservada ANTES de perguntar ao agente.
+model RagnabotCapitaoInteracao {
+  id String @id @default(uuid())
+
+  // "entrada:<id>" quando nasce de uma mensagem do cliente; "no:<execucao>:<no>:<visita>" quando
+  // nasce do nó `agente_ia` do fluxo. NOT NULL sempre — é a reserva do direito de responder.
+  chave String @unique
+
+  tenantId         String
+  cwAccountId      Int?
+  cwConversationId Int?
+  entradaId        String?
+  execucaoId       String?
+  noId             String?
+
+  // respondeu | nao_sabe | recusado_teto | recusado_desligado | erro | reservado
+  resultado String @default("reservado")
+
+  // ⚠️ NUNCA O TEXTO. sha256 da pergunta e tamanho da resposta bastam para diagnóstico e não
+  // transformam a nossa base num arquivo das conversas dos clientes dos nossos clientes.
+  perguntaHash     String?
+  respostaChars    Int?
+  documentosUsados Int     @default(0)
+  confianca        Float?
+
+  tokensEntrada Int?
+  tokensSaida   Int?
+  custoCentavos Int     @default(0)
+  latenciaMs    Int?
+  modelo        String?
+  erro          String?
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@index([tenantId, criadoEm])
+  @@index([cwAccountId, cwConversationId])
+  @@index([resultado, criadoEm])
+}
+
+// A4 — O CONTADOR QUE SEGURA O TETO. Persistido de propósito: contador em memória zera no reinício
+// do pod, e teto que zera sozinho não é teto. `competencia` é "AAAA-MM", igual à cobrança.
+model RagnabotCapitaoConsumoMes {
+  id          String @id @default(uuid())
+  tenantId    String
+  competencia String
+
+  respostas     Int @default(0)
+  naoSabe       Int @default(0)
+  recusadas     Int @default(0)
+  tokensEntrada Int @default(0)
+  tokensSaida   Int @default(0)
+  custoCentavos Int @default(0)
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@unique([tenantId, competencia])
+  @@index([competencia])
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// PAGAMENTO PIX (EFÍ BANK) — cobrança DENTRO da conversa (doc 36).
+//
+// Não se confunde com `RagnabotPagamento`, que é a mensalidade do SaaS: aquele é o cliente pagando
+// A NÓS; este é a empresa cliente cobrando o cliente DELA no meio do atendimento.
+//
+// ⚠️ A API Pix da Efí exige CERTIFICADO (.p12) e mTLS de saída; a de Cobranças (boleto/cartão) não.
+// Começamos pelo Pix de propósito — é o que a conversa usa de verdade.
+// ⛔ NENHUM VALOR DE CREDENCIAL NO GIT. O certificado é lido de um caminho montado por Secret; o
+//    `clientSecret` e a senha do certificado ficam CIFRADOS (`src/base/crypto.js`).
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+// B7 — CREDENCIAL POR EMPRESA, preparada desde já. Linha com `tenantId` nulo = a conta da
+// RAGNATELA (o padrão de hoje). O dia em que um cliente quiser receber direto, cria-se a linha
+// dele — sem migração, sem mudar código.
+model RagnabotPagamentoCredencial {
+  id String @id @default(uuid())
+
+  // ⚠️ `tenantId` É ANULÁVEL, então o único NÃO PODE ser sobre ele (dois NULOS não colidem no
+  // Postgres e a "credencial da casa" poderia ser cadastrada dez vezes). `chaveEscopo` materializa:
+  // "casa" ou "tenant:<uuid>", NOT NULL, e é essa que o banco tranca.
+  tenantId    String?
+  chaveEscopo String  @unique
+
+  provedor String @default("efi")
+  ambiente String @default("homologacao") // homologacao | producao
+
+  // CIFRADOS (aes-256-gcm, `src/base/crypto.js`). Nulos = usa o que vier do ambiente/Secret.
+  clientIdCifrado         String?
+  clientSecretCifrado     String?
+  certificadoSenhaCifrada String?
+  webhookHmacCifrado      String?
+
+  // Caminho do arquivo .p12 montado por Secret — NUNCA o conteúdo do certificado no banco.
+  certificadoCaminho String?
+  chavePix           String? // chave Pix RECEBEDORA (não é segredo; é o destino do dinheiro)
+
+  ativo      Boolean @default(true)
+  ultimoErro String?
+
+  criadoPorUserId String?
+  criadoEm        DateTime @default(now())
+  atualizadoEm    DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([provedor, ambiente])
+}
+
+// B2/B6 — a cobrança Pix imediata (`cob`) e o estado dela na conversa.
+model RagnabotCobrancaPix {
+  id String @id @default(uuid())
+
+  // ⚠️ O `txid` É NOSSO, não da Efí: a API Pix aceita `PUT /v2/cob/:txid`, e criar com id próprio é
+  // o que torna a CRIAÇÃO idempotente — repetir a chamada devolve a MESMA cobrança em vez de uma
+  // segunda cobrança para o mesmo cliente. 26 a 35 caracteres [a-zA-Z0-9], exigência do BACEN.
+  txid String @unique
+
+  tenantId         String
+  cwAccountId      Int?
+  cwConversationId Int?
+  cwContactId      Int?
+  protocolo        String?
+
+  // Quando nasce do nó "Cobrar via Pix". `chaveEfeito` é a chave da caixa de saída de duas fases do
+  // motor; única, para o mesmo nó na mesma visita nunca gerar duas cobranças.
+  execucaoId  String?
+  noId        String?
+  visitaSeq   Int?
+  chaveEfeito String? @unique
+
+  valorCentavos Int
+  descricao     String?
+  devedorNome   String?
+  devedorDoc    String? // CPF/CNPJ só dígitos, quando a Efí exigir
+
+  // aguardando | pago | expirado | cancelado | erro
+  status   String @default("aguardando")
+  ambiente String
+
+  chavePixRecebedora String?
+  locId              Int?
+  copiaECola         String? // BR Code devolvido pela Efí (é público: é o que o cliente cola)
+  expiracaoSegundos  Int       @default(3600)
+  expiraEm           DateTime?
+
+  e2eId             String? // endToEndId da liquidação — a âncora da baixa
+  valorPagoCentavos Int?
+  pagoEm            DateTime?
+  canceladoEm       DateTime?
+  ultimoErro        String?
+
+  criadoPorUserId String?
+  criadoEm        DateTime @default(now())
+  atualizadoEm    DateTime @updatedAt
+
+  eventos RagnabotCobrancaPixEvento[]
+
+  @@index([tenantId, status])
+  @@index([cwAccountId, cwConversationId])
+  @@index([status, expiraEm])
+  @@index([e2eId])
+}
+
+// B4 — A TRILHA CRUA E A IDEMPOTÊNCIA. O webhook do Pix REPETE por desenho (a Efí reentrega até
+// receber 2xx). `chaveIdempotencia` única é o que faz a segunda entrega ser registrada e NÃO
+// aplicada — a lição do alerta de backup do CRCMA, em dinheiro.
+model RagnabotCobrancaPixEvento {
+  id                String @id @default(uuid())
+  chaveIdempotencia String @unique // "efi-pix:<endToEndId>" ou "efi-pix:txid:<txid>:<horario>"
+
+  cobrancaId String?
+  cobranca   RagnabotCobrancaPix? @relation(fields: [cobrancaId], references: [id], onDelete: SetNull)
+
+  txid          String?
+  tipo          String // notificacao | criacao | consulta | cancelamento
+  statusExterno String?
+  // aplicado | ignorado_duplicado | ignorado_desconhecido | ignorado_ja_pago | erro
+  resultado     String?
+  erro          String?
+  valorCentavos Int?
+  ip            String?
+  payload       Json?
+
+  recebidoEm   DateTime  @default(now())
+  processadoEm DateTime?
+
+  @@index([txid, recebidoEm])
+  @@index([resultado, recebidoEm])
 }

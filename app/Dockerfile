@@ -42,6 +42,23 @@ COPY app/web/package.json app/web/package-lock.json* ./
 RUN npm ci --no-audit --no-fund
 
 COPY app/web/ ./
+
+# ⭐ ONDE A INTERFACE FICA PENDURADA (contrato S1, 02/09/2026 — ver `app/web/COMO-SERVIR.md` §5).
+# A tela deixou de usar caminho relativo quando ganhou ROTAS: com `./assets/x.js`, uma rota de dois
+# segmentos (`/ragnabot-fluxos/<id>`) pediria `/ragnabot-fluxos/assets/x.js` — 404, tela BRANCA, e a
+# rede dizendo 200. Com caminho absoluto é preciso DECLARAR o prefixo, e declarar é o que este ARG
+# faz. Padrao `/` (raiz): quem construir sem passar nada continua tendo o pacote de antes.
+#
+# ⚠️ HOJE o motor responde em `bot.ragnatela.com.br/motor-api/` (`deploy/ragnabot-motor-ingress.yaml`,
+# com `rewrite-target: /$2`). Construir com `/` publicaria uma tela que nao carrega em lugar nenhum.
+# Se a interface mudar de caminho (a escolha registrada e `/painel/`), a imagem precisa ser
+# CONSTRUIDA DE NOVO — prefixo e propriedade do pacote, nao do proxy.
+#     docker build -f app/Dockerfile --build-arg RAGNABOT_PREFIXO_WEB=/motor-api/ -t ragnabot-motor:X .
+#
+# ⚠️ ARG NAO SERVE PARA SEGREDO (fica em `docker history` para sempre). Este aqui e um caminho
+# publico, e so.
+ARG RAGNABOT_PREFIXO_WEB=/
+ENV RAGNABOT_PREFIXO_WEB=${RAGNABOT_PREFIXO_WEB}
 RUN npm run build
 
 FROM node:20-alpine AS producao

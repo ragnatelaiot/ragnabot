@@ -204,3 +204,69 @@ foto em `/capas/capa-clientes.jpg`, caminho **absoluto** dentro do JavaScript. M
 (`/interface/`), a foto dá 404 — a tela funciona, mas a capa nasce sem imagem. Os demais arquivos
 (JS/CSS/fonte) são relativos (`base: './'` no `vite.config.js`) e sobrevivem ao prefixo. Se um dia o
 prefixo for necessário, é **uma linha** em `CapaSecao.jsx` (o mapa `FOTO`), não uma reforma.
+
+---
+
+## 5. ⭐ ONDE A INTERFACE ESTÁ PENDURADA — o botão `RAGNABOT_PREFIXO_WEB` (contrato S1, 02/09/2026)
+
+> Esta seção substitui, na prática, o aviso do §4 («a interface tem de ser montada na RAIZ»). Ela
+> continua funcionando na raiz — e agora funciona sob prefixo também, com **uma** variável.
+
+### 5.1 O que eu medi ao ligar o roteador (e que muda a conversa)
+
+Ao acrescentar rotas, fui conferir onde o motor está publicado. Duas medições, nos arquivos deste
+repositório:
+
+| Onde | O que diz |
+|---|---|
+| `app/deploy/ragnabot-motor-ingress.yaml` | o motor responde em `bot.ragnatela.com.br/motor-api/…`, com `rewrite-target: /$2` — **o prefixo some antes de chegar à aplicação** |
+| `app/deploy/nginx/bot-motor-api.conf` | esse caminho tem `allow <IP do NOC>; deny all;` e o comentário: *"Não é caminho de cliente: nenhum navegador de usuário passa por aqui"* |
+
+**Duas consequências, e as duas importam:**
+
+1. **Sob prefixo, todo caminho absoluto da tela sai errado.** `/assets/index-*.js`,
+   `/api/ragnabot-fluxo/…`, `/sessao/eu` e `/capas/capa-clientes.jpg` seriam pedidos na RAIZ do
+   domínio — ou seja, ao Ingress da **plataforma**, não ao motor. Sintoma: tela branca (ou "não
+   consigo falar com o servidor") **com 200 na rede**, que é o pior caso para quem diagnostica.
+2. ⛔ **Hoje nenhum navegador de usuário alcança a interface.** O `deny all` do proxy é deliberado —
+   aquela é a porta de SERVIÇO (NOC → motor). Ou seja: o roteador, o menu e as telas novas estão
+   prontos e provados, **e o dono ainda não chega neles**. Publicar a interface é decisão do chefe,
+   e está no relatório do contrato S1.
+
+### 5.2 O conserto: uma variável, lida num lugar só
+
+`vite.config.js` lê `RAGNABOT_PREFIXO_WEB` na construção e grava em `import.meta.env.BASE_URL`.
+`src/lib/prefixo.js` é a **única** leitura desse valor no código da tela; rede (`api.js`,
+`api-empresas.js`, `api-respostas-rapidas.js`), roteador (`basename` do `BrowserRouter`) e fotos
+(`CapaSecao.jsx`) perguntam lá.
+
+```bash
+# a interface na RAIZ do host (padrão — nada muda em relação a antes)
+npm run build
+
+# a interface sob um prefixo (ex.: https://bot.ragnatela.com.br/motor-api/)
+RAGNABOT_PREFIXO_WEB=/motor-api/ npm run build
+```
+
+No `Dockerfile`, se a decisão for pelo prefixo, basta um `ARG`/`ENV` antes do `RUN npm run build`
+da etapa `interface`. **Não mexi no Dockerfile** — a decisão de onde publicar não é minha.
+
+| Variável | Para quê | Padrão |
+|---|---|---|
+| `RAGNABOT_PREFIXO_WEB` | onde a interface fica pendurada no host | `/` (raiz) |
+
+### 5.3 Como isto é medido
+
+`node tests/prefixo.smoke.mjs` **constrói de verdade** com `RAGNABOT_PREFIXO_WEB=/motor-api/` (numa
+pasta própria, `dist-prefixo/`, nunca em `dist/`) e confere: o índice pedindo os arquivos dentro do
+prefixo, as quatro bases de API resolvidas com o prefixo, a foto da capa idem, o `basename` sem a
+barra final — e que a construção **padrão continua na raiz**. Está no `npm test`.
+
+### 5.4 O desvio-para-a-página continua valendo (e agora é medido para as rotas novas)
+
+O bloco do §1 não mudou uma linha. `tests/servir.smoke.mjs` passou a medir também o F5 em
+`/fluxos`, `/respostas-rapidas` e `/empresas` — porque quem faz o recarregamento funcionar é o
+SERVIDOR, não o roteador do navegador: o roteador só entra em cena depois que o índice carrega.
+
+⚠️ Sob prefixo, quem devolve o índice para `/motor-api/fluxos` é o mesmo bloco — o Ingress reescreve
+para `/fluxos` antes de chegar ao Express, e ele cai no curinga como qualquer outra navegação.

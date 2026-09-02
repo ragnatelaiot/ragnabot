@@ -27,9 +27,11 @@
 // quem dá o veredito continua sendo o servidor, isto aqui só evita a viagem perdida.
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 import { sessaoExpirada } from './api.js';
+import { caminhoDoApp } from './prefixo.js';
 
-/** Onde `servidor.js` monta `routes/ragnabot-tenant.routes.js`. Mesmo caminho do NOC, de propósito. */
-export const BASE_EMPRESAS = '/api/ragnabot';
+/** Onde `servidor.js` monta `routes/ragnabot-tenant.routes.js`. Mesmo caminho do NOC, de propósito.
+ *  ⭐ Passa pelo prefixo do deploy desde 02/09/2026 — ver `lib/prefixo.js`. */
+export const BASE_EMPRESAS = caminhoDoApp('/api/ragnabot');
 
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 // 1. O PEDIDO

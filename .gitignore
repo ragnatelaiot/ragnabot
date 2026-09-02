@@ -4,3 +4,5 @@
 *.key
 node_modules/
 dist/
+# o winston escreve aqui quando o motor roda fora de contêiner; log nunca vai ao git
+logs/

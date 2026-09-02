@@ -5,22 +5,55 @@
 > código). Quando uma versão nova entra em `VERSOES.md`, a função correspondente entra ou muda aqui —
 > os dois arquivos andam juntos.
 >
-> Estado coberto: **v1.00.00**. O que ainda não existe está marcado _(planejado)_ e aponta o item
+> Estado coberto: **v1.06.00**. O que ainda não existe está marcado _(planejado)_ e aponta o item
 > do `docs/32-PLANO-DE-EXECUCAO.md`.
 
 ---
 
 ## Sumário
+0. [Por onde se anda no Ragnabot (menu e telas)](#0-por-onde-se-anda-no-ragnabot-menu-e-telas)
 1. [Conexões e automações](#1-conexões-e-automações)
 2. [Relógios de atendimento](#2-relógios-de-atendimento)
 3. [Expediente, intervalo e feriado](#3-expediente-intervalo-e-feriado)
 4. [Transferência](#4-transferência)
 5. [Fluxo de conversa (chatbot)](#5-fluxo-de-conversa-chatbot)
+5-F. [Testador de fluxo](#5-f-testador-de-fluxo)
+5-G. [A tela das respostas rápidas](#5-g-a-tela-das-respostas-rápidas)
+5-H. [O caminho do primeiro "oi"](#5-h-o-caminho-do-primeiro-oi--inteiro-e-por-que-ele-está-desligado)
+5-I. [Ainda não ligado: Capitão e Pix](#5-i-ainda-não-ligado-capitão-agente-de-ia-e-cobrança-por-pix)
 6. [Multiempresa, planos e cobrança](#6-multiempresa-planos-e-cobrança)
 7. [Protocolo e auditoria](#7-protocolo-e-auditoria)
 7-A. [Entrar no Ragnabot (login da tela)](#7-a-entrar-no-ragnabot-login-da-tela)
 8. [Infraestrutura (o que sustenta tudo)](#8-infraestrutura)
 9. [Backup e recuperação](#9-backup-e-recuperação)
+
+---
+
+## 0. Por onde se anda no Ragnabot (menu e telas)
+
+**O que faz.** É a casca da interface: menu à esquerda, cabeçalho com a empresa e a versão, e o
+botão de sair. Antes disto a interface era **uma página só** — o construtor de fluxo existia e
+ninguém chegava nele, porque não havia caminho.
+
+**Como o operador usa.** Entra com a conta da plataforma e cai direto em **Fluxos**. No menu:
+
+| Item | Para quê | Quem vê |
+|---|---|---|
+| **Fluxos** | desenhar e publicar o atendimento automático | todos |
+| **Respostas rápidas** | os atalhos de texto que a equipe repete o dia inteiro | todos |
+| **Testador de fluxo** | conversar com o fluxo antes de qualquer cliente | todos |
+| **Empresas** | cadastro comercial de quem contrata (é tela de operador do SaaS) | administrador |
+
+O menu recolhe no botão do canto (fica só o ícone) e a escolha é lembrada no navegador. Os itens são
+**links de verdade**: abrem em nova aba, o endereço pode ser copiado e o botão "voltar" funciona.
+
+**Como funciona por dentro.** O catálogo de telas é um arquivo só (`web/src/lib/navegacao.js`), o que
+permite medir "quem vê o quê" sem abrir navegador. ⚠️ **Esconder item de menu não é segurança** —
+quem tranca é o servidor, e o teste que vale é a API recusando, não o botão sumindo.
+
+⚠️ **Onde a interface está pendurada é uma declaração, não um palpite.** O pacote é construído com o
+caminho em que vai morar (hoje `/motor-api/`). Mudar esse caminho exige **construir de novo** — não
+basta mexer no proxy.
 
 ---
 
@@ -104,8 +137,11 @@ meio, a execução **retoma sozinha**. A fila do motor (`RagnabotFluxoFila`) par
 **Publicação (v1.01.00).** Publicar congela o rascunho numa **versão imutável** e reaponta o fluxo.
 A assinatura de estrutura **ignora as coordenadas do editor** — arrastar um bloco não cria versão
 nova e não órfã quem está no meio da conversa; mudar uma ligação/tipo, sim. Reverter **copia para a
-frente** (versão nova com o conteúdo antigo), mantendo a numeração contínua. _Planejado:_ o
-**resolvedor de entrada** (quem escolhe o fluxo do primeiro "oi") ainda não amarra o motor (§A1).
+frente** (versão nova com o conteúdo antigo), mantendo a numeração contínua.
+
+⭐ **v1.06.00:** o **resolvedor de entrada** deixou de ser promessa — o caminho do primeiro "oi" está
+inteiro (§5-H). Ele sobe **desligado** nesta versão, de propósito, e o §5-H explica o porquê e como
+se percebe isso pelo `/saude`.
 
 ---
 
@@ -200,6 +236,113 @@ resposta e **não** verifica a janela de 24 h (e-mail não passa pela Meta). O c
 quebras de linha de propósito: sem isso, um texto digitado pelo cliente poderia acrescentar
 destinatários ocultos ao nosso e-mail. A cópia oculta nunca entra no registro — senão deixaria de
 ser oculta.
+
+---
+
+## 5-F. Testador de fluxo
+
+**O que faz.** Deixa você conversar com o fluxo **antes** de publicar — sem mandar nada para
+ninguém, sem gravar nada e sem chamar nenhum serviço de fora.
+
+**Como o operador usa.** Abre **Testador de fluxo**, escolhe o fluxo, aperta *Começar* e digita como
+se fosse o cliente. Quando o fluxo espera uma escolha de menu, os botões aparecem prontos para
+clicar. A tela é dividida em duas leituras, e a divisão é o ponto:
+
+- **O que o cliente veria** — só as mensagens, do jeito que chegariam no aparelho dele.
+- **Nos bastidores** — etiqueta aplicada, protocolo carimbado, nota interna, resolução, transferência.
+  Isso **não** são mensagens; numa lista única o operador contaria cinco balões numa conversa que
+  tem dois, e "corrigiria" um envio repetido que não existe.
+
+Os problemas encontrados vêm separados em **erro** (trava a publicação) e **aviso** (não trava). Uma
+tela que grita igual para os dois ensina o operador a ignorar os dois.
+
+Há sempre uma faixa dizendo, em português, que aquilo é **simulação**. Ela não some.
+
+**Como funciona por dentro.** Quem percorre o fluxo é o **motor de produção**, no servidor, com os
+mesmos executores — o navegador não simula nada. Um simulador escrito à parte diverge do motor em
+poucas semanas, e a divergência aparece justamente quando alguém confia nele para publicar. O relógio
+(expediente, feriado) vem do banco, como em produção, e a resposta diz de onde veio. Fluxo de outra
+empresa responde **404**, nunca o documento.
+
+---
+
+## 5-G. A tela das respostas rápidas
+
+**O que faz.** Dá tela ao que já funcionava desde 29/08 (§5-B): cadastrar, buscar, editar e apagar os
+atalhos de texto.
+
+**Como o operador usa.** Menu **Respostas rápidas**. A lista mostra o atalho em destaque, o escopo em
+uma palavra — **"Só eu"** ou **"Todos"** — e o começo do texto. O campo de busca filtra por atalho,
+por título e pelo conteúdo. No formulário: o atalho (sem a barra), o título, o texto, o escopo e,
+opcionalmente, a caixa ou o time em que ele vale.
+
+⚠️ **Duas coisas do chat atual ainda não existem, e a tela diz isso em vez de fingir:**
+**várias mensagens por atalho** (o modelo guarda um texto só) e **anexo** (não há campo nem lugar
+definido para o arquivo). As duas exigem mudança de banco, que neste produto é caminho longo de
+propósito.
+
+---
+
+## 5-H. O caminho do primeiro "oi" — inteiro, e por que ele está desligado
+
+**O que faz.** É a corrente que leva a mensagem de quem escreve até a resposta do robô:
+
+```
+plataforma → webhook → portaria → fila do motor → motor → adaptador de canal → cliente
+```
+
+**O que mudou na v1.06.00.** Faltavam três elos, e os três nasceram juntos:
+
+1. **O webhook passou a entregar a mensagem à portaria.** A função existia, estava testada, e
+   ninguém a chamava: o cliente mandava "oi" e o motor nunca era acionado.
+2. **O adaptador de canal** — quem transforma a intenção do fluxo ("mande este menu") em mensagem de
+   verdade na plataforma. Sem ele, o motor montava a frase e não havia ninguém do outro lado.
+3. **A fila do motor com o seu executor** — quem tira o trabalho da fila e faz a conversa andar. A
+   fila existia e recebia trabalho; ninguém o retirava.
+
+**⚠️ O executor sobe DESLIGADO, e isso é decisão, não defeito.** O produto já tem conversa real de
+gente. Enquanto ele estiver desligado: a mensagem continua sendo **recebida e gravada**, o trabalho
+continua **entrando na fila**, e **ninguém o consome** — ou seja, o robô não responde. É um freio
+para um aperto, nunca um estado de repouso. Ligar é mexer numa variável e reiniciar; acompanhe o
+tamanho e a **idade** da fila em `GET /saude`, campo `filaDoMotor`.
+
+**Como o operador percebe que está desligado.** No `/saude`, `filaDoMotor.executor.ligado` é `false`
+e o motivo aparece escrito. No registro do arranque, uma linha em amarelo diz a mesma coisa.
+
+**Quatro armadilhas que a ligação com a portaria evita, e vale conhecer:**
+
+- **O robô conversando sozinho** — toda mensagem que o robô envia volta como evento. A classificação
+  é *positiva*: só mensagem que entra, não privada, de quem não é atendente vira "resposta do
+  cliente". Todo o resto é registrado e não acorda ninguém.
+- **A nota interna virando escolha de menu** — nota é o atendente falando com o time, e nunca conta
+  como resposta.
+- **A reentrega virando segunda conversa** — a plataforma reentrega quando não recebe um "ok", e isso
+  é desejado; a mesma mensagem é reconhecida e descartada em duas camadas (uma delas é o índice
+  criado nesta versão).
+- **O erro nosso entupindo a fila da plataforma** — mensagem gravada devolve "ok" mesmo que o resto
+  tenha degradado; só mensagem **não** gravada pede reentrega.
+
+---
+
+## 5-I. Ainda não ligado: Capitão (agente de IA) e cobrança por Pix
+
+Duas frentes entraram no produto **sem serem ligadas**. Estão aqui para que ninguém as procure na
+tela e ache que sumiram.
+
+**Capitão — o agente de IA.** É a camada da casa sobre o agente nativo da plataforma: quem está
+ligado, com quais documentos, com que marca (o agente se apresenta como agente **da empresa
+cliente**, nunca como produto de terceiro), com que teto de gasto e a partir de que confiança ele
+pode responder. **Nasce desligado**, sem chave configurada, e **não tem tela**. Abaixo da confiança
+mínima ele devolve ao humano em vez de chutar — chutar é pior, porque o cliente acredita.
+⚠️ Nenhum texto de cliente é guardado: a pergunta vira impressão digital e a resposta vira contagem
+de caracteres.
+
+**Cobrança por Pix (Efí).** O caminho técnico existe e **não tem nenhuma credencial**; por padrão ele
+**recusa**. Nada é cobrado por aqui enquanto o dono não decidir a conta, o certificado e o ambiente.
+
+⚠️ **As tabelas das duas frentes ainda não existem no banco.** A publicação de 02/09 aplicou apenas a
+migração da fila. Enquanto isso, abrir uma dessas rotas responde erro — e é por isso que elas não
+estão no menu.
 
 ---
 

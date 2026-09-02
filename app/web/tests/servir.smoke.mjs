@@ -105,7 +105,11 @@ await new Promise((ok) => servidor.once('listening', ok));
 const base = `http://127.0.0.1:${servidor.address().port}`;
 
 let falhas = 0;
+// Contado, e não escrito à mão no rodapé: o número fixo ("8 de 8") mente na primeira medição nova,
+// e mente para MENOS — o que faz um teste acrescentado passar despercebido.
+let medicoes = 0;
 async function medir(titulo, caminho, conferir, opcoes = {}) {
+  medicoes += 1;
   const r = await fetch(`${base}${caminho}`, opcoes);
   const corpo = await r.text();
   try {
@@ -186,11 +190,36 @@ await medir('URL antiga de fluxo devolve a página (F5 não dá 404)', '/ragnabo
   assert.match(corpo, /<div id="raiz">/);
 }, HTML);
 
+// ── ⭐ AS ROTAS DO ROTEADOR (contrato S1, 02/09/2026) ────────────────────────────────────────────
+// O critério de aceite do contrato é literal: «recarregar em /fluxos cai em /fluxos, não em erro».
+// Quem cumpre isso é o SERVIDOR — o roteador do navegador só entra em cena depois que o índice
+// carrega. Sem o desvio-para-a-página, um F5 em `/fluxos` daria 404 e o construtor de fluxo ficaria
+// inalcançável de novo, que é exatamente a dor que este contrato existe para consertar.
+for (const rota of ['/fluxos', '/respostas-rapidas', '/empresas']) {
+  await medir(`F5 em ${rota} devolve a página (não 404)`, rota, ({ status, corpo, cache }) => {
+    assert.equal(status, 200);
+    assert.match(corpo, /<div id="raiz">/);
+    assert.match(cache, /no-store/);
+  }, HTML);
+}
+
+// ⚠️ ESTA MEDIÇÃO É O PORQUÊ DE `vite.config.js` TER MUDADO DE `base: './'` PARA `base: '/'`.
+// Com caminho relativo, o índice servido em `/ragnabot-fluxos/abc-123` pediria
+// `./assets/index-*.js` = `/ragnabot-fluxos/assets/index-*.js` — 404, tela BRANCA e 200 na rede,
+// o pior sintoma possível. Com base absoluta, o mesmo índice serve em qualquer profundidade.
+await medir('o índice pede os arquivos por caminho ABSOLUTO (funciona em rota aninhada)', '/',
+  ({ corpo }) => {
+    const pedidos = [...corpo.matchAll(/(?:src|href)="([^"]+)"/g)].map((m) => m[1]);
+    const relativos = pedidos.filter((p) => p.startsWith('./') || p.startsWith('../'));
+    assert.deepEqual(relativos, [], `pedido relativo no índice quebraria rota aninhada: ${relativos.join(', ')}`);
+    assert.ok(pedidos.some((p) => /^\/assets\/index-.*\.js$/.test(p)), 'não achei o módulo em /assets/');
+  }, HTML);
+
 await medir('arquivo inexistente dá 404, e NÃO HTML disfarçado', '/assets/nao-existe-Ab12.js', ({ status, corpo }) => {
   assert.equal(status, 404);
   assert.doesNotMatch(corpo, /<div id="raiz">/);
 });
 
 servidor.close();
-console.log(falhas === 0 ? '\nRESULTADO: 8 de 8 medições passaram.\n' : `\nRESULTADO: ${falhas} FALHA(S).\n`);
+console.log(falhas === 0 ? `\nRESULTADO: ${medicoes} de ${medicoes} medições passaram.\n` : `\nRESULTADO: ${falhas} FALHA(S).\n`);
 process.exit(falhas === 0 ? 0 : 1);

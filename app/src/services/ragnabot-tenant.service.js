@@ -111,15 +111,20 @@ export class ErroPlataforma extends Error {
   }
 }
 
-function montarCliente(cabecalhos) {
+function montarCliente(cabecalhos, { multipart = false } = {}) {
   const hostname = hostnameDaPlataforma();
   const base = IP_PROXY ? `https://${IP_PROXY}` : URL_PUBLICA;
+  // ⚠️ Em multipart o `Content-Type` NÃO pode ser fixado aqui: quem escreve o cabeçalho é o axios,
+  // porque só ele conhece a fronteira (`boundary`) que separa as partes. Cravar
+  // `multipart/form-data` sem a fronteira faz o Rails do Chatwoot devolver 422 com o corpo vazio —
+  // um erro que parece de permissão e é de formato.
+  const tipo = multipart ? {} : { 'Content-Type': 'application/json' };
   return axios.create({
     baseURL: base,
     timeout: TEMPO_LIMITE_MS,
     // `servername` faz o SNI E a validação do certificado usarem o nome real.
     httpsAgent: new https.Agent({ servername: hostname, keepAlive: false }),
-    headers: { Host: hostname, 'Content-Type': 'application/json', Accept: 'application/json', ...cabecalhos },
+    headers: { Host: hostname, ...tipo, Accept: 'application/json', ...cabecalhos },
     maxRedirects: 0,
     validateStatus: () => true, // tratamos o status na mão, para mensagem em PT-BR
   });
@@ -867,6 +872,29 @@ export async function comoAdminDaEmpresa(tenantId, metodo, caminhoOuFabrica, cor
   const token = await tokenDeAdminDoTenant(t.cwAdminUserId);
   const caminho = typeof caminhoOuFabrica === 'function' ? caminhoOuFabrica(t.cwAccountId) : caminhoOuFabrica;
   return aplicacao(token, metodo, caminho, corpo);
+}
+
+/**
+ * A MESMA chamada de `comoAdminDaEmpresa`, mas com corpo `multipart/form-data`.
+ *
+ * Existe por UM motivo concreto: a API de mensagens do Chatwoot só aceita anexo como ARQUIVO
+ * (`attachments[]`), nunca como URL. Sem este caminho, o nó `midia` do motor de fluxo só teria como
+ * degradar para "mando o link no texto" — que funciona, mas não é enviar mídia.
+ *
+ * O token do admin continua sendo obtido AO VIVO e usado de forma efêmera, exatamente como em
+ * `comoAdminDaEmpresa`: quem tem o token tem a conta inteira do cliente, e por isso ele não sai
+ * daqui nem é devolvido a quem chama.
+ *
+ * @param {string} tenantId
+ * @param {string|((conta:number)=>string)} caminhoOuFabrica
+ * @param {FormData} formulario
+ */
+export async function comoAdminDaEmpresaMultipart(tenantId, caminhoOuFabrica, formulario) {
+  const t = await exigirTenant(tenantId);
+  const token = await tokenDeAdminDoTenant(t.cwAdminUserId);
+  const caminho = typeof caminhoOuFabrica === 'function' ? caminhoOuFabrica(t.cwAccountId) : caminhoOuFabrica;
+  const cliente = montarCliente({ api_access_token: token }, { multipart: true });
+  return requisitar(cliente, 'post', caminho, formulario);
 }
 
 /** Lista as caixas de entrada AO VIVO na plataforma (fonte da verdade). */

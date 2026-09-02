@@ -5,15 +5,18 @@ desenho para o cliente Prisma, mas **não é ele que cria a base**.
 
 ## Por que não `prisma db push` (LEI 2 da casa)
 
-Três coisas deste banco o Prisma **não sabe declarar** e apaga **em silêncio**:
+Quatro coisas deste banco o Prisma **não sabe declarar** e apaga **em silêncio**:
 
 1. as **3 chaves estrangeiras compostas** (`rb_no_versao_fk`, `rb_aresta_versao_fk`,
    `rb_exec_versao_fk`) — a tranca que recusa, no próprio banco, juntar dado de empresas
    diferentes;
 2. o **índice único parcial** de fluxo publicado por caixa;
-3. o **gatilho de imutabilidade** da versão publicada.
+3. o **gatilho de imutabilidade** da versão publicada;
+4. o **índice único parcial da fila** (`rb_fila_idem_pendente`) — sem ele a mesma visita entra duas
+   vezes e o cliente lê a mesma frase duas vezes.
 
 Sem os arquivos 02, 03 e 04 do `motor-fluxo/`, a base nasce **sem isolamento** — parecendo certa.
+Sem o 05, ela nasce **sem idempotência de fila** — e isso só aparece sob concorrência, em produção.
 
 ## Ordem
 
@@ -32,8 +35,11 @@ Aplique nesta ordem (as dependências de chave estrangeira são entre arquivos, 
 | 9 | `motor-fluxo/03-rb_versao_imutavel.sql` | gatilho: versão publicada não muda |
 | 10 | **`motor-fluxo/04-rb_fk_compostas.sql`** | ⚠️ **as 3 FKs compostas — o isolamento entre empresas** |
 | 11 | `respostas-rapidas/01-rb_respostas_rapidas.sql` | `RagnabotRespostaRapida` |
+| 12 | `capitao/01-rb_capitao.sql` | `RagnabotCapitaoConfig`, `RagnabotCapitaoDocumento`, `RagnabotCapitaoInteracao`, `RagnabotCapitaoConsumoMes` |
+| 13 | `pagamento-pix/01-rb_pagamento_pix.sql` | `RagnabotPagamentoCredencial`, `RagnabotCobrancaPix`, `RagnabotCobrancaPixEvento` |
+| 14 | **`motor-fluxo/05-rb_fila_idempotencia.sql`** | ⚠️ `RagnabotFluxoFila.chaveIdem` + o índice único **parcial** `rb_fila_idem_pendente` — a mesma visita não entra duas vezes na fila |
 
-Total: **40 tabelas** — o mesmo número de modelos `Ragnabot*` no `schema.prisma`.
+Total: **47 tabelas** — o mesmo número de modelos `Ragnabot*` no `schema.prisma`.
 
 ## Como aplicar
 
@@ -68,3 +74,12 @@ grep -i drop /tmp/novo.sql        # tem de sair VAZIO; se não sair, recorte cad
 prisma db execute --file /tmp/novo.sql
 # e versione o resultado aqui, em prisma/sql/<assunto>/NN-*.sql
 ```
+
+## Acréscimos de 02/09/2026 (S5 + S-EFÍ)
+
+- `capitao/` e `pagamento-pix/` — **gerados** por `prisma migrate diff --from-empty
+  --to-schema-datamodel <só os modelos novos> --script` e conferidos: **zero `DROP`**.
+  ⛔ **Ainda não aplicados em nenhum banco** — não havia `DATABASE_URL` alcançável na estação em
+  que foram escritos. Quem aplicar deve rodar, logo depois, os dois verificadores do motor
+  (`verificar-estrutura.mjs` e `verificar-comportamento.mjs`) para provar que as 3 FKs compostas
+  continuam vivas — e lembrar que o cliente Prisma novo só vale no processo APÓS reinício.

@@ -233,3 +233,175 @@ a:hover { text-decoration: underline; }
 }
 @media (max-width: 768px) { .capa { height: 112px; } .capa__titulo { font-size: 1.375rem; } }
 @media (max-width: 480px) { .capa { height: 96px; } .capa__titulo { font-size: 1.1875rem; } .capa__apoio { display: none; } }
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+   A CASCA — menu lateral, cabeçalho e rodapé (contrato S1, 02/09/2026 · doc 34 §F10.2)
+   ════════════════════════════════════════════════════════════════════════════════════════════════
+   Até 02/09 a interface era UMA página: `main.jsx` montava o editor de fluxo e pronto. Não havia
+   menu porque não havia segunda tela — e não havia segunda tela porque não cabia sem menu. Estas
+   regras quebram esse laço.
+
+   ⚠️ TRÊS ARMADILHAS MEDIDAS, e o porquê de cada linha que as evita:
+
+   1. `.pagina` tinha (e mantém) `min-height: 100vh`. Dentro de uma coluna flex isso empurraria o
+      rodapé para sempre abaixo da dobra, mesmo numa tela de três linhas. Por isso
+      `.casca .pagina { min-height: 0; flex: 1 }` — a altura mínima continua valendo para a TELA DE
+      ENTRADA, que é servida fora da casca.
+
+   2. NADA aqui pode criar container de rolagem na coluna de conteúdo (`overflow` diferente de
+      `visible`). `CapaSecao` é `position: sticky; top: 0` e se prende ao ancestral de rolagem mais
+      próximo: bastaria um `overflow: auto` na coluna para a capa deixar de grudar na janela e
+      começar a "flutuar" no meio da tela. É a mesma armadilha já paga no `body` desta folha
+      (`overflow-x: hidden` virando `clip`).
+
+   3. O menu é `position: sticky` com `align-self: start`, e NÃO `position: fixed`. Fixo sairia do
+      fluxo e o conteúdo passaria por baixo dele em qualquer largura que a conta de `margin` errasse.
+   ════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+.casca {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  align-items: start;
+  min-height: 100vh;
+}
+
+/* `minmax(0, 1fr)` acima e `min-width: 0` aqui são a MESMA defesa, dita duas vezes: sem ela, o
+   canvas do editor de fluxo (que é largo) estica a coluna e o menu sai da tela. Item de grade tem
+   largura mínima automática = conteúdo, e é a causa nº 1 de "a página rola para o lado". */
+.casca__coluna {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.casca .pagina { min-height: 0; flex: 1; }
+
+/* ── Menu lateral ───────────────────────────────────────────────────────────────────────────── */
+.casca__menu {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-lg) var(--space-md);
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-primary);
+  /* O menu é a ÚNICA coisa que pode rolar sozinha — ele não contém capa nenhuma. */
+  overflow-y: auto;
+  z-index: 30;   /* acima da capa (z-index 20), senão a capa passa por cima ao rolar */
+}
+
+.casca__marca { display: flex; flex-direction: column; margin-bottom: var(--space-md); position: relative; }
+.casca__marca-olho { font-size: 0.625rem; letter-spacing: 1.5px; text-transform: uppercase; font-weight: var(--peso-forte); color: var(--primary); }
+.casca__marca-nome { font-size: 1.0625rem; font-weight: var(--peso-titulo); letter-spacing: -0.4px; color: var(--text-primary); }
+
+.casca__nav { display: flex; flex-direction: column; gap: var(--space-2xs); }
+
+.casca__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.casca__item:hover { background: var(--bg-hover); color: var(--text-primary); text-decoration: none; }
+
+/* A tela em que estou tem BARRA à esquerda, além da cor. Cor sozinha reprova em daltonismo, e um
+   menu é exatamente onde a pessoa precisa saber onde está sem pensar. */
+.casca__item--ativo {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border-color: var(--border-secondary);
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+
+.casca__rodape-menu {
+  margin-top: auto;
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border-primary);
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* ── Cabeçalho ──────────────────────────────────────────────────────────────────────────────── */
+.casca__cabecalho {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  padding: var(--space-sm) var(--space-lg);
+  border-bottom: 1px solid var(--border-primary);
+  background: var(--bg-secondary);
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.casca__cabecalho-txt { display: flex; align-items: baseline; gap: var(--space-sm); min-width: 0; }
+.casca__cabecalho-tela { font-weight: var(--peso-forte); color: var(--text-primary); font-size: 0.875rem; }
+.casca__cabecalho-empresa { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.casca__aviso { color: var(--warning); flex: 1 1 200px; }
+.casca__ator { margin-left: auto; display: flex; gap: var(--space-xs); align-items: baseline; }
+.casca__papel { color: var(--text-secondary); }
+.casca__papel::before { content: '· '; }
+
+/* O botão de abrir e o de fechar só existem no celular — no computador o menu está sempre lá. */
+.casca__abrir, .casca__fechar, .casca__veu { display: none; }
+
+.casca__fechar {
+  position: absolute; top: -4px; right: -4px;
+  background: transparent; border: none; color: var(--text-secondary); cursor: pointer;
+  padding: var(--space-xs); border-radius: var(--radius-md);
+}
+.casca__fechar:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+/* ── Rodapé ─────────────────────────────────────────────────────────────────────────────────── */
+.casca__rodape {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  justify-content: flex-end;
+  padding: var(--space-md) var(--space-lg);
+  border-top: 1px solid var(--border-primary);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+.casca__assinatura { color: var(--text-secondary); }
+
+/* ── Celular e tablet estreito: o menu vira gaveta ──────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .casca { grid-template-columns: minmax(0, 1fr); }
+
+  .casca__menu {
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    width: min(268px, 84vw);
+    transform: translateX(-102%);   /* 102% e não 100%: a sombra da borda também tem de sair */
+    transition: transform 180ms ease;
+    box-shadow: var(--sh3);
+    z-index: 60;
+  }
+  .casca__menu--aberto { transform: translateX(0); }
+
+  .casca__veu {
+    display: block;
+    position: fixed; inset: 0;
+    background: rgba(4, 12, 16, 0.62);
+    z-index: 55;
+  }
+
+  .casca__abrir, .casca__fechar { display: inline-flex; }
+  .casca__ator { margin-left: 0; }
+  .casca__cabecalho { padding: var(--space-sm); }
+}
+
+/* Quem pede menos movimento não ganha a animação da gaveta — a regra global de `prefers-reduced-
+   motion` já zera a transição; esta linha existe para deixar claro que a gaveta continua ABRINDO,
+   só que instantaneamente. Menu que não abre é pior que menu que abre sem animação. */

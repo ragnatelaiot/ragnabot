@@ -19,6 +19,67 @@
 
 ---
 
+## v1.06.00 — O Ragnabot ganhou casa: menu, telas e o caminho do primeiro "oi" (02/09/2026)
+
+Esta versão junta o trabalho de um dia inteiro. A frase que resume: **o produto passou a ter uma
+casa por onde se anda** — menu, telas próprias e um testador — e o caminho que leva a mensagem do
+cliente até o robô ficou **inteiro pela primeira vez**, ainda que **desligado de propósito** nesta
+subida.
+
+### O que você vê e pode usar hoje
+
+- **Menu e navegação.** Até aqui a interface do Ragnabot era **uma página só**: o construtor de
+  fluxo existia desde 28/08 e ninguém chegava nele, porque não havia caminho. Agora há menu lateral
+  (com o modo recolhido), cabeçalho com a empresa, a versão e o botão de sair, e endereços de
+  verdade — dá para abrir em nova aba, copiar o endereço e usar o botão "voltar" do navegador.
+- **Tela de respostas rápidas.** O recurso já funcionava desde 29/08 e **não tinha tela nenhuma**.
+  Agora dá para cadastrar, buscar, editar e apagar atalho pela interface, escolhendo entre
+  **"Só eu"** e **"Todos"**, e restringindo a uma caixa ou a um time.
+- **Testador de fluxo** — o item mais pedido do plano. Conversa com o fluxo **antes** de qualquer
+  cliente conversar com ele: você digita, vê o que o cliente veria, e vê **em separado** o que
+  acontece nos bastidores (etiqueta, carimbo, nota interna, resolução). Nada é enviado, nada é
+  gravado, nenhum terceiro é chamado — e há um teste permanente que prende essa promessa.
+
+### O que passou a existir por dentro (e ainda não está ligado)
+
+- **O caminho do primeiro "oi" ficou inteiro.** `plataforma → webhook → portaria → fila → motor →
+  canal → cliente`. Faltavam três elos e os três nasceram aqui: o **adaptador de canal** (quem
+  transforma a intenção do fluxo em mensagem de verdade), a **fila do motor com seu executor**
+  (quem tira o trabalho da fila e faz a conversa andar) e a **ligação do webhook com a portaria**
+  (a mensagem do cliente finalmente chega ao motor).
+- ⚠️ **O executor sobe DESLIGADO nesta versão, por decisão.** O Ragnabot já tem conversa real de
+  gente. Ligar o motor para processar mensagem de cliente sem alguém olhando é risco que não se
+  corre num dia de publicação. O código está no ar; ligar é um segundo passo, deliberado.
+- **Capitão (o agente de IA)** — a camada da casa sobre o agente nativo da plataforma: quem está
+  ligado, com que documentos, com que marca e quanto já gastou. **Nasce desligado** e sem nenhuma
+  chave configurada. Nenhum texto de cliente é guardado nessas tabelas: a pergunta vira impressão
+  digital e a resposta vira contagem de caracteres.
+- **Cobrança por Pix (Efí)** — o caminho técnico existe, **sem nenhuma credencial**, e por padrão
+  ele **recusa**. Enquanto o dono não decidir a conta e o certificado, nada é cobrado por aqui.
+
+### As duas correções silenciosas que evitam dor
+
+- **Encerramento gracioso de verdade.** Ao reiniciar, o processo agora espera os passos em voo,
+  devolve o trabalho para a fila e solta as posses. Antes, um desligamento no meio deixava conversas
+  paradas por até 90 segundos — e, numa implantação, isso acontecia toda vez.
+- **O aviso "ainda está aí?" tinha estado, mas não tinha voz.** O consumidor mudava a conversa de
+  estado e o texto não saía, por falta do adaptador de canal. Agora sai.
+
+### Depende de / ainda não está pronto
+
+- **A interface não é alcançável por navegador de usuário.** Ela é servida em
+  `bot.ragnatela.com.br/motor-api/`, que é a **porta de serviço** — o proxy só deixa passar o console
+  de operação. Publicar num caminho de gente é decisão do chefe (a escolha registrada é
+  `bot.ragnatela.com.br/painel/`).
+- **A plataforma ainda não avisa o motor.** Medido no dia da publicação: **nenhum webhook cadastrado**
+  na conta do Chatwoot. Enquanto ele não for cadastrado, a portaria não recebe mensagem nenhuma.
+- **Nenhuma automação está configurada** (zero políticas de atendimento, zero fluxos publicados). É
+  por isso que esta subida **não muda nada** para quem conversa com a gente hoje.
+- **Capitão, Pix e agente de IA não têm tela** — e as tabelas deles **ainda não foram criadas no
+  banco**. Só a migração da fila (`motor-fluxo/05`) foi aplicada nesta publicação.
+
+---
+
 ## v1.05.00 — Casa própria de verdade (30/08/2026)
 
 O Ragnabot deixou de depender do NOC para **qualquer coisa** de atendimento e administração.

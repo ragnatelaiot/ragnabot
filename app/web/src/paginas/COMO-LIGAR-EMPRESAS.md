@@ -111,3 +111,29 @@ As três peças (`device.service`, `prisma.user`/identidade e `otp.service`) já
 pendência no **doc 33 §8**, com destino decidido: identidade, validação e 2FA **mudam de casa**.
 Enquanto não mudam, a tela mostra a mensagem do servidor **e explica a causa embaixo dela** — em vez
 de dizer «erro 500». Ver `diagnosticar()` em `lib/api-empresas.js`.
+
+---
+
+## ✅ 4. LIGADA EM 02/09/2026 (contrato S1)
+
+O §1 acima propunha o `#hash` porque, em 30/08, **não havia roteador** e trazer um seria decisão do
+chefe. A decisão veio: o contrato S1 acrescentou `react-router-dom`, o catálogo de telas
+(`src/lib/navegacao.js`) e a casca (`src/componentes/Casca.jsx`).
+
+**Como ficou, e por que diferente do que este arquivo propunha:**
+
+| O que este arquivo propunha | O que foi feito | Por quê |
+|---|---|---|
+| `#empresas` | `/empresas` (caminho de verdade) | o servidor JÁ devolve a página em qualquer caminho de navegação (`servidor.js`, desvio-para-a-página), então o F5 sempre funcionou. Caminho de verdade se copia, se manda no WhatsApp e aparece certo no histórico |
+| dois links num `<nav>` improvisado | item de menu no catálogo, com papel | «quem vê o quê» virou dado testável (`tests/navegacao.smoke.mjs`), em vez de `&&` dentro do JSX |
+| `ehSuperusuario={!!ator?.isSuperuser}` | **igual** | e a medição deste arquivo continua valendo: o cookie da plataforma dá sempre `isSuperuser: false`, então os três botões de super seguem invisíveis. É coerente com o servidor, não é defeito da tela |
+
+⚠️ **O §3 continua inteiro em pé**: a tela aparece, lista e recusa formulário errado, mas as três
+peças que faltavam (`device.service`, identidade/`prisma.user` e `otp.service`) precisam ser
+reconferidas antes de dizer que a escrita funciona. Elas **existem hoje** em `app/src/services/`
+(mudaram de casa depois daquele levantamento), mas eu **não** as medi neste contrato — quem afirmar
+que a criação de empresa funciona precisa bater na rota, como aquele §3 fez.
+
+📌 Item de menu visível **só para o papel `admin`**. Isso é desenho, e está dito em
+`lib/navegacao.js`: a trava de verdade (a regra do doc 34 §F8 — «Empresas é aba do operador do
+SaaS, não do cliente») é do **servidor**, é o sprint S7 e **ainda não existe**.

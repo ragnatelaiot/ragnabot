@@ -40,6 +40,9 @@ export const PLANOS = {
     caixasPorCanal: { whatsapp: 1, web_widget: 1, email: 1, telegram: 1, instagram: 1, facebook: 1, api: 1 },
     canais: ['web_widget', 'whatsapp'],
     conversasMes: 500,
+    // Teto de respostas do agente de IA (Capitão) por mês. É REGRA DE PRODUTO, por isso
+    // mora aqui e não no banco. 0 = o plano NÃO inclui agente de IA.
+    iaRespostasMes: 0,
     retencaoDias: 365,
     whiteLabelWidget: false,
   },
@@ -50,6 +53,9 @@ export const PLANOS = {
     caixasPorCanal: { whatsapp: 2, web_widget: 2, email: 2, telegram: 1, instagram: 1, facebook: 1, api: 1 },
     canais: ['web_widget', 'whatsapp', 'email', 'instagram', 'facebook'],
     conversasMes: 3000,
+    // Teto de respostas do agente de IA (Capitão) por mês. É REGRA DE PRODUTO, por isso
+    // mora aqui e não no banco. 0 = o plano NÃO inclui agente de IA.
+    iaRespostasMes: 300,
     retencaoDias: 730,
     whiteLabelWidget: true,
   },
@@ -60,6 +66,9 @@ export const PLANOS = {
     caixasPorCanal: { whatsapp: 10, web_widget: 5, email: 5, telegram: 5, instagram: 3, facebook: 3, api: 5 },
     canais: Object.keys(CANAIS),
     conversasMes: 10000,
+    // Teto de respostas do agente de IA (Capitão) por mês. É REGRA DE PRODUTO, por isso
+    // mora aqui e não no banco. 0 = o plano NÃO inclui agente de IA.
+    iaRespostasMes: 1500,
     retencaoDias: 730,
     whiteLabelWidget: true,
   },
@@ -71,6 +80,9 @@ export const PLANOS = {
     caixasPorCanal: { whatsapp: 10, web_widget: 5, email: 5, telegram: 5, instagram: 3, facebook: 3, api: 5 },
     canais: Object.keys(CANAIS),
     conversasMes: 10000,
+    // Teto de respostas do agente de IA (Capitão) por mês. É REGRA DE PRODUTO, por isso
+    // mora aqui e não no banco. 0 = o plano NÃO inclui agente de IA.
+    iaRespostasMes: 1500,
     retencaoDias: 730,
     whiteLabelWidget: true,
   },
@@ -93,7 +105,7 @@ export function limitesDoPlano(nome, override = null) {
     caixasPorCanal: { ...base.caixasPorCanal },
   };
   if (override && typeof override === 'object') {
-    for (const chave of ['agentes', 'caixas', 'conversasMes', 'retencaoDias']) {
+    for (const chave of ['agentes', 'caixas', 'conversasMes', 'retencaoDias', 'iaRespostasMes']) {
       if (Number.isFinite(override[chave])) limites[chave] = override[chave];
     }
     if (Array.isArray(override.canais)) limites.canais = override.canais.filter((c) => c in CANAIS);

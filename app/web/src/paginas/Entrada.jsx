@@ -151,10 +151,27 @@ export function TelaDeEntrada({ aoEntrar, aviso }) {
 }
 
 /**
+ * O aviso da sessão, para quem estiver desenhando a casca.
+ *
+ * ⭐ MUDOU EM 02/09/2026 (contrato S1). Antes o portão desenhava ele mesmo uma `BarraDaSessao` com
+ * o nome de quem entrou e o botão «Sair». Agora quem desenha isso é o CABEÇALHO da casca
+ * (`componentes/Casca.jsx`), porque a interface deixou de ser uma tela só. O aviso ("sua conta
+ * ainda não está cadastrada no Ragnabot", "sua sessão terminou") continua nascendo aqui — ele é do
+ * portão —, e viaja por este contexto em vez de por uma propriedade que atravessaria o roteador
+ * inteiro. Sem provedor, o valor é `null`: um componente montado fora do portão (um teste, por
+ * exemplo) não quebra, só não tem aviso.
+ */
+export const ContextoDaSessao = React.createContext({ aviso: null });
+
+/**
  * O portão. Enquanto não souber quem é, não desenha o editor — e não desenha nada "por otimismo",
  * porque um editor montado sem sessão pediria dados, tomaria 401 e voltaria para cá piscando.
+ *
+ * `rodape` é opcional e só aparece nas telas de FORA (verificando, entrada, falha). Dentro, quem
+ * põe o rodapé é a casca — e ela também é quem sabe a empresa. Passar o mesmo rodapé duas vezes
+ * daria dois rodapés na mesma página em qualquer descuido.
  */
-export function PortaoDeSessao({ children }) {
+export function PortaoDeSessao({ children, rodape = null }) {
   const [estado, setEstado] = useState('verificando'); // verificando|fora|dentro|indisponivel|semRede
   const [detalhe, setDetalhe] = useState(null);
   const [aviso, setAviso] = useState(null);
@@ -179,33 +196,54 @@ export function PortaoDeSessao({ children }) {
     return () => window.removeEventListener(EVENTO_SESSAO_EXPIRADA, aoCair);
   }, []);
 
+  // As telas de FORA vêm embrulhadas em `.pagina` aqui dentro, e não no `main.jsx`: dentro da
+  // sessão quem dá o respiro é a casca (que põe `.pagina` na coluna de conteúdo, ao lado do menu).
+  // Embrulhar nos dois lugares daria padding em dobro, e a capa nasceria com faixa nas laterais.
   if (estado === 'verificando') {
-    return <div style={{ padding: 'var(--space-2xl)', color: 'var(--text-secondary)' }}>Verificando a sessão…</div>;
+    return (
+      <div className="pagina">
+        <div style={{ padding: 'var(--space-2xl)', color: 'var(--text-secondary)' }}>Verificando a sessão…</div>
+        {rodape}
+      </div>
+    );
   }
   if (estado === 'indisponivel' || estado === 'semRede') {
     return (
-      <div style={{ padding: 'var(--space-xl)' }}>
-        <div role="alert" style={{ ...cartao, width: 'min(560px, 100%)', background: 'var(--danger-dim)', borderColor: 'var(--danger)' }}>
-          <b style={{ color: 'var(--danger)' }}>Não consigo abrir a entrada.</b>
-          <p style={{ marginTop: 8, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{detalhe}</p>
-          <button type="button" className="btn btn-secondary" onClick={conferir}>Tentar de novo</button>
+      <div className="pagina">
+        <div style={{ padding: 'var(--space-xl)' }}>
+          <div role="alert" style={{ ...cartao, width: 'min(560px, 100%)', background: 'var(--danger-dim)', borderColor: 'var(--danger)' }}>
+            <b style={{ color: 'var(--danger)' }}>Não consigo abrir a entrada.</b>
+            <p style={{ marginTop: 8, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{detalhe}</p>
+            <button type="button" className="btn btn-secondary" onClick={conferir}>Tentar de novo</button>
+          </div>
         </div>
+        {rodape}
       </div>
     );
   }
   if (estado === 'fora') {
-    return <TelaDeEntrada aviso={aviso} aoEntrar={(s) => { setAviso(s?.aviso || null); setEstado('dentro'); }} />;
+    return (
+      <div className="pagina">
+        <TelaDeEntrada aviso={aviso} aoEntrar={(s) => { setAviso(s?.aviso || null); setEstado('dentro'); }} />
+        {rodape}
+      </div>
+    );
   }
   return (
-    <>
-      <BarraDaSessao aviso={aviso} />
+    <ContextoDaSessao.Provider value={{ aviso }}>
       {children}
-    </>
+    </ContextoDaSessao.Provider>
   );
 }
 
-/** Quem está logado e o botão de sair. Pequena de propósito: a tela é do editor, não da conta. */
-function BarraDaSessao({ aviso }) {
+/**
+ * Quem está logado e o botão de sair — a versão SEM casca.
+ *
+ * ⚠️ Continua exportada, e não é sobra: quem monta a interface fora da casca (um teste de
+ * renderização, ou uma tela isolada) ainda precisa de um jeito de sair. Dentro da casca, quem
+ * desenha isto é o `Cabecalho`, e os dois não aparecem juntos.
+ */
+export function BarraDaSessao({ aviso }) {
   const ator = atorAtual();
   const [saindo, setSaindo] = useState(false);
   return (

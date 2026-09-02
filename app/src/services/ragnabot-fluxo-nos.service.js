@@ -3709,6 +3709,344 @@ export async function enviarEmailDaIntencao(intencao, ctx = {}) {
   };
 }
 
+// ── 18. agente_ia (o "Capitão") ─────────────────────────────────────────────────────────────────
+// S5 / doc 34 §2.C.6 — o nó "passar ao agente de IA".
+//
+// A FRONTEIRA, em uma frase: o fluxo atende primeiro; ESTE nó é o convite formal para a IA entrar,
+// e ele existe justamente para que a IA nunca entre sem convite. Quem decide se ela pode falar é
+// `ragnabot-capitao.service.decidirQuemResponde()` — uma regra escrita uma vez só.
+//
+// ⚠️ POR QUE ELE AGUARDA (motivo `http`), e não responde na hora: perguntar ao agente é chamada de
+// rede, e a regra R1 do motor proíbe rede dentro da transação curta. O nó devolve a INTENÇÃO
+// `agente_ia`; o motor despacha depois do commit e a resposta volta pela FILA (`continuar_http`).
+// É essa volta pela fila que faz a conversa sobreviver a um reinício no meio da pergunta.
+//
+// ⛔ CONTRATO COM O ADAPTADOR (`PortaCanal.enviar`), escrito aqui porque é aqui que se lê:
+//    ao receber `{tipo:'agente_ia', ...}` ele deve chamar
+//    `ragnabot-capitao.service.responderPorIA({... pedidoDoNo:true ...})` e devolver
+//    `{ aguardarResultado:true, resultado:{ quem, texto, motivo, confianca } }`.
+//    Se `quem === 'capitao'`, o adaptador TAMBÉM envia o texto ao cliente — e ninguém mais envia
+//    nada nesta visita. Duas respostas para a mesma mensagem é o defeito que o S5 existe para
+//    impedir, e a trava de verdade é a reserva por `chave` no serviço do Capitão.
+const noAgenteIA = {
+  tipo: 'agente_ia',
+  // Custa dinheiro por chamada: repetir às cegas é gastar duas vezes e responder duas vezes.
+  efeito: 'irrepetivel',
+  // `conciliar` e não `parar`: diferente do `http` genérico, aqui DÁ para perguntar se aconteceu —
+  // a reserva do Capitão (`RagnabotCapitaoInteracao.chave`) responde "esta mensagem já foi
+  // respondida?" sem depender de sistema de terceiro.
+  politicaEmDuvida: 'conciliar',
+  estaciona: false,
+  aceitaModeloFora: false,
+
+  saidas: () => ['respondeu', 'nao_sabe', 'erro'],
+
+  validar(no, ctx) {
+    const problemas = [];
+    const c = no?.config ?? {};
+
+    if (c.pergunta !== undefined && typeof c.pergunta !== 'string') {
+      problemas.push(erro('ARESTA_AUSENTE', 'config.pergunta', 'A pergunta enviada ao agente precisa ser texto (normalmente `{{ultimaMensagem}}`).', 'Deixe em branco para usar a última mensagem do cliente.'));
+    }
+
+    // A saída `nao_sabe` órfã é o mesmo defeito da saída `erro` órfã do nó HTTP — e aqui é pior:
+    // "o agente não soube" é EXATAMENTE o caso que o desenho promete resolver devolvendo a gente.
+    // Sem destino, o cliente que a IA não entendeu fica sem ninguém.
+    const arestas = ctx?.arestasDoNo;
+    if (Array.isArray(arestas)) {
+      if (!arestas.some((a) => a.saida === 'nao_sabe')) {
+        problemas.push(erro(
+          'SAIDA_DE_ERRO_ORFA', 'saidas.nao_sabe',
+          'A saída "nao_sabe" não está ligada a nada. Quando o agente de IA não souber responder, o cliente fica sem ninguém — e é justamente para esse caso que ele devolve ao humano.',
+          'Ligue "nao_sabe" a um encaminhamento para um time de atendimento.',
+        ));
+      }
+      if (!arestas.some((a) => a.saida === 'erro')) {
+        problemas.push(erro(
+          'SAIDA_DE_ERRO_ORFA', 'saidas.erro',
+          'A saída "erro" não está ligada a nada. Agente fora do ar (ou teto do mês estourado) deixaria a conversa morrendo em silêncio.',
+          'Ligue "erro" ao mesmo destino humano de "nao_sabe".',
+        ));
+      }
+    }
+
+    // Aviso honesto e datado: com o interruptor mestre desligado este nó SEMPRE sai por `nao_sabe`.
+    // Melhor o operador ler isto no editor do que descobrir pelo relato de um cliente.
+    if (!/^(1|true|sim)$/i.test(String(process.env.CAPITAO_ATIVO ?? ''))) {
+      problemas.push(aviso(
+        'LIMITE_EXCEDIDO', 'config',
+        'O agente de IA está DESLIGADO nesta instalação (CAPITAO_ATIVO). Enquanto estiver assim, este nó sai sempre por "nao_sabe".',
+        'Desenhe a saída "nao_sabe" como se fosse o caminho normal — porque hoje ela é.',
+      ));
+    }
+
+    procurarSegredoLiteral(c, 'config', problemas);
+    return problemas;
+  },
+
+  preparar(no, ctx) {
+    const c = no?.config ?? {};
+    const vars = ctx?.vars ?? {};
+    // Sem `pergunta` declarada, a pergunta é a última coisa que o cliente escreveu — que é o caso
+    // normal ("o fluxo não entendeu; veja você").
+    const bruta = c.pergunta ?? '{{ultimaMensagem}}';
+    const pergunta = interpolar(String(bruta), vars, { destino: 'nota' });
+    return [{
+      tipo: 'agente_ia',
+      pergunta: pergunta.valor,
+      // O adaptador precisa do endereço da conversa e da visita para reservar a resposta.
+      execucaoId: ctx?.execucao?.id ?? null,
+      noId: no?.id ?? null,
+      visitaSeq: ctx?.execucao?.visitaSeq ?? null,
+      contexto: {
+        protocolo: ctx?.execucao?.protocolo ?? null,
+        // ⛔ NUNCA a conversa inteira: só o que o agente precisa para responder ESTA pergunta.
+        assunto: typeof c.assunto === 'string' ? interpolar(c.assunto, vars, { destino: 'nota' }).valor : null,
+      },
+      sufixo: '',
+      _achados: [pergunta],
+    }];
+  },
+
+  async executar(ctx) {
+    anotarAchados(ctx, noAgenteIA.preparar(ctx.no, ctx).flatMap((i) => i._achados ?? []));
+    // Mesma mecânica do nó `http` (regra R3): a resposta volta por trabalho da fila.
+    return { tipo: 'aguardar', motivo: 'http', saidaAoVencer: 'nao_sabe' };
+  },
+
+  /**
+   * @param {{quem?:string, texto?:string, motivo?:string, confianca?:number, erro?:string}} resultado
+   */
+  async continuar(ctx, resultado) {
+    const { registrar, incidente } = ganchos(ctx);
+
+    if (resultado?.erro || resultado?.ok === false) {
+      incidente('HTTP_FALHOU', { noId: ctx?.no?.id, erro: String(resultado?.erro ?? 'falha ao consultar o agente') });
+      return { saida: 'erro', varsPatch: {} };
+    }
+
+    // `quem` é UM valor só — é o contrato da fronteira. Qualquer coisa diferente de `capitao`
+    // significa que a IA NÃO falou com o cliente, e a conversa segue pelo caminho humano.
+    if (resultado?.quem !== 'capitao' || !resultado?.texto) {
+      registrar({ tipo: 'no_saiu', noId: ctx?.no?.id, saida: 'nao_sabe', detalhe: { motivo: resultado?.motivo ?? 'sem_resposta' } });
+      return { saida: 'nao_sabe', varsPatch: { ia_motivo: String(resultado?.motivo ?? 'sem_resposta') } };
+    }
+
+    registrar({
+      tipo: 'no_saiu', noId: ctx?.no?.id, saida: 'respondeu',
+      // Tamanho e confiança, NUNCA o texto: a mesma regra de LGPD do resto do arquivo.
+      detalhe: { caracteres: String(resultado.texto).length, confianca: resultado?.confianca ?? null },
+    });
+    return {
+      saida: 'respondeu',
+      varsPatch: {
+        ia_respondeu: 'sim',
+        ia_confianca: resultado?.confianca != null ? String(resultado.confianca) : '',
+      },
+    };
+  },
+};
+
+// ── 19. pagamento_pix ("Cobrar via Pix") ────────────────────────────────────────────────────────
+// S-EFÍ / doc 36 §5.5 — o fluxo cobra sem humano.
+//
+// ⚠️ O NÓ NÃO CHAMA A EFÍ. Ele devolve a intenção `cobranca_pix`; quem cria a cobrança é o
+// adaptador, DEPOIS do commit (regra R1). É o mesmo desenho do `http`, e pela mesma razão: criar
+// cobrança dentro da transação curta faria uma queda de rede segurar a conversa inteira.
+//
+// ⛔ CONTRATO COM O ADAPTADOR (`PortaCanal.enviar`), ao receber `{tipo:'cobranca_pix', ...}`:
+//    1. chamar `ragnabot-pagamento-efi.service.criarCobrancaPix({..., chaveEfeito})` — a
+//       `chaveEfeito` que o motor passa É o que torna a criação idempotente (mesmo nó, mesma
+//       visita, MESMO txid, e a Efí devolve a mesma cobrança em vez de criar a segunda);
+//    2. trocar `{{pix_copia_e_cola}}` na `mensagemModelo` pelo código devolvido e MANDAR ao cliente;
+//    3. devolver `{ idExterno: txid }`.
+//
+// MODOS:
+//   `cobrar_e_seguir`   — manda o código e segue por `padrao`. O acompanhamento fica com gente.
+//   `cobrar_e_aguardar` — estaciona por temporizador até a expiração, saindo por `expirado`.
+//                         Quando o Pix é pago antes, `acordarFluxoDaCobranca()` troca a saída para
+//                         `pago` e acorda a conversa na hora.
+const MODOS_PIX = Object.freeze(['cobrar_e_seguir', 'cobrar_e_aguardar']);
+const MARCADOR_COPIA_E_COLA = '{{pix_copia_e_cola}}';
+
+const noPagamentoPix = {
+  tipo: 'pagamento_pix',
+  // Cobrança é irreversível para quem paga. Repetir às cegas cobra duas vezes o mesmo cliente.
+  efeito: 'irrepetivel',
+  // `conciliar`, e não `parar` como o `http`: aqui EXISTE como perguntar «você recebeu?» —
+  // `GET /v2/cob/:txid` responde com o txid que nós mesmos geramos. Essa é a diferença entre um
+  // efeito duvidoso que precisa de gente e um que o conciliador resolve sozinho.
+  politicaEmDuvida: 'conciliar',
+  estaciona: false,
+  aceitaModeloFora: false,
+
+  saidas: (config) => (config?.modo === 'cobrar_e_aguardar'
+    ? ['pago', 'expirado', 'erro']
+    : ['padrao', 'erro']),
+
+  validar(no, ctx) {
+    const problemas = [];
+    const c = no?.config ?? {};
+
+    const modo = c.modo ?? 'cobrar_e_seguir';
+    if (!MODOS_PIX.includes(modo)) {
+      problemas.push(erro('ARESTA_AUSENTE', 'config.modo', `Modo inválido: "${modo}". Aceitos: ${MODOS_PIX.join(', ')}.`, 'Escolha o modo.'));
+    }
+
+    // O VALOR: fixo em centavos OU vindo de variável — nunca os dois, nunca nenhum.
+    const temFixo = c.valorCentavos !== undefined && c.valorCentavos !== null && c.valorCentavos !== '';
+    const temVar = typeof c.valorDeVariavel === 'string' && c.valorDeVariavel.trim() !== '';
+    if (!temFixo && !temVar) {
+      problemas.push(erro('ARESTA_AUSENTE', 'config.valorCentavos', 'Cobrança sem valor. O cliente receberia um código que não cobra nada.', 'Informe o valor em centavos ou o nome da variável que traz o valor.'));
+    }
+    if (temFixo && temVar) {
+      problemas.push(erro('ARESTA_AUSENTE', 'config.valorCentavos', 'Valor fixo E valor por variável ao mesmo tempo: o resultado dependeria da ordem de leitura.', 'Escolha um dos dois.'));
+    }
+    if (temFixo) {
+      const n = Number(c.valorCentavos);
+      if (!Number.isInteger(n) || n <= 0) {
+        problemas.push(erro('ARESTA_AUSENTE', 'config.valorCentavos', 'O valor tem de ser um número INTEIRO de centavos maior que zero (R$ 24,90 = 2490).', 'Corrija o valor.'));
+      } else if (n > 100_000_00) {
+        // Aviso, não erro: existe cobrança legítima alta. Mas um zero a mais digitado no editor
+        // vira uma cobrança de cem mil reais no WhatsApp de um cliente.
+        problemas.push(aviso('LIMITE_EXCEDIDO', 'config.valorCentavos', `A cobrança é de ${(n / 100).toFixed(2)} reais. Confira se não há um zero a mais.`, 'Confirme o valor com quem definiu a regra.'));
+      }
+    }
+
+    // A mensagem PRECISA carregar o marcador — senão o cliente recebe um texto bonito e nenhum
+    // código para pagar, e ninguém descobre até alguém reclamar que "o Pix não chegou".
+    const mensagem = String(c.mensagem ?? '');
+    if (!mensagem.trim()) {
+      problemas.push(erro('ARESTA_AUSENTE', 'config.mensagem', 'Sem mensagem, o código Pix não chega ao cliente.', `Escreva a mensagem incluindo ${MARCADOR_COPIA_E_COLA}.`));
+    } else if (!mensagem.includes(MARCADOR_COPIA_E_COLA)) {
+      problemas.push(erro('ARESTA_AUSENTE', 'config.mensagem', `A mensagem não tem ${MARCADOR_COPIA_E_COLA}: o cliente receberia o texto sem o código para pagar.`, `Inclua ${MARCADOR_COPIA_E_COLA} no lugar onde o código deve aparecer.`));
+    }
+
+    const exp = c.expiracaoSegundos;
+    if (exp !== undefined && exp !== null && exp !== '') {
+      const n = Number(exp);
+      if (!Number.isInteger(n) || n < 60 || n > 86_400) {
+        problemas.push(erro('ARESTA_AUSENTE', 'config.expiracaoSegundos', 'A expiração tem de ficar entre 60 segundos e 24 horas.', 'Ajuste a expiração.'));
+      }
+    }
+
+    // Saída `erro` órfã: mesma regra do nó HTTP. Cobrança que falha e não tem para onde ir deixa o
+    // cliente esperando um código que nunca vem.
+    const arestas = ctx?.arestasDoNo;
+    if (Array.isArray(arestas) && !arestas.some((a) => a.saida === 'erro')) {
+      problemas.push(erro(
+        'SAIDA_DE_ERRO_ORFA', 'saidas.erro',
+        'A saída "erro" deste nó de cobrança não está ligada a nada. Quando a cobrança não puder ser criada, o cliente fica esperando um código que nunca chega.',
+        'Ligue "erro" a uma mensagem honesta e a um encaminhamento para o time responsável.',
+      ));
+    }
+
+    procurarSegredoLiteral(c, 'config', problemas);
+    return problemas;
+  },
+
+  preparar(no, ctx) {
+    const c = no?.config ?? {};
+    const vars = ctx?.vars ?? {};
+    const lim = limitesDe(ctx);
+
+    // O valor por variável é convertido AQUI, com regra explícita: "24,90", "24.90" e "2490c" são
+    // coisas diferentes, e adivinhar formato é como se cobra dez vezes a mais.
+    let valorCentavos = null;
+    if (c.valorCentavos !== undefined && c.valorCentavos !== null && c.valorCentavos !== '') {
+      valorCentavos = Math.trunc(Number(c.valorCentavos));
+    } else if (c.valorDeVariavel) {
+      valorCentavos = centavosDeTexto(vars?.[c.valorDeVariavel]);
+    }
+
+    // ⚠️ O MARCADOR É PASSADO COMO VARIÁVEL DE SI MESMO — e isto não é truque, é conserto de um
+    // defeito que o teste pegou: `interpolar()` troca TODA variável desconhecida por vazio, então
+    // `{{pix_copia_e_cola}}` era APAGADO aqui e o adaptador recebia um texto sem lugar onde pôr o
+    // código. O cliente leria a mensagem bonita e nenhum Pix. Interpolando o marcador para ele
+    // mesmo, ele atravessa intacto (a interpolação é de passada única) e ainda deixa de aparecer
+    // como "variável ausente" no diagnóstico do nó.
+    const mensagem = interpolar(String(c.mensagem ?? ''), { ...vars, pix_copia_e_cola: MARCADOR_COPIA_E_COLA }, {
+      destino: 'texto', teto: lim.valores.corpo_max, aoEstourar: 'cortar',
+    });
+    const descricao = c.descricao
+      ? interpolar(String(c.descricao), vars, { destino: 'texto', teto: 140, aoEstourar: 'cortar' })
+      : null;
+
+    return [{
+      tipo: 'cobranca_pix',
+      valorCentavos,
+      descricao: descricao?.valor ?? null,
+      // O marcador continua NO TEXTO: quem troca é o adaptador, que é quem conhece o código.
+      mensagemModelo: mensagem.valor,
+      marcador: MARCADOR_COPIA_E_COLA,
+      expiracaoSegundos: c.expiracaoSegundos ? Number(c.expiracaoSegundos) : null,
+      devedorNome: c.devedorDeVariavel ? String(vars?.[c.devedorDeVariavel] ?? '') || null : (c.devedorNome ?? null),
+      devedorDoc: c.documentoDeVariavel ? String(vars?.[c.documentoDeVariavel] ?? '') || null : (c.devedorDoc ?? null),
+      execucaoId: ctx?.execucao?.id ?? null,
+      noId: no?.id ?? null,
+      visitaSeq: ctx?.execucao?.visitaSeq ?? null,
+      protocolo: ctx?.execucao?.protocolo ?? null,
+      // O custo da cobrança é do PAGADOR, não nosso — mas a coluna existe na reserva do efeito e
+      // deixá-la nula é honesto: não gastamos centavo por cobrança criada.
+      sufixo: '',
+      _achados: [mensagem, ...(descricao ? [descricao] : [])],
+    }];
+  },
+
+  async executar(ctx) {
+    const c = ctx?.no?.config ?? {};
+    const intencoes = noPagamentoPix.preparar(ctx.no, ctx);
+    anotarAchados(ctx, intencoes.flatMap((i) => i._achados ?? []));
+
+    const valor = intencoes[0]?.valorCentavos;
+    if (!Number.isInteger(valor) || valor <= 0) {
+      // Falha ANTES de reservar o efeito no despacho: cobrar zero (ou "NaN") é pior que não cobrar.
+      ganchos(ctx).incidente('HTTP_FALHOU', {
+        noId: ctx?.no?.id,
+        mensagem: 'a cobrança não tem valor utilizável',
+        comoCorrigir: 'confira a variável declarada em config.valorDeVariavel — ela chegou vazia ou em formato que não é dinheiro',
+      });
+      return falhar('erro', 'VALOR_INVALIDO', 'cobrança sem valor utilizável', mensagemDeFalha(ctx?.no, ctx));
+    }
+
+    if (c.modo === 'cobrar_e_aguardar') {
+      const seg = Number(c.expiracaoSegundos) > 0 ? Number(c.expiracaoSegundos) : 3600;
+      return {
+        tipo: 'aguardar',
+        // `temporizador` e não `resposta`: o que destrava é o PAGAMENTO (ou o prazo), não o cliente
+        // escrever de novo. Com `resposta`, um "já paguei" digitado antes da confirmação sairia
+        // pelo caminho errado.
+        motivo: 'temporizador',
+        acordarEm: new Date(agoraDe(ctx).getTime() + seg * 1000),
+        saidaAoVencer: 'expirado',
+      };
+    }
+    return { tipo: 'seguir', saida: 'padrao' };
+  },
+};
+
+/**
+ * "24,90" / "24.90" / "R$ 24,90" → 2490. Devolve `null` quando não é dinheiro reconhecível —
+ * e `null` faz o nó sair por `erro`, que é melhor que cobrar um número inventado.
+ *
+ * ⚠️ NÚMERO SEM SEPARADOR É TRATADO COMO REAIS INTEIROS ("50" = R$ 50,00). É escolha declarada: a
+ * variável vem de resposta de cliente ou de sistema de terceiro, e nesses dois lugares "50" quer
+ * dizer cinquenta reais em praticamente todos os casos. Quem tiver centavos crus usa `valorCentavos`.
+ */
+function centavosDeTexto(bruto) {
+  if (bruto === null || bruto === undefined) return null;
+  const texto = String(bruto).trim().replace(/^R\$\s*/iu, '').replace(/\s/gu, '');
+  if (!texto) return null;
+  // 1.234,56 (pt-BR) → 1234.56 ; 1,234.56 (en) → 1234.56
+  let normal = texto;
+  if (/,\d{1,2}$/u.test(texto)) normal = texto.replace(/\./gu, '').replace(',', '.');
+  else if (/\.\d{1,2}$/u.test(texto)) normal = texto.replace(/,/gu, '');
+  else normal = texto.replace(/[.,]/gu, '');
+  if (!/^\d+(\.\d{1,2})?$/u.test(normal)) return null;
+  const n = Math.round(Number(normal) * 100);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 // REGISTRO E FACHADA PÚBLICA
 //
@@ -3740,6 +4078,9 @@ export const EXECUTORES = Object.freeze({
   chamado: noChamado,
   encerrar: noEncerrar,
   email: noEmail,
+  // S5 / S-EFÍ (02/09/2026): o convite formal à IA e a cobrança dentro da conversa.
+  agente_ia: noAgenteIA,
+  pagamento_pix: noPagamentoPix,
 });
 
 export const TIPOS = Object.freeze(Object.keys(EXECUTORES));

@@ -11,15 +11,20 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "npm run test:servir && npm run test:montar",
+    "test": "npm run test:servir && npm run test:montar && npm run test:navegacao && npm run test:respostas && npm run test:empresas && npm run test:prefixo",
     "test:servir": "node tests/servir.smoke.mjs",
-    "test:montar": "vite build --ssr tests/_monta-entrada.jsx --outDir tests/.ssr --logLevel warn && node tests/monta.smoke.mjs"
+    "test:montar": "vite build --ssr tests/_monta-entrada.jsx --outDir tests/.ssr --logLevel warn && node tests/monta.smoke.mjs",
+    "test:navegacao": "node tests/navegacao.smoke.mjs",
+    "test:respostas": "node tests/respostas-rapidas.smoke.mjs",
+    "test:empresas": "node tests/empresas.smoke.mjs",
+    "test:prefixo": "node tests/prefixo.smoke.mjs"
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.8",
     "lucide-react": "^0.300.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^7.18.3"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",
