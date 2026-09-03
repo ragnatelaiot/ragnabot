@@ -2,6 +2,97 @@
 > LOG CANÔNICO local da construção (regra do dono, 27/08). Espelho versionado no repo:
 > `ragnatelaiot/ragnabot` → docs/ACTIONLOG.md. Sem segredos, por lei.
 
+## 2026-09-03 — S-INTERRUPTOR: o robô liga e desliga por caixa, na tela do dono (v1.17.02, no ar) ✅
+
+**Ordem do dono:** *«preciso eu mesmo ter o poder dessa decisão. No momento usar apenas para o
+WhatsApp, mas a qualquer momento posso incluir outra caixa ou remover se quiser.»*
+
+Até hoje, ligar o robô era editar `RAGNABOT_EXECUTOR_FLUXO` no `ConfigMap` e reiniciar os pods:
+quem decidia sobre o **atendimento** era quem tinha acesso ao **cluster**.
+
+### 1. O interruptor, caixa por caixa
+- `RagnabotInbox.roboAtende` (padrão **false**, falha fechada) + `roboAtendeEm` + `roboAtendePorUserId`.
+- Migração versionada `app/prisma/sql/interruptor/01-rb_robo_por_caixa.sql`, aplicada com
+  `psql -v ON_ERROR_STOP=1` **no líder medido na hora** (`pg132` = `t`, `pg133` = `f`).
+  **Zero `DROP` executável** — conferido por script que ignora comentários antes de aplicar. As 3
+  chaves compostas conferidas **depois**: `rb_no_versao_fk`, `rb_aresta_versao_fk`,
+  `rb_exec_versao_fk`, todas de pé.
+- `PUT /conexoes/:cwInboxId/robo` com `exigirAdmin` **primeiro**; interruptor no cartão da tela
+  **Conexões**, com o efeito escrito ao lado.
+- **Onde o veto mora importa:** no *resolvedor de entrada*, não no executor. A portaria continua a
+  execução **viva** antes de consultar quem atende — então desligar **não corta ninguém no meio**.
+  Isso é consequência de onde a guarda cabe, e há teste que trava a ordem dos dois passos.
+
+### 2. Configuração do fluxo (nome, descrição, entrada, caixa)
+O fluxo não tinha **nenhuma** tela de edição depois de criado. Efeito concreto: o do dono nasceu
+preso à caixa **34 — o WhatsApp real** — e não havia como movê-lo para o chat do site. A falta da
+tela empurrava o primeiro teste para o número de verdade. Agora há botão **«Configuração»** no
+cartão e no editor, caixa escolhida **por nome**, e aviso do que muda antes de gravar.
+
+### 3. Duas bocas na mesma caixa deixaram de ser sorteio
+Medido: `resolverEntrada` fazia `findFirst` **sem `orderBy`**. Com dois fluxos publicados na mesma
+caixa, ganhava o que o banco devolvesse primeiro. Sintoma em produção: *«o robô respondeu o fluxo
+errado»*, intermitente e sem rastro. O `00-LEIA-ME.md` **já citava** um índice único parcial para
+isto — e ele **não existia** na base (5 índices, nenhum era esse). Três camadas agora: recusa 409
+`CAIXA_JA_ATENDIDA`, índice `rb_fluxo_uma_boca_por_caixa`, e ordem **declarada** + aviso gritado.
+
+### ⚠️ TRÊS ERROS MEUS, e como cada um apareceu
+1. **Fiz o interruptor obedecer ao freio global.** Parecia razoável e **redefinia o que aquele freio
+   significa** — ele desliga o *trabalhador*, não a decisão de entrada. Quebrou **6 verificações da
+   portaria**, e elas estavam certas. Contrato de outro componente não se muda de passagem.
+2. **Fiz a leitura do interruptor falhar FECHADA.** Soa prudente e é o contrário: o caso comum de
+   «não consegui ler» é **cliente Prisma fora de passo** — o estado normal entre a migração e o
+   reinício. Fechando, um rollout de rotina viraria **apagão silencioso do robô em todas as caixas**.
+3. **`descreverEntrada is not defined`.** Referenciei um auxiliar que nunca escrevi; ele estourava
+   **depois** do `UPDATE`. Medido no ar: a caixa do fluxo do dono mudou **e** a resposta foi 500 — a
+   tela diria «não consegui» sobre algo que estava feito. `node --check` é **sintático** e não acha
+   isso; quem achou foi a prova ponta a ponta. Corrigi o auxiliar **e** blindei a auditoria, que não
+   podia derrubar a ação (regra que a casa já segue em outro arquivo e faltava aqui).
+   ➜ **O estado foi restaurado e conferido por leitura: «Principal» de volta à caixa 34.**
+
+### ⚠️ A armadilha que eu quase entreguei junto com o botão
+Conferindo o estado real após o rollout: `roboTeto.ligado=false` — o executor está desligado por
+ordem do chefe. Ou seja, o interruptor que eu entregava, **se ligado hoje**, produziria **silêncio
+para cliente de verdade**: a conversa nasce, nada a faz andar, e — com execução viva — o relógio de
+inatividade **não arma**, então ninguém é avisado. Não é «fila de gente». A tela dizia só «ligado,
+mas parado», que se lê como inofensivo. **v1.17.02** faz servidor e tela dizerem a consequência real
+e o que fazer. É a mesma doença do lote anterior: *o sistema sabe e não conta.*
+
+### Prova por observação
+- `app/tests/ragnabot-robo-por-caixa.test.mjs` (novo): **11 verificações**, sem banco e sem rede.
+- **Prova ponta a ponta contra o motor publicado — 10 de 10**: ligar só no WhatsApp (com a frase do
+  efeito vinda do servidor) · **ligar numa caixa não ligou nas outras** · idempotência · desligar diz
+  que quem está no meio termina · caixa inexistente → 404 · **trocar a caixa do fluxo do dono
+  34 → 1** · auditoria nomeando *«porta de entrada mudou de caixa 34 para caixa 1 — o fluxo estava
+  NO AR»* · **duas bocas na mesma caixa recusadas com 409**. Tudo devolvido ao estado original no
+  `finally`, conferido por leitura depois.
+- Bateria: **30 verdes / 10 vermelhos**; worktree limpo do HEAD anterior: **28 / 10** — mesmos 10
+  arquivos, mesmos códigos de saída (`DATABASE_URL` ausente no NOC). **Zero vermelho novo.**
+  Frontend: 14 baterias smoke, **0 falhas**.
+
+### A imagem e o rollout
+`ragnabot-motor:1.17.02`, do **worktree do commit** `55662f7`, com
+`--build-arg RAGNABOT_PREFIXO_WEB=/painel/`. Conferido **dentro do artefato**: `VERSAO`=1.17.02, o
+índice pede `/painel/assets/index-EmuZzIdu.js`, **zero** `/assets/` cru e zero `/painel/app/`.
+Mesma impressão digital nos três pontos (`sha256:ca25b88c…`). Rollout **2/2, zero reinícios** nos
+três ciclos do dia. `/saude` nos dois pods: `1.17.02`.
+
+⛔ **Executor de fluxo, agendamento e carteiro de webhook seguem DESLIGADOS**, medidos no processo.
+**Nenhum webhook cadastrado.** Ligar é decisão do dono/chefe.
+
+### Estado devolvido ao dono
+Fluxo «Principal» na **caixa 34**, publicado. Robôs: **todos desligados** (1, 34, 35, 36).
+
+### O que NÃO foi provado
+- **Não abri o navegador do dono.** Interruptor, modal de configuração e lista de erros foram
+  provados pelo pacote construído, pelas baterias SSR/jsdom e pelas rotas reais — **não** por clique.
+- **Nenhum cliente real passou pelo interruptor**: com o executor desligado, o caminho completo
+  (cliente escreve → robô responde) não pôde ser exercitado ponta a ponta.
+- **Não há linter neste repositório.** Foi por isso que um identificador inexistente só apareceu em
+  produção. Fica registrado para o chefe decidir — `node --check` não cobre esta classe de defeito.
+
+---
+
 ## 2026-09-03 — S-PUBLICAR: os dois validadores viraram um (v1.16.00, no ar) ✅
 
 **Relato do dono, ao vivo:** desenho fechado, barra em **VERDE** dizendo «desenho fechado», e a
