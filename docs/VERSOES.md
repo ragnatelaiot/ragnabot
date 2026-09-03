@@ -19,6 +19,24 @@
 
 ---
 
+## v1.17.02 — O interruptor avisa quando ligar deixaria o cliente sem resposta (03/09/2026)
+
+Combinação perigosa, e nada óbvia: **interruptor da caixa ligado + motor do robô parado** (o freio
+de emergência do NOC, que está acionado hoje).
+
+Nesse estado, quem escrever tem a conversa **aberta para o robô** e nada a faz andar. Pior: com uma
+conversa em curso, o relógio de inatividade **não arma** — ninguém é avisado. Para o cliente, isso
+não é «fila de gente»: é **silêncio**.
+
+O sistema sabia das duas coisas — o interruptor e o freio — e dizia apenas «ligado, mas parado»,
+que se lê como inofensivo. Agora, ao ligar com o motor parado, tanto o servidor quanto a tela dizem
+a consequência real e o que fazer: **deixe desligado** (aí a conversa vai para a fila de gente) e
+peça ao NOC para liberar o motor.
+
+É a mesma doença que este lote inteiro veio consertar: **o sistema sabe e não conta.**
+
+---
+
 ## v1.17.01 — Correção: trocar a caixa gravava e devolvia erro (03/09/2026)
 
 **O defeito, medido contra o motor no ar:** trocar a caixa de um fluxo **gravava a mudança** e

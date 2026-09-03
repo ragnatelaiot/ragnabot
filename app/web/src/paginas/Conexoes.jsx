@@ -115,11 +115,28 @@ export function InterruptorDoRobo({ conexao, teto, administra = false, ocupado =
       </div>
 
       {!tetoLigado ? (
-        <Faixa tom="aviso" titulo="O robô está desligado no sistema inteiro">
-          {teto?.motivo
+        <Faixa
+          tom={ligado ? 'erro' : 'aviso'}
+          titulo={ligado
+            ? '⚠️ Ligado com o motor PARADO — quem escrever pode ficar sem resposta'
+            : 'O robô está desligado no sistema inteiro'}
+        >
+          {ligado ? (
+            <>
+              O motor do robô está parado no sistema inteiro (freio do NOC). Com este interruptor
+              ligado, a conversa de quem escrever é <b>aberta para o robô</b> e nada a faz andar —
+              ela <b>não</b> cai para a fila de gente, e ninguém é avisado. Para o cliente, isso é
+              <b> silêncio</b>.
+              <div style={{ marginTop: 6 }}>
+                Se você precisa atender agora, <b>desligue este interruptor</b> (aí a conversa vai
+                para a fila de gente) e peça ao NOC para liberar o motor.
+              </div>
+            </>
+          ) : (
+            teto?.motivo
             || 'Enquanto o freio de emergência do NOC estiver acionado, nenhuma caixa é atendida por '
-            + 'robô — mesmo com este interruptor ligado. A sua escolha fica gravada e passa a valer '
-            + 'assim que o freio sair.'}
+              + 'robô. A sua escolha fica gravada e passa a valer assim que o freio sair.'
+          )}
         </Faixa>
       ) : null}
 

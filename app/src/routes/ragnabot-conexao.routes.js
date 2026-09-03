@@ -170,10 +170,14 @@ router.put('/conexoes/:cwInboxId/robo', async (req, res) => {
     if (!exigirAdmin(req, res)) return undefined;
     const tenantId = empresaDe(req, res);
     if (!tenantId) return undefined;
+    // O teto viaja PARA DENTRO do serviço porque a frase do efeito muda com ele: ligar o
+    // interruptor com o motor parado é a combinação que deixa cliente sem resposta, e quem sabe
+    // disso é o servidor.
+    const teto = tetoGlobalDoRobo();
     const r = await conexoes.definirRoboDaCaixa(tenantId, req.params.cwInboxId, {
-      ligado: req.body?.ligado === true,
+      ligado: req.body?.ligado === true, tetoLigado: teto.ligado,
     }, { ator: req.user, req });
-    return res.json({ ...r, teto: tetoGlobalDoRobo() });
+    return res.json({ ...r, teto });
   } catch (e) { return erro(res, e); }
 });
 

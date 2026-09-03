@@ -1341,10 +1341,17 @@ atendimento** — é o caminho que fala com a pessoa em vez de emudecer com ela.
 Uma conexão nova **não** nasce sendo atendida por robô. Alguém tem de dizer que sim. É proposital:
 estrear um robô com cliente de verdade por omissão é o pior jeito de estrear.
 
-### «Ligado, mas parado»
-Se aparecer essa etiqueta, o interruptor da caixa está ligado mas o **freio de emergência do NOC**
-está acionado — o motor do robô está parado no sistema inteiro. A sua escolha fica gravada e passa a
-valer sozinha assim que o freio sair. **Fale com o NOC**, não mexa no interruptor.
+### ⚠️ «Ligado, mas parado» — leia antes de ligar
+Se aparecer essa etiqueta, o interruptor da caixa está ligado mas o **motor do robô está parado no
+sistema inteiro** (freio de emergência do NOC).
+
+**Isso não é inofensivo.** Nesse estado, quem escrever tem a conversa **aberta para o robô** e nada
+a faz andar — ela **não** cai para a fila de gente, e ninguém é avisado. Para o cliente, é
+**silêncio**.
+
+**O que fazer:** se você precisa atender agora, **deixe o interruptor desligado** — aí a conversa vai
+para a fila de gente normalmente — e peça ao NOC para liberar o motor. Quando ele liberar, ligue o
+interruptor.
 
 ### Quem pode
 Só quem **administra a empresa**. A recusa é do servidor: esconder o botão não é a trava.

@@ -814,7 +814,7 @@ async function emitir(tenantId, evento, carga) {
  * Liga ou desliga o robô numa caixa.
  * @returns {Promise<object>} o cartão atualizado + `efeito`, a frase em português do que mudou
  */
-export async function definirRoboDaCaixa(tenantId, cwInboxId, { ligado }, { ator = null, req = null } = {}) {
+export async function definirRoboDaCaixa(tenantId, cwInboxId, { ligado, tetoLigado = true }, { ator = null, req = null } = {}) {
   if (typeof ligado !== 'boolean') throw erro('Diga se o robô deve atender (`ligado` verdadeiro ou falso).', 400);
   const linha = await exigirConexao(tenantId, cwInboxId);
   if (linha.removedAt) {
@@ -839,10 +839,26 @@ export async function definirRoboDaCaixa(tenantId, cwInboxId, { ligado }, { ator
   });
 
   const onde = `"${linha.name}"${linha.identifier ? ` (${linha.identifier})` : ''}`;
-  const efeito = ligado
+
+  // ── ⚠️ O AVISO QUE EVITA SILÊNCIO COM CLIENTE DE VERDADE ────────────────────────────────────
+  // Ligar o interruptor com o FREIO GLOBAL do NOC acionado é a combinação perigosa, e ela não é
+  // óbvia: a conversa NASCE (a portaria cria a execução) e nada a faz andar, porque o trabalhador
+  // do fluxo está parado. Pior — com execução viva, o relógio de inatividade NÃO arma, então
+  // ninguém é avisado. O resultado para o cliente é SILÊNCIO, não fila de gente.
+  //
+  // O servidor sabe as duas coisas (o interruptor e o freio). Deixar de dizer isto seria a mesma
+  // doença que este lote inteiro veio consertar: o sistema sabe e não conta.
+  const alertaDeTeto = ligado && !tetoLigado
+    ? ' ⚠️ ATENÇÃO: o motor do robô está PARADO no sistema inteiro (freio do NOC). Enquanto isso '
+      + 'valer, quem escrever aqui pode ficar SEM RESPOSTA — a conversa é aberta para o robô e '
+      + 'nada a faz andar, e nem cai para a fila de gente. Se você precisa atender agora, deixe '
+      + 'este interruptor DESLIGADO e fale com o NOC para liberar o motor.'
+    : '';
+
+  const efeito = (ligado
     ? `A partir de agora, quem escrever para ${onde} passa a ser atendido pelo robô.`
     : `A partir de agora, quem escrever para ${onde} vai direto para a fila de gente. `
-      + 'Quem já está numa conversa com o robô termina o que começou.';
+      + 'Quem já está numa conversa com o robô termina o que começou.') + alertaDeTeto;
 
   await auditar({
     tenantId, ator, req,
@@ -853,7 +869,7 @@ export async function definirRoboDaCaixa(tenantId, cwInboxId, { ligado }, { ator
     depois: { roboAtende: ligado, cwInboxId: linha.cwInboxId, caixa: linha.name },
   });
 
-  return { ...comoCartao(atualizada), mudou: true, efeito };
+  return { ...comoCartao(atualizada), mudou: true, efeito, alerta: alertaDeTeto ? alertaDeTeto.trim() : null };
 }
 
 async function auditar({ tenantId, ator, req, acao, descricao, entidadeId = null, antes = null, depois = null }) {

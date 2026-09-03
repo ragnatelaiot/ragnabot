@@ -209,5 +209,23 @@ await ver('8. ⭐ dois fluxos na mesma caixa: ganha o alterado mais RECENTE, dec
   return 'cinco consultas, mesmo vencedor: "Novo"';
 });
 
+await ver('9. ⭐ ligar com o MOTOR PARADO avisa que o cliente pode ficar SEM RESPOSTA', async () => {
+  // A combinação perigosa e não-óbvia: interruptor ligado + freio global do NOC acionado. A
+  // conversa NASCE (a portaria cria a execução) e nada a faz andar; com execução viva o relógio de
+  // inatividade não arma, então ninguém é avisado. Para o cliente isso é SILÊNCIO — não fila de
+  // gente. O servidor sabe as duas coisas; calar seria a mesma doença que este lote veio consertar.
+  const svc = await import('../src/services/ragnabot-conexao.service.js');
+  const fonte = (await import('node:fs')).readFileSync(
+    new URL('../src/services/ragnabot-conexao.service.js', import.meta.url), 'utf8');
+  assert.ok(typeof svc.definirRoboDaCaixa === 'function', 'a função tem de existir');
+  assert.ok(/tetoLigado/.test(fonte), 'o teto tem de chegar ao serviço para a frase mudar com ele');
+  assert.ok(/SEM RESPOSTA/.test(fonte), 'o aviso tem de dizer a consequência concreta');
+  assert.ok(/nem cai para a fila de gente/.test(fonte), 'e desfazer a suposição confortável');
+  const tela = (await import('node:fs')).readFileSync(
+    new URL('../web/src/paginas/Conexoes.jsx', import.meta.url), 'utf8');
+  assert.ok(/motor PARADO/.test(tela), 'a tela precisa gritar isso onde a pessoa clica');
+  return 'servidor e tela dizem a consequência real, em vez de só «ligado, mas parado»';
+});
+
 console.log(`\n${falhou ? '✗' : '✓'} ${passou} passaram, ${falhou} reprovaram\n`);
 process.exit(falhou ? 1 : 0);
