@@ -29,6 +29,7 @@
 5-H. [O caminho do primeiro "oi"](#5-h-o-caminho-do-primeiro-oi--inteiro-e-por-que-ele-está-desligado)
 5-I. [Ainda não ligado: Capitão e Pix](#5-i-ainda-não-ligado-capitão-agente-de-ia-e-cobrança-por-pix)
 5-J. [Os números em cada saída do fluxo](#5-j-os-números-em-cada-saída-do-fluxo)
+5-K. [⭐ A escolha com botão, canal a canal](#5-k--a-escolha-com-botão-canal-a-canal-v11500)
 6. [Multiempresa, planos e cobrança](#6-multiempresa-planos-e-cobrança)
 6-A. [Conexões: por onde o cliente fala](#6-a-conexões-por-onde-o-cliente-fala)
 6-B. [API própria da empresa e avisos para o sistema dela](#6-b-api-própria-da-empresa-e-avisos-para-o-sistema-dela)
@@ -1026,6 +1027,74 @@ pessoas foram por ali e a porcentagem sobre o total de vezes que aquele bloco fo
 **De onde sai o número.** Do registro cru de cada passagem do fluxo — o mesmo que alimenta o funil
 por bloco. Não há uma segunda contabilidade a manter, então o número da saída e o número do bloco
 não têm como divergir.
+
+---
+
+## 5-K. ⭐ A escolha com botão, canal a canal (v1.15.00)
+
+**O que faz.** Quando o fluxo apresenta um menu, o cliente vê **botões** em vez de digitar um
+número — em cada canal, do jeito que aquele canal sabe desenhar. E, o mais importante: **tocar no
+botão passa a valer**.
+
+### O defeito que existia, dito com todas as letras
+
+Até a v1.15.00 o cliente podia tocar no botão **certo** e receber **«não entendi»**. O motivo era
+nosso: o motor só sabia reconhecer a escolha pelo **valor escondido** do botão, e quase nenhum canal
+devolve esse valor. Um menu que pune quem obedece é pior do que menu nenhum.
+
+Hoje o motor reconhece a escolha pelo **valor** ou pelo **rótulo** — o que chegar.
+
+### O que cada canal faz, medido
+
+| canal | como o botão aparece | o que volta quando o cliente toca |
+|---|---|---|
+| **WhatsApp** | botões da própria plataforma | reconhecido |
+| **Telegram** | teclado embutido na mensagem | reconhecido |
+| **Facebook** | respostas rápidas | reconhecido **pelo rótulo** |
+| **Instagram** | respostas rápidas (o motor fala direto com a Meta) | reconhecido **pelo rótulo** |
+| **site / e-mail** | lista numerada | reconhecido pelo número |
+
+⚠️ **No Facebook e no Instagram, o rótulo é cortado em 20 letras** — é o limite da rede, não nosso.
+Como nesses dois canais é o rótulo que volta, **rótulo cortado é opção que não casa**. Ao escrever o
+menu, use rótulos curtos: «2ª via», «Falar com humano», «Cancelar».
+
+### O que fazer se aparecer lista numerada onde você esperava botão
+
+Não é falha silenciosa: **o motor registra o motivo**. Os dois motivos possíveis são:
+
+1. **o canal não desenha botão** para aquele tipo de menu — não há o que fazer, e a lista numerada é
+   a forma correta de perguntar ali;
+2. **falta a credencial do canal** (só acontece no Instagram). Veja o item seguinte.
+
+### A credencial do canal (só o Instagram precisa)
+
+O Instagram é o único canal em que o motor precisa falar **direto** com a rede para desenhar botão —
+e para isso precisa de uma credencial, que a plataforma não entrega. Ela é procurada em quatro
+lugares, nesta ordem, e o primeiro que existir vence:
+
+1. **cofre da empresa**, no apelido que a própria conexão declarar;
+2. **cofre da empresa**, no apelido convencional do canal;
+3. **variável de ambiente** com o token do canal;
+4. **variável de ambiente** com o token de sistema da Meta, de onde o motor deriva o da página.
+
+Empresas diferentes podem ter tokens diferentes: é para isso que serve o **cofre** (guardado
+cifrado, por empresa). O ambiente é o caminho de quem tem uma instalação só.
+
+**Não achou credencial nenhuma?** O menu sai como **lista numerada**, e o motivo fica registrado.
+O atendimento não para.
+
+### Uma coisa que o atendente precisa saber
+
+Quando o robô manda um menu com botão no Instagram, a mensagem sai por fora da plataforma — mas ela
+é **registrada na conversa logo em seguida**. Ou seja: **você vê no histórico tudo o que o robô
+falou com o cliente**, como em qualquer outro canal. E o cliente **não** recebe a mensagem duas
+vezes.
+
+### ⚠️ O que ainda não foi visto acontecer
+
+Em 03/09/2026 **não há nenhuma conexão de Instagram, Facebook ou Telegram ligada**. Tudo acima foi
+conferido contra o código e a documentação das redes, e provado com simulação — **não** com um
+cliente real tocando num botão real. A primeira conexão que existir é que fecha essa prova.
 
 ---
 

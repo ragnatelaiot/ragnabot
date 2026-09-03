@@ -19,14 +19,108 @@
 
 ---
 
+## v1.15.00 — O botão que o cliente toca passa a valer, e o segredo saiu do ambiente (03/09/2026)
+
+> 🚀 **Este número publica TRÊS versões de uma vez.** A v1.13.00 (a mesa) e a v1.14.00 (o tempo
+> real) estavam construídas e provadas, mas **nunca tinham subido**: no ar rodava a v1.12.01. Elas
+> chegam ao usuário **no mesmo instante** que esta. Quem ler só o bloco abaixo entende metade —
+> para o dono e para o atendente, o que muda hoje é a soma dos três.
+
+A frase que resume: **o cliente que toca num botão passa a ser entendido; o atendente ganhou uma
+mesa de trabalho que se atualiza sozinha; e a credencial que faz isso funcionar deixou de morar
+num único lugar do ambiente.**
+
+### 1. ⭐ O botão que o cliente tocava e não valia
+
+Este é o conserto que mais dói admitir, porque o defeito era **nosso** e a documentação interna o
+escondia. A nossa tabela de capacidades dizia que Telegram e Facebook **não** desenhavam botão. Fui
+ler o código da plataforma antes de escrever qualquer linha, e o contrário é que era verdade:
+
+| canal | desenha botão? | e o que voltava quando o cliente tocava |
+|---|---|---|
+| Telegram | **sempre desenhou** | o valor volta — mas como **texto**, não como campo de escolha |
+| Facebook | **sempre desenhou** | o valor **se perde**; volta o **rótulo** do botão |
+| Instagram | não desenha | (por isso existe o envio direto, item 2) |
+
+Como o nosso casador só sabia comparar pelo **valor**, acontecia a pior combinação possível: o
+cliente tocava no botão **certo** e ouvia **«não entendi»**. Um menu que pune quem obedece. Agora o
+casamento é por valor **ou** por rótulo, e no Facebook o rótulo é cortado em 20 letras — porque
+rótulo cortado é opção que não casa mais.
+
+⚠️ **Efeito colateral bom, e para melhor:** como os dois canais já desenhavam botão, não é preciso
+credencial nenhuma para eles. O caminho pela plataforma continua sendo o caminho.
+
+### 2. O Instagram, que é a lacuna de verdade
+
+Só o Instagram não traduz escolha em botão. Para ele, e **só** para ele, o motor fala direto com a
+Meta e **em seguida registra a mensagem na conversa** — senão o atendente abriria o atendimento e
+não veria o que o robô disse ao cliente. O registro é feito de um jeito que a plataforma **não
+reentrega** a mesma mensagem: ninguém recebe duas vezes.
+
+Achado que evitou trabalho jogado fora: o botão «bonito» (o de modelo) **não funciona para
+escolha** — o toque nele é descartado em silêncio pela plataforma, que não escuta esse tipo de
+evento. Por isso usamos **resposta rápida**, que volta como mensagem comum e atravessa o caminho
+normal.
+
+### 3. O cofre, e a credencial que se acha sozinha
+
+O token do canal **não é publicado** pela plataforma — conferido no código dela. Então ele passa a
+vir de fora, procurado nesta ordem, e nenhum degrau é obrigatório:
+
+1. **cofre cifrado da empresa**, no apelido que a própria conexão declarar;
+2. **cofre cifrado da empresa**, no apelido convencional do canal;
+3. **ambiente**, token direto do canal;
+4. **ambiente**, token de sistema da Meta — de onde se deriva o token da página.
+
+O cofre por empresa é o caminho do SaaS (cada cliente com o seu token); o ambiente é o caminho da
+instalação única. **Não achou nada? Degrada para texto numerado, dizendo o motivo** — nunca em
+silêncio. A rede que já existia continua inteira.
+
+⚠️ **Uma decisão de segurança fica com o dono.** O token gravado hoje é o **mesmo** que o marketing
+usa para publicar: dá ao motor mais poder do que ele precisa (ele precisa de dois escopos; o token
+tem 29). Foi construído de propósito para que **separar seja trocar um valor**, sem tocar em
+código: basta gravar um token só de mensagens no degrau 3 e o degrau 4 deixa de ser usado.
+
+### 4. A barrinha que girava no aparelho do cliente
+
+No Telegram, tocar num botão deixa uma barrinha girando até alguém confirmar o recebimento. O motor
+passou a confirmar. E a falha dessa confirmação é engolida de propósito: **ela nunca custa a
+mensagem do cliente**.
+
+### 5. A cópia do proxy, que estava mentindo (correção de recuperação de desastre)
+
+A cópia versionada da configuração do proxy estava **defasada** em relação ao que roda de verdade:
+faltavam as duas linhas que deixam a conexão virar fluxo contínuo. Quem recriasse o ambiente a
+partir dela subiria um proxy em que **a caixa do item 6 volta a depender de F5**. Corrigida, com a
+dependência do `map` escrita ao lado. Só o arquivo do repositório — o nginx não foi tocado.
+
+### 6. E, no mesmo instante, tudo o que já estava pronto e não tinha subido
+
+- **v1.13.00 — a mesa:** abrir a conversa, ler o histórico, aceitar em seu nome, responder e
+  transferir. Antes era uma lista que não abria nada.
+- **v1.14.00 — o tempo real:** conversa nova aparece sozinha, mudança de estado reflete na hora, e
+  quando a ligação cai ela volta e relê o que perdeu. Sem botão «Atualizar», sem F5. Inclui o
+  espelho de setores se conferindo sozinho a cada 15 minutos — o dado que decide **quem vê a fila
+  de quem**, e que até então dependia de alguém lembrar de clicar num botão.
+
+### O que **não** está provado, e é honesto dizer
+
+**Não há caixa de Instagram, Facebook nem Telegram ligada.** Não se prova que o cliente **vê** o
+botão, nem que a Meta aceita o token. O que se prova é que o formato certo sai pelo caminho certo,
+que a busca da credencial percorre os quatro degraus, que a degradação acontece quando deve e que
+nenhum segredo vaza. Os limites de tamanho vêm da documentação oficial, não de um envio recusado.
+
+⛔ **Continuam desligados**, e medidos desligados: o executor de fluxo, o agendamento e o carteiro
+de webhook. A plataforma segue com **zero webhooks** cadastrados — nada disto alcança um cliente
+real ainda.
+
 ## v1.14.00 — A caixa se atualiza sozinha: sem botão, sem F5 (03/09/2026)
 
-> ⏳ **ESTADO: construída e provada, PUBLICAÇÃO PENDENTE do lote.** Não subi a imagem, e a razão é
-> boa: em 03/09 a árvore tem **três frentes ao mesmo tempo** (esta, os botões nativos e a mesa), e
-> duas delas ainda estão **em obra, sem commit**. Uma imagem tirada desta árvore levaria para
-> produção o trabalho inacabado de outra pessoa — e, pior, um instantâneo de um arquivo que talvez
-> estivesse sendo escrito naquele segundo. A lei do lote existe para isso: **um** build no fim,
-> quando as três fecharem. O roteiro pronto está no relatório da entrega.
+> ✅ **PUBLICADA em 03/09/2026, dentro do lote da v1.15.00.** A espera valeu e está registrada aqui
+> porque explica a lei: em 03/09 a árvore tinha **três frentes ao mesmo tempo** (esta, os botões
+> nativos e a mesa) e duas ainda estavam em obra, sem commit. Uma imagem tirada daquela árvore
+> levaria para produção o trabalho inacabado de outra pessoa. As três fecharam e saíram juntas, num
+> **único** build — que é o que a lei do lote manda.
 
 A frase que resume: **a fila do atendente deixou de depender de alguém clicar. Conversa nova
 aparece, mudança de estado reflete na hora, mensagem entra na conversa aberta — e, quando a ligação
