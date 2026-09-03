@@ -78,6 +78,13 @@ fluxo de verdade (**201**, com o nó de início, como a tela cria) · **apareceu
 tem para onde ir») · **arquivado em seguida** (200) · lista de volta a `total:0`. **Nenhum fluxo de
 mentira ficou para trás.**
 
+**Limpeza conferida:** os dois fluxos de prova (o de diagnóstico e o do teste final) foram
+**apagados de verdade** do banco depois da prova — arquivar é apagamento **suave** por desenho
+(«nada é apagado»), e deixá-los ali faria aparecerem para o dono ao marcar «Mostrar arquivados».
+A remoção só passou pela rede de segurança que exige **zero execução, zero versão e nenhuma versão
+publicada** em cada um. `RagnabotFluxo` de volta a **0**. Os registros de **auditoria** dos dois
+(`fluxo_criado` / `fluxo_arquivado`) **ficam** — auditoria não se apaga, nem a própria.
+
 ### Nota honesta
 Não consigo ver a tela do dono, então não sei a largura da janela dele — o que sei é que abaixo de
 900 px o botão **não existia**, e que agora existe em qualquer largura, com uma segunda porta no
