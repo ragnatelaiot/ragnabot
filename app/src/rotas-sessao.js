@@ -17,6 +17,13 @@
 //      do conteúdo assinado. `base/auth.js` o lê e ignora, nesse caminho, qualquer cabeçalho de
 //      ator — é a trava que impede a escalada voltar pela porta dos fundos.
 //
+// ── ⭐ 03/09/2026 (contrato S-CLAREZA): A SEGUNDA PORTA, `POST /adotar` ──────────────────────────
+// Quem JÁ está autenticado na plataforma não vê formulário nenhum. O motor lê a credencial que o
+// navegador já carrega, PERGUNTA À PLATAFORMA de quem ela é (`GET /api/v1/profile`) e só então
+// emite a nossa sessão — pelo MESMO caminho do passo 3/4 acima (`concluirSessao`).
+// ⛔ A presença do cookie nunca é prova de nada: ele não é `HttpOnly` (é assim por desenho do
+// fornecedor) e qualquer um o escreve. Quem prova é a resposta da plataforma. Ver `perfilNaPlataforma`.
+//
 // ── O QUE FOI MEDIDO NA PLATAFORMA (30/08/2026) — não é suposição ───────────────────────────────
 // Lido no código da versão em uso (chatwoot v4.17.1, `DeviseOverrides::SessionsController` e
 // `app/views/api/v1/models/_user.json.jbuilder`) e conferido contra o serviço no ar:
@@ -204,6 +211,96 @@ async function entrarNaPlataforma(email, senha, codigo, ip) {
   return { usuario: u, cabecalhos: r.cabecalhos || {} };
 }
 
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// ⭐ 03/09/2026 (contrato S-CLAREZA) — O SENTIDO INVERSO DA SESSÃO ÚNICA
+//
+// A v1.11.00 resolveu UM sentido: quem entra pela nossa tela recebe também a credencial da
+// plataforma, e as telas embutidas abrem já logadas. Faltava o inverso, e era o que o dono vivia:
+// quem JÁ está autenticado na plataforma, ao abrir `/painel/`, levava a NOSSA tela de login. Mesma
+// senha, dois formulários — a definição de "tá muito confuso".
+//
+// ── ⛔ O QUE ESTA FUNÇÃO NÃO FAZ, e é o ponto de segurança inteiro ──────────────────────────────
+// Ela NÃO acredita no cookie. Cookie é coisa que o cliente escreve: `cw_d_session_info` não é
+// `HttpOnly` (por desenho do fornecedor, ver `base/plataforma-sessao.js`), então qualquer script,
+// extensão ou pessoa com o inspetor aberto consegue inventar um. Aceitar a PRESENÇA dele como
+// prova de sessão seria criar uma porta: bastaria escrever
+// `cw_d_session_info={"access-token":"x","client":"y","uid":"chefe@empresa"}` para entrar como
+// quem quisesse.
+//
+// O que fazemos é PERGUNTAR À PLATAFORMA quem é o dono daquela credencial, com ela, do lado do
+// servidor. Se ela responder 401, não há sessão — e o formulário aparece, como antes.
+//
+// ── O QUE FOI MEDIDO NA PLATAFORMA (03/09/2026), lido no código da versão em uso ────────────────
+//   · `GET /api/v1/profile` (rota `resource :profile`, `Api::V1::ProfilesController#show`) renderiza
+//     **a mesma parcial** `api/v1/models/_user` que o `/auth/sign_in` — id, uid, name, email,
+//     `account_id` (a conta mais recentemente ativa) e `accounts[]` com `role`, `status` e
+//     `permissions`. Por isso `escolherConta()` serve aos dois caminhos sem uma linha diferente.
+//   · `Api::BaseController` só usa o caminho do token de plataforma quando o cabeçalho
+//     `api_access_token` está presente; sem ele, corre `authenticate_user!`, que é o
+//     `devise_token_auth` conferindo `access-token` + `client` + `uid`. Por isso esta chamada
+//     NUNCA manda `api_access_token`: mandá-lo faria a plataforma responder "sim" para o token do
+//     Platform App, e não para a pessoa — validação que valida a nós mesmos.
+//   · `config.change_headers_on_each_request = false` no `devise_token_auth.rb`. É o que torna esta
+//     conferência SEGURA de repetir: a chamada do servidor **não gira** o token do navegador. Se
+//     fosse `true`, cada conferência nossa invalidaria a credencial que o painel embutido usa, e o
+//     sintoma seria a tela do fornecedor deslogando sozinha a cada F5.
+//
+// ⚠️ A RESPOSTA NÃO PODE SER LOGADA. Ela traz `access_token` — o token pessoal de API do usuário.
+// Nada dela sai daqui além de id, nome, e-mail e a lista de contas.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+async function perfilNaPlataforma(credencial, ip) {
+  const alvo = alvoDaPlataforma();
+  const cliente = axios.create({
+    baseURL: alvo.baseURL,
+    timeout: TEMPO_LIMITE_MS,
+    httpsAgent: alvo.hostname ? new https.Agent({ servername: alvo.hostname, keepAlive: false }) : undefined,
+    headers: {
+      ...(alvo.hostname ? { Host: alvo.hostname } : {}),
+      Accept: 'application/json',
+      'User-Agent': NOSSO_AGENTE,
+      ...(ip ? { 'X-Forwarded-For': ip } : {}),
+      ...credencial, // access-token, client, uid, expiry, token-type — os nomes são dele
+    },
+    maxRedirects: 0,
+    validateStatus: () => true,
+  });
+
+  let r;
+  try {
+    r = await cliente.get('/api/v1/profile');
+  } catch (e) {
+    throw new ErroDeEntrada('PLATAFORMA_INACESSIVEL',
+      `Não consegui falar com a plataforma de atendimento (caminho ${alvo.caminho}).`, 503,
+      { detalhe: e.code || e.message });
+  }
+
+  if (r.status === 401 || r.status === 403) {
+    // A credencial do navegador não vale (venceu, foi revogada, ou foi inventada). Não é erro:
+    // é a resposta "esta pessoa não está logada", e quem chama mostra o formulário.
+    throw new ErroDeEntrada('CREDENCIAL_DA_PLATAFORMA_INVALIDA',
+      'A sessão da plataforma de atendimento não vale mais.', 401);
+  }
+  const ehJson = r.data && typeof r.data === 'object';
+  if (!ehJson) {
+    // Mesma armadilha da entrada: HTML aqui é o guarda do "não sou robô" ou o proxy respondendo
+    // pela plataforma. Chamar isso de "sessão inválida" mandaria procurar defeito na senha.
+    throw new ErroDeEntrada('PLATAFORMA_INACESSIVEL',
+      'A plataforma de atendimento não respondeu ao perfil.', 503,
+      { status: r.status, caminho: alvo.caminho });
+  }
+  if (r.status < 200 || r.status >= 300) {
+    throw new ErroDeEntrada('PLATAFORMA_RECUSOU',
+      'A plataforma de atendimento recusou a consulta do perfil.', 502, { status: r.status });
+  }
+  // O perfil vem CRU (sem o envelope `data` do sign_in) — medido na parcial `_user`.
+  const u = r.data;
+  if (!u || !u.id) {
+    throw new ErroDeEntrada('PLATAFORMA_INACESSIVEL',
+      'A plataforma respondeu ao perfil sem dizer quem é.', 502);
+  }
+  return u;
+}
+
 /**
  * Escolhe a conta e LÊ o papel dali. Nunca do topo da resposta (que é o da conta mais ativa) e
  * nunca do que a tela pediu sem conferir.
@@ -345,7 +442,100 @@ function encerrarNaPlataforma(credencial) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────────────────────────
-// 3. As três rotas
+// 3. O FIM DA ENTRADA — um só, para os dois caminhos
+//
+// ⭐ EXTRAÍDO EM 03/09/2026 (contrato S-CLAREZA). Antes este trecho vivia dentro do `POST /entrar`.
+// Com a adoção de sessão (`POST /adotar`) passaram a existir DUAS portas para o mesmo prédio, e a
+// pior coisa que se pode fazer com duas portas é dar a cada uma o seu próprio porteiro: no dia em
+// que uma regra mudar — a empresa suspensa, o papel desconhecido, o prazo do cookie — a que
+// esquecerem de mudar vira a porta larga. Aqui a regra é uma, e as duas rotas passam por ela.
+//
+// O que ele decide, na ordem: a CONTA e o PAPEL (medidos na plataforma) · a EMPRESA no nosso
+// cadastro · se a empresa não está suspensa · e só então emite o cookie assinado.
+//
+// `cabecalhosDaPlataforma` é opcional de propósito: na adoção o navegador JÁ tem a credencial da
+// plataforma (foi ela que provou quem é a pessoa), então não há o que regravar. Na entrada por
+// senha ela nasce agora, e é aí que o segundo cookie sai junto.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+async function concluirSessao(req, res, { usuario: u, contaId, via, cabecalhosDaPlataforma = null }) {
+  const { conta, papel } = escolherConta(u, contaId);
+
+  const empresa = await empresaDaConta(conta.id);
+  if (empresa && ['suspended', 'closed'].includes(empresa.status)) {
+    throw new ErroDeEntrada('EMPRESA_SUSPENSA',
+      'A empresa está suspensa. Fale com o atendimento da Ragnatela.', 403);
+  }
+
+  const { token, expiraEm, jid } = emitirSessao({
+    sub: u.id,
+    nome: u.name || u.available_name || null,
+    email: u.email || null,
+    papel,                      // ⭐ o papel MEDIDO na plataforma, assinado dentro do cookie
+    conta: conta.id,
+    tenantId: empresa?.id || null,
+  });
+
+  // ⭐ 02/09/2026 (contrato S-CASCA) — A SESSÃO ÚNICA, em duas linhas.
+  //
+  // DOIS cookies podem sair daqui, com papéis diferentes e nenhum enfraquecendo o outro:
+  //   · `rb_sessao`          — NOSSO. Assinado, `HttpOnly`, `SameSite=Strict`, ≤ 8 h. Continua
+  //                            exatamente como estava; nada nele mudou, nem na adoção.
+  //   · `cw_d_session_info`  — DA PLATAFORMA, no formato que a interface DELA lê. É o que faz o
+  //                            painel do fornecedor abrir já logado dentro da nossa casca, em vez
+  //                            de pedir a senha uma segunda vez para o mesmo produto.
+  //
+  // ⚠️ O segundo pode FALTAR sem que isso seja erro de entrada: a nossa parte do produto funciona
+  // sem ele (só as telas embutidas é que pedirão login). Por isso ele é adicionado quando existe,
+  // e a ausência vira aviso no registro — nunca uma recusa de entrada. Ver `base/plataforma-sessao.js`.
+  const biscoitos = [cookieDeSessao(token)];
+  if (cabecalhosDaPlataforma) {
+    const cookiePlataforma = cookieDaPlataforma(cabecalhosDaPlataforma, { prazoPadraoMs: DURACAO_SESSAO_MS });
+    if (cookiePlataforma) biscoitos.push(cookiePlataforma);
+    else logger.warn('[sessao] a plataforma não devolveu credencial de navegador — as telas embutidas vão pedir entrada.');
+  }
+  res.set('Set-Cookie', biscoitos);
+  // `no-store` para a resposta da entrada: ela descreve quem entrou; cache de proxy aqui é
+  // como a identidade de um operador aparece na tela de outro.
+  res.set('Cache-Control', 'no-store');
+
+  const porSenha = via === 'senha';
+  await registrar(req, {
+    action: porSenha ? 'ragnabot_sessao_entrada' : 'ragnabot_sessao_adotada',
+    userId: `cw:${u.id}`,
+    userName: u.name || null,
+    tenantId: empresa?.id || null,
+    description: porSenha
+      ? `entrada pela plataforma · conta ${conta.id} · papel ${papel}`
+      : `sessão adotada da plataforma (sem segundo formulário) · conta ${conta.id} · papel ${papel}`,
+    entityType: 'sessao',
+    entityId: jid,
+  });
+  logger.info(`[sessao] ${porSenha ? 'entrada' : 'adoção'} ok · cw:${u.id} · conta=${conta.id} · papel=${papel}`);
+
+  return res.json({
+    autenticado: true,
+    // Para a tela saber que ninguém digitou nada — e poder dizer isso à pessoa em vez de
+    // simplesmente aparecer logada, o que assusta mais do que ajuda.
+    adotada: !porSenha,
+    ator: {
+      id: `cw:${u.id}`,
+      nome: u.name || null,
+      email: u.email || null,
+      papel: papel === 'administrator' ? 'admin' : 'user',
+      papelNaPlataforma: papel,
+    },
+    empresa: empresa ? { id: empresa.id, nome: empresa.name } : null,
+    conta: { id: conta.id, nome: conta.name || null },
+    // Dito em voz alta em vez de virar tela vazia sem explicação.
+    aviso: empresa ? null : 'Esta conta da plataforma ainda não está cadastrada no Ragnabot — '
+      + 'você entrou, mas não verá fluxos até o cadastro da empresa.',
+    expiraEm: expiraEm.toISOString(),
+    versao: VERSAO || null,
+  });
+}
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// 4. As rotas
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -384,73 +574,9 @@ router.post('/entrar', async (req, res) => {
 
   try {
     const { usuario: u, cabecalhos: cabecalhosDaPlataforma } = await entrarNaPlataforma(email, senha, codigo, ip);
-    const { conta, papel } = escolherConta(u, contaId);
-
-    const empresa = await empresaDaConta(conta.id);
-    if (empresa && ['suspended', 'closed'].includes(empresa.status)) {
-      throw new ErroDeEntrada('EMPRESA_SUSPENSA',
-        'A empresa está suspensa. Fale com o atendimento da Ragnatela.', 403);
-    }
-
-    const { token, expiraEm, jid } = emitirSessao({
-      sub: u.id,
-      nome: u.name || u.available_name || null,
-      email: u.email || null,
-      papel,                      // ⭐ o papel MEDIDO na plataforma, assinado dentro do cookie
-      conta: conta.id,
-      tenantId: empresa?.id || null,
-    });
-
     esquecerFalhas(chave);
-
-    // ⭐ 02/09/2026 (contrato S-CASCA) — A SESSÃO ÚNICA, em duas linhas.
-    //
-    // DOIS cookies saem daqui, com papéis diferentes e nenhum enfraquecendo o outro:
-    //   · `rb_sessao`          — NOSSO. Assinado, `HttpOnly`, `SameSite=Strict`, ≤ 8 h. Continua
-    //                            exatamente como estava; nada nele mudou.
-    //   · `cw_d_session_info`  — DA PLATAFORMA, no formato que a interface DELA lê. É o que faz o
-    //                            painel do fornecedor abrir já logado dentro da nossa casca, em vez
-    //                            de pedir a senha uma segunda vez para o mesmo produto.
-    //
-    // ⚠️ O segundo pode FALTAR sem que isso seja erro de entrada: a nossa parte do produto funciona
-    // sem ele (só as telas embutidas é que pedirão login). Por isso ele é adicionado quando existe,
-    // e a ausência vira aviso no registro — nunca uma recusa de entrada. Ver `base/plataforma-sessao.js`.
-    const biscoitos = [cookieDeSessao(token)];
-    const cookiePlataforma = cookieDaPlataforma(cabecalhosDaPlataforma, { prazoPadraoMs: DURACAO_SESSAO_MS });
-    if (cookiePlataforma) biscoitos.push(cookiePlataforma);
-    else logger.warn('[sessao] a plataforma não devolveu credencial de navegador — as telas embutidas vão pedir entrada.');
-    res.set('Set-Cookie', biscoitos);
-    // `no-store` para a resposta da entrada: ela descreve quem entrou; cache de proxy aqui é
-    // como a identidade de um operador aparece na tela de outro.
-    res.set('Cache-Control', 'no-store');
-
-    await registrar(req, {
-      action: 'ragnabot_sessao_entrada',
-      userId: `cw:${u.id}`,
-      userName: u.name || null,
-      tenantId: empresa?.id || null,
-      description: `entrada pela plataforma · conta ${conta.id} · papel ${papel}`,
-      entityType: 'sessao',
-      entityId: jid,
-    });
-    logger.info(`[sessao] entrada ok · cw:${u.id} · conta=${conta.id} · papel=${papel}`);
-
-    return res.json({
-      autenticado: true,
-      ator: {
-        id: `cw:${u.id}`,
-        nome: u.name || null,
-        email: u.email || null,
-        papel: papel === 'administrator' ? 'admin' : 'user',
-        papelNaPlataforma: papel,
-      },
-      empresa: empresa ? { id: empresa.id, nome: empresa.name } : null,
-      conta: { id: conta.id, nome: conta.name || null },
-      // Dito em voz alta em vez de virar tela vazia sem explicação.
-      aviso: empresa ? null : 'Esta conta da plataforma ainda não está cadastrada no Ragnabot — '
-        + 'você entrou, mas não verá fluxos até o cadastro da empresa.',
-      expiraEm: expiraEm.toISOString(),
-      versao: VERSAO || null,
+    return await concluirSessao(req, res, {
+      usuario: u, contaId, via: 'senha', cabecalhosDaPlataforma,
     });
   } catch (e) {
     if (e instanceof ErroDeEntrada) {
@@ -468,6 +594,101 @@ router.post('/entrar', async (req, res) => {
     }
     logger.error(`[sessao] falha inesperada na entrada: ${e.message}`);
     return res.status(500).json({ error: 'FALHA_INTERNA', mensagem: 'Não consegui concluir a entrada.' });
+  }
+});
+
+/**
+ * POST /sessao/adotar — UMA ENTRADA SÓ (contrato S-CLAREZA, 03/09/2026).
+ *
+ * Quem já está autenticado na PLATAFORMA e abre o nosso painel não vê formulário nenhum: o motor
+ * pega a credencial que o navegador já carrega, PERGUNTA À PLATAFORMA de quem ela é, e emite a
+ * nossa sessão. Sem senha digitada duas vezes, sem segundo segundo-fator.
+ *
+ * ── POR QUE UMA ROTA PRÓPRIA, E NÃO ISTO DENTRO DO `GET /eu` ────────────────────────────────────
+ * Porque `GET` tem de ficar sem efeito colateral. `/sessao/eu` é chamado a cada abertura de tela e
+ * é o tipo de endereço que proxy, pré-busca de navegador e sonda repetem à vontade; emitir
+ * credencial ali seria emitir credencial por engano. Rota própria também dá à adoção o seu nome na
+ * auditoria (`ragnabot_sessao_adotada`) e o seu próprio freio.
+ *
+ * ── A ORDEM IMPORTA, e cada degrau economiza o seguinte ─────────────────────────────────────────
+ *   1. já temos sessão nossa válida? devolve ela e NÃO fala com a plataforma (o caso comum do F5);
+ *   2. o navegador trouxe credencial da plataforma? sem ela, 401 na hora — sem rede, sem espera;
+ *   3. só então perguntamos à plataforma quem é.
+ *
+ * ⚠️ NENHUMA TRAVA FOI AFROUXADA: a sessão emitida aqui tem a mesma validade (≤ 8 h), o mesmo
+ * escopo de empresa, o mesmo papel medido na plataforma e a mesma revogação do «Sair». A única
+ * coisa que muda é quem PROVOU a identidade — antes a senha digitada agora, aqui a credencial que
+ * a própria plataforma emitiu para esta pessoa e que ela acabou de confirmar.
+ */
+router.post('/adotar', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  if (!sessaoConfigurada()) {
+    return res.status(503).json({
+      autenticado: false, error: 'SESSAO_NAO_CONFIGURADA',
+      mensagem: 'RAGNABOT_SESSAO_SEGREDO não está definido — a entrada está desligada.',
+    });
+  }
+
+  // 1. Já está dentro? Nada a fazer — e nada de bater na plataforma por causa de um F5.
+  const cru = lerCookie(req);
+  const jaTem = cru ? verificarSessao(cru) : { ok: false };
+  if (jaTem.ok) {
+    const u = usuarioDaSessao(jaTem.sessao);
+    return res.json({
+      autenticado: true,
+      adotada: false,
+      ator: { id: u.id, nome: u.name, email: u.email, papel: u.role, papelNaPlataforma: u.papelNaPlataforma },
+      empresa: u.ragnabotTenantId ? { id: u.ragnabotTenantId } : null,
+      conta: { id: u.cwAccountId },
+      expiraEm: u.sessaoExpiraEm,
+      versao: VERSAO || null,
+    });
+  }
+
+  // 2. O navegador trouxe a credencial da plataforma?
+  const credencial = credencialDoPedido(req);
+  if (!credencial) {
+    return res.status(401).json({
+      autenticado: false, error: 'SEM_CREDENCIAL_DA_PLATAFORMA',
+      mensagem: 'Você ainda não está autenticado na plataforma de atendimento neste navegador.',
+    });
+  }
+
+  // Freio por IP. Não é o freio que conta (a plataforma tem o dela), mas um cookie forjado atrás
+  // do outro custa uma chamada nossa por tentativa, e isso não pode sair de graça.
+  const ip = await ipDoCliente(req);
+  const chave = chaveDeFreio(ip, '#adocao');
+  const espera = freado(chave);
+  if (espera) {
+    return res.status(429).json({
+      autenticado: false, error: 'MUITAS_TENTATIVAS',
+      mensagem: `Muitas tentativas. Tente de novo em ${Math.ceil(espera / 60)} minuto(s).`,
+      segundos: espera,
+    });
+  }
+
+  try {
+    // 3. Quem é o dono desta credencial? Quem responde é a plataforma, não o cookie.
+    const u = await perfilNaPlataforma(credencial, ip);
+    esquecerFalhas(chave);
+    return await concluirSessao(req, res, { usuario: u, contaId: req.body?.contaId ?? null, via: 'adocao' });
+  } catch (e) {
+    if (e instanceof ErroDeEntrada) {
+      if (e.codigo === 'CREDENCIAL_DA_PLATAFORMA_INVALIDA') {
+        contarFalha(chave);
+        // Sem registro de auditoria aqui: cookie vencido é o caso NORMAL de quem passou da hora, e
+        // um registro por aba aberta afogaria a trilha justamente quando ela precisar ser lida.
+      } else {
+        await registrar(req, {
+          action: 'ragnabot_sessao_adocao_recusada',
+          description: `adoção de sessão recusada (${e.codigo})`,
+          entityType: 'sessao',
+        });
+      }
+      return res.status(e.status).json({ autenticado: false, error: e.codigo, mensagem: e.message, ...e.extra });
+    }
+    logger.error(`[sessao] falha inesperada na adoção: ${e.message}`);
+    return res.status(500).json({ autenticado: false, error: 'FALHA_INTERNA', mensagem: 'Não consegui concluir a entrada.' });
   }
 });
 

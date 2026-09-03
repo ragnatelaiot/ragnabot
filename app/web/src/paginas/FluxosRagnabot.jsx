@@ -71,6 +71,8 @@ import {
   History, Activity, Crosshair, Upload, ChevronRight, Map as IconeMapa,
 } from 'lucide-react';
 import CapaSecao from '../componentes/CapaSecao.jsx';
+// ⭐ 03/09/2026 (contrato S-CLAREZA): escolher a caixa pelo NOME, nunca pelo número.
+import { CampoDeCaixa, useCaixasDoEscopo } from '../componentes/EscolhaDeCaixa.jsx';
 // A camada de rede saiu deste arquivo na mudança de casa (doc 33, Etapa 4): aqui a tela é servida
 // pelo PRÓPRIO motor e fala com ele na mesma origem, pelo esquema de `src/base/auth.js`. O corpo do
 // `chamarFluxo` é o mesmo; o que mudou foi de onde sai a credencial. Ver `src/lib/api.js`.
@@ -3643,6 +3645,12 @@ function ModalDeCriacao({ aberta, ehSuperusuario, aoFechar, aoCriado }) {
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState(null);
 
+  // As caixas para escolher pelo nome. Buscadas só com a modal ABERTA — a modal existe montada com
+  // `aberta=false`, e consultar aí seria uma chamada por tela aberta que ninguém pediu.
+  // ⚠️ O super usuário do NOC vê todas as empresas: quando ele diz qual é a empresa, a lista
+  // estreita junto. Sem isso ele escolheria a caixa de uma empresa e gravaria o fluxo em outra.
+  const caixas = useCaixasDoEscopo(aberta, { tenantId: ehSuperusuario ? tenantId.trim() || null : null });
+
   useEffect(() => {
     if (aberta) {
       setNome(''); setDescricao(''); setEntrada('subfluxo'); setCwInboxId('');
@@ -3708,8 +3716,19 @@ function ModalDeCriacao({ aberta, ehSuperusuario, aoFechar, aoCriado }) {
           { valor: 'palavra_chave', rotulo: 'Palavra-chave — quando o cliente escrever algo' },
         ]}
       />
+      {/* ⭐ 03/09/2026 (contrato S-CLAREZA): era um campo numérico com o nome interno do banco no
+          rótulo («cwInboxId»). Agora é uma LISTA com o nome da conexão, e ela só aparece quando a
+          entrada é por caixa — perguntar de qual conexão vem um sub-fluxo é pergunta sem resposta.
+          O componente cuida sozinho de cadastro vazio e de falha na consulta; ver
+          `componentes/EscolhaDeCaixa.jsx`. */}
       {entrada === 'caixa' ? (
-        <CampoTexto rotulo="Caixa de entrada (cwInboxId)" dica="(obrigatório para esta entrada)" tipo="number" valor={cwInboxId} aoMudar={setCwInboxId} />
+        <CampoDeCaixa
+          dica="obrigatório para esta entrada"
+          valor={cwInboxId}
+          aoMudar={setCwInboxId}
+          caixas={caixas}
+          desabilitado={salvando}
+        />
       ) : null}
       {entrada === 'palavra_chave' ? (
         <CampoTexto rotulo="Palavras-chave" dica="separadas por vírgula" valor={palavrasChave} aoMudar={setPalavrasChave} />

@@ -109,20 +109,14 @@ export function MenuLateral({ papel, operadorDoSaas = false, aberto = false, aoF
           })}
         </nav>
 
-        {/* ⭐ REESCRITO EM 02/09/2026 (contrato S-CASCA). Este parágrafo dizia quais telas ainda
-            NÃO existiam aqui e por isso obrigavam a pessoa a sair para o painel de atendimento.
-            Não obrigam mais: com a casca única, elas abrem AQUI DENTRO, com este mesmo menu ao
-            lado. O que continua valendo — e é o que ele diz agora — é DE QUEM é cada tela, porque
-            é isso que explica a diferença de comportamento quando ela aparece.
-            ⚠️ Ao substituir uma tela do fornecedor pela nossa, o ponto some sozinho (é o campo
-            `embutido` do catálogo) e esta frase continua verdadeira sem ninguém mexer nela. */}
-        <p className="casca__rodape-menu">
-          Os itens marcados com <span className="casca__marca-embutido casca__marca-embutido--exemplo" aria-hidden="true" /> ainda
-          são telas do painel de atendimento — abrem aqui dentro, com este menu do lado, e não
-          pedem senha de novo. Vamos substituindo uma a uma; quando isso acontece, o ponto some e
-          nada mais muda para você. Criar e remover conexão, que pede segundo fator e credencial de
-          canal, continua em Empresas e no painel de atendimento.
-        </p>
+        {/* ⛔ AQUI HAVIA UM PARÁGRAFO DE BASTIDOR, e ele saiu em 03/09/2026 (contrato S-CLAREZA).
+            Explicava que os itens marcados «ainda são telas do painel de atendimento» e que «vamos
+            substituindo uma a uma». Isso é anotação de obra: informa a quem CONSTRÓI o produto e
+            confunde quem o USA — o cliente não precisa saber de qual metade do prédio é cada sala,
+            precisa que a porta abra. O ponto ao lado do item fica (com o texto de apoio no
+            `title` e no leitor de tela): ele explica, na hora e sem parágrafo, por que aquela tela
+            se comporta um pouco diferente. ⚠️ Nada de repor o parágrafo: o roteiro de obra vive em
+            `docs/`, que é onde quem constrói olha. */}
       </aside>
     </>
   );

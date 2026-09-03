@@ -2,6 +2,184 @@
 > LOG CANÔNICO local da construção (regra do dono, 27/08). Espelho versionado no repo:
 > `ragnatelaiot/ragnabot` → docs/ACTIONLOG.md. Sem segredos, por lei.
 
+## 2026-09-03 — S-CLAREZA: uma entrada só, e a caixa escolhida pelo nome (v1.12.00, no ar)
+
+**Relato do dono, ao vivo:** *«não entendi nada, por que tem outra autenticação para acessar esse
+/painel… tá muito confuso»* e, diante do formulário de criar fluxo, *«seria melhor que esse campo já
+puxasse em menu lista as opções com o nome para não confundir»*. Bloqueio de USO em produção.
+
+### 1. ⭐ A entrada única — o sentido que faltava, e a prova de que ela valida
+
+A v1.11.00 resolveu metade: sair do nosso painel para a tela embutida não pede senha de novo. O que
+o dono vivia era o inverso — quem **já** estava autenticado na plataforma, ao abrir `/painel/`,
+levava a NOSSA tela de login.
+
+`POST /sessao/adotar` fecha isso. Quando não há sessão nossa, o portão da tela pergunta ao motor se
+dá para aproveitar a que a pessoa já tem lá. **Rota própria, e não dentro do `GET /sessao/eu`**, de
+propósito: `GET` tem de ficar sem efeito colateral (proxy e pré-busca repetem `GET` à vontade, e
+emitir credencial ali seria emitir por engano), e a rota própria dá à adoção nome próprio na
+auditoria e freio próprio.
+
+⛔ **A presença do cookie NUNCA é a prova.** `cw_d_session_info` não é `HttpOnly` — é assim por
+desenho do fornecedor, porque a interface dele precisa lê-lo — então qualquer script ou pessoa com o
+inspetor aberto escreve um. O motor **pergunta à plataforma de quem é a credencial** antes de abrir.
+
+**Três fatos medidos no código da versão em uso, e os três mandam no desenho:**
+- `GET /api/v1/profile` (`Api::V1::ProfilesController#show`) renderiza **a mesma parcial**
+  `api/v1/models/_user` que o `/auth/sign_in` — daí `escolherConta()` servir aos dois caminhos sem
+  uma linha diferente;
+- `Api::BaseController` só usa o caminho do token de plataforma quando o cabeçalho `api_access_token`
+  está presente. Por isso a nossa chamada **nunca** o manda: mandá-lo faria a plataforma responder
+  «sim» para o **nosso** token e não para a pessoa — validação que valida a nós mesmos, a falha mais
+  cara possível porque passa em todo teste ingênuo;
+- `config.change_headers_on_each_request = false` no `devise_token_auth.rb`. É o que torna a
+  conferência **segura de repetir**: a chamada do servidor **não gira** o token do navegador. Se
+  fosse `true`, cada conferência nossa invalidaria a credencial do painel embutido e o sintoma seria
+  a tela do fornecedor deslogando sozinha a cada F5.
+
+**Nada foi afrouxado:** mesmo cookie assinado, mesmo teto de 8 h, mesmo papel medido em
+`accounts[].role` da conta escolhida (nunca o do topo), mesmo escopo de empresa, mesma revogação. As
+mesmas recusas continuam recusando — conta inativa, papel desconhecido, empresa suspensa.
+
+A lógica de fim de entrada foi **extraída** para `concluirSessao()` e as duas portas passam por ela.
+Duas portas com dois porteiros é como, no dia em que uma regra muda, a que esquecerem vira a porta
+larga.
+
+### 2. A caixa de entrada, escolhida pelo nome
+
+`GET /api/ragnabot-fluxo/caixas` — a lista do escopo, com o **mesmo** `clausulaEscopo` das outras
+rotas do arquivo. **Não** foi pendurada em `/api/ragnabot/inboxes`: aquele router inteiro exige
+administrador do grupo RAGNATELA (é o console de OPERAÇÃO do SaaS), e quem cria fluxo é o
+administrador da EMPRESA — a lista nasceria vazia justamente para quem a usa.
+
+Na tela, `componentes/EscolhaDeCaixa.jsx`: lista com nome e identificador, campo só quando a entrada
+é por caixa, e **quatro estados** — carregando, com opções, cadastro vazio (diz «Sincronizar agora»,
+em Caixas de entrada) e falha (diz o motivo e deixa seguir pelo número). Valor fora do cadastro não
+some em silêncio: aparece marcado como «fora do cadastro». Aplicado também ao campo «Conexão» do
+agendamento, que tinha o mesmo problema.
+
+⛔ **A lista é conveniência; a recusa continua no servidor.** `problemaNaCaixaDoFluxo()` não mudou de
+lugar. Uma tela que escolhe bem erra menos; não é uma guarda.
+
+### 3. O bastidor saiu da tela
+O parágrafo do pé do menu («os itens marcados com ● ainda são telas do painel de atendimento… vamos
+substituindo uma a uma») era anotação de obra no lugar onde está quem usa. Saiu, junto com as duas
+regras de CSS que ficaram órfãs. **O ponto fica** — ele explica sem parágrafo. O teste que EXIGIA a
+frase foi **invertido**: agora ele reprova se ela voltar.
+
+### O que ficou medido — e as duas suítes foram conferidas QUEBRANDO o código
+- `app/tests/ragnabot-sessao-adocao.test.mjs` — **19 medições**, plataforma de mentira em
+  `127.0.0.1`, banco e trilha de auditoria dublados por `mock.module`. Ao trocar a conferência por
+  «acredite no cookie», **12 de 19** (a medição do cookie forjado entre as vermelhas); restaurado,
+  **19 de 19**. Teste que só sabe passar não prova nada.
+- `app/web/tests/escolha-de-caixa.smoke.mjs` — **14 medições**, ligado ao `npm test` da interface.
+- Interface: **197 medições em 12 suítes, 0 reprovações**. Motor: **26 suítes verdes**; as 7
+  vermelhas são por falta de `DATABASE_URL` ou por serem de ponta a ponta — **o mesmo conjunto do
+  lote anterior**, não regressão.
+
+⚠️ **Achado honesto no meio do teste:** a primeira versão da medição «o rótulo não carrega o número»
+reprovou — e estava **certa a reprovar**. Na conta 1, o `identifier` das caixas de Facebook e
+Instagram **é** o próprio id na plataforma. O rótulo mostra o número porque é o identificador REAL,
+não porque o acrescentamos. A medição foi reescrita para dizer isso; exigir o contrário seria
+escrever um teste que manda o código mentir.
+
+### ⛔ ZERO migração
+`git status` não trouxe **nenhum** arquivo sob `app/prisma/`. Nada de `prisma db push`.
+
+### A imagem, conferida DENTRO do artefato antes de subir
+`ragnabot-motor:1.12.00`, `--build-arg RAGNABOT_PREFIXO_WEB=/painel/`. Dentro da imagem: `VERSAO` =
+`1.12.00`; o índice pede `/painel/assets/index-B99_Uhc9.js`; `/painel/app/` aparece **0 vez** (a
+armadilha do prefixo vazando para o endereço da tela do fornecedor); a rota `/adotar` e a `/caixas`
+presentes no motor; o parágrafo de bastidor **ausente** do JS e do CSS construídos.
+
+Levada por SFTP aos containerds de `rgtk8s001` e `rgtk8s002` — **mesma impressão digital nos quatro
+pontos**: tar `15c65c75…` local e nos dois nós, manifesto `sha256:8987d182…` nos dois. Rollout
+**2/2, zero reinícios, zero linhas de erro** nos dois pods. `ragnabot-web` e `ragnabot-worker`
+**não foram tocados** (seguem em `18f280a6…`).
+
+### ⭐ A prova em PRODUÇÃO da recusa — pela porta pública, no vhost real
+Com um cookie **forjado** (`{"access-token":"inventado…","uid":"quem-eu-quiser@empresa.com.br"}`):
+
+```
+POST /painel/sessao/adotar  →  401
+{"autenticado":false,"error":"CREDENCIAL_DA_PLATAFORMA_INVALIDA", …}
+Set-Cookie: NENHUM
+```
+
+Esse código só é produzido **depois** de a plataforma real responder 401 à nossa consulta. Se ela
+estivesse fora do ar ou tivesse devolvido HTML, o código seria `PLATAFORMA_INACESSIVEL`. É a prova
+de que a validação acontece, e acontece contra ela. Sem cookie e com cookie ilegível: 401
+`SEM_CREDENCIAL_DA_PLATAFORMA` **sem nenhuma ida à plataforma**.
+
+E a lista de caixas, com sessão emitida **dentro do pod** (o segredo não sai de lá) contra
+`127.0.0.1:3000`, encerrada pela rota real ao fim: `GET /api/ragnabot-fluxo/caixas` = **200**, as
+**4 caixas de verdade** pelo nome — `[1] Site - Ragnatela`, `[34] WhatsApp Ragnatela ·
++559831970997`, `[35] Facebook-Ragnatela`, `[36] Instagram-Ragnatela` — e **nenhuma credencial** na
+resposta.
+
+### O vhost, e as 13 rotas a um F5
+`/` = 200 e `/app/login` = 200 (o painel do fornecedor **intacto**); as 10 rotas do nosso painel =
+200; arquivo inexistente = **404** (e não HTML com 200); o pacote **antigo** = 404, provando que a
+casca trocou de artefato. `/motor-api/saude` responde 200 **para o NOC**, que é o endereço permitido
+— a linha `allow/deny` não foi tocada.
+
+### ⛔ Continuam desligados, medidos NO PROCESSO
+`executorFluxo: false` · `agendamento: false` · `webhookSaida: false` · **zero webhooks** na
+plataforma (`SELECT count(*) FROM webhooks` = 0). Nada mudou para quem conversa com a gente hoje.
+
+### ⏳ O endereço único — MEDIDO, PROPOSTO, NÃO APLICADO
+A raiz `bot.ragnatela.com.br` continua entregando o painel do fornecedor. A mudança é **`location =
+/ { return 302 https://$host/painel/; }`** — casamento **exato**, só o caminho `/` pelado; `/app/…`,
+`/auth/…`, `/api/…`, `/cable`, `/widget`, `/packs/…` e `/super_admin` seguem intocados, com a
+injeção de tema e o guarda anti-robô no lugar. **302 e não 301**, para poder voltar atrás sem pedir
+a ninguém que limpe o cache.
+
+Medido antes de propor: no log deste vhost, quem pede `/` são navegadores humanos chegando e robôs
+de busca — **nenhum serviço depende desse caminho**; e no código da plataforma a raiz é
+`root to: 'dashboard#index'`, a MESMA casca de `/app/…`, então nada muda de lugar.
+
+🔴 **A escrita em `/etc/nginx` do proxy compartilhado foi RECUSADA pelo sistema de permissão desta
+sessão.** O roteiro da casa manda **parar e devolver a decisão**, não contornar — e foi o que fiz.
+O vhost foi conferido depois da recusa e está **intacto** (última modificação 02/09 23:40, do
+contrato anterior; nenhum respaldo novo criado). As linhas ficam prontas e comentadas em
+`app/deploy/nginx/bot-painel.conf`, com o roteiro de aplicação (respaldo fora de `sites-enabled` →
+`nginx -t` → `reload`, nunca `restart`).
+
+**Efeito de borda conhecido, dito antes de acontecer:** a plataforma manda o navegador para `/`
+depois do «Sair» dela. Com o desvio, quem sair por lá cai no nosso painel; se a sessão do Ragnabot
+ainda valer, entra, e as telas embutidas pedirão a entrada do fornecedor — que, ao ser feita, volta
+a funcionar sozinha, porque a interface dele regrava a própria credencial.
+
+### Backup, no líder MEDIDO NA HORA e conferido por LEITURA DO OBJETO
+⚠️ **O líder tinha trocado**: agora é **`rgtpgtgsql001`** (era `rgtpstgsql002` no lote anterior).
+`SELECT NOT pg_is_in_recovery()` = `t` nele e `f` no outro, e o roteiro **re-mede dentro do mesmo
+comando que dispara**, abortando se não for. Objeto
+`backup-postgres/ragnabot-completo_2026-09-03T13-19-25-348Z.sql.gz`, **93 896 bytes**, Object Lock
+**GOVERNANCE** até 13/09. Confirmado por `head_object` **+** `get_object` **da chave exata** — nunca
+pela listagem, que no iDrive e2 já devolveu 7 e depois 0 para o mesmo prefixo. Dentro do dump:
+**151 tabelas**, as **3 chaves compostas** do motor (`rb_no`, `rb_aresta`, `rb_exec_versao_fk`) e os
+**dois bancos**.
+
+### ⚠️ O que NÃO foi provado — sem navegador não dá
+Registro honesto: **não abri navegador**, e uma coisa só se prova nele — que o navegador do dono,
+já logado na plataforma, entre no painel **sem formulário**. Todas as camadas por baixo estão
+provadas (a recusa em produção, o formato da resposta lido no código da plataforma no ar, o caminho
+feliz contra um dublê fiel, a lista de caixas com sessão real em produção), mas a última milha é o
+dono abrir o painel e contar o que viu.
+
+**Estado do ambiente:** existe **1 fluxo** no banco (criado pelo dono depois da v1.11.01) — não foi
+tocado. **Zero caixas de WhatsApp criadas por nós**: as 4 do cadastro são as que já existiam na
+plataforma.
+
+### Pendência que NÃO é minha, e fica registrada
+`app/package.json` (+ `jsdom` em devDependencies), `app/package-lock.json` e cinco arquivos de teste
+(`ragnabot-fluxo-catalogo.test.mjs`, `_monta-fluxos.jsx`, `_servidor-de-laboratorio.mjs`,
+`ligacao.smoke.mjs`, `ligacao-navegador.mjs`) estão **sem commit desde o contrato S-BOTAO**. Não os
+levei junto: misturá-los ao meu commit apagaria a autoria e faria subir trabalho que não medi. A
+decisão de commitá-los é do chefe.
+
+---
+
 ## 2026-09-03 — S-BOTAO: «não existe o botão de criar o fluxo» — era CSS, e foi consertado na raiz (v1.11.01)
 
 **Relato do dono, no painel, ao vivo:** *«ainda não existe o botão de criar o fluxo»*. Bloqueio em

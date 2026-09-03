@@ -16,7 +16,9 @@
 // chega aqui — ele nasce e morre dentro do motor, no mesmo pedido.
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 import React, { useCallback, useEffect, useState } from 'react';
-import { EVENTO_SESSAO_EXPIRADA, atorAtual, carregarSessao, entrar, sair } from '../lib/api.js';
+import {
+  EVENTO_SESSAO_EXPIRADA, adotarSessao, atorAtual, carregarSessao, entrar, sair,
+} from '../lib/api.js';
 
 const cartao = {
   background: 'var(--bg-surface)',
@@ -179,7 +181,18 @@ export function PortaoDeSessao({ children, rodape = null }) {
   const conferir = useCallback(async () => {
     setEstado('verificando');
     try {
-      const s = await carregarSessao();
+      let s = await carregarSessao();
+      // ⭐ UMA ENTRADA SÓ (contrato S-CLAREZA, 03/09/2026). Antes desta linha, quem já estava
+      // autenticado na plataforma de atendimento abria o nosso painel e levava a NOSSA tela de
+      // login — a mesma senha, dois formulários. Foi o relato do dono: «por que tem outra
+      // autenticação para acessar esse /painel».
+      //
+      // Agora, quando não há sessão nossa, PERGUNTAMOS ao motor se dá para aproveitar a que a
+      // pessoa já tem lá. Quem confere é o servidor, com a plataforma; a tela só pergunta.
+      //
+      // ⚠️ UMA tentativa, e só quando não há sessão: adotar não é caminho de retentativa. Se não
+      // der, o formulário aparece — que é exatamente o que aparecia antes.
+      if (!s) s = await adotarSessao();
       setEstado(s ? 'dentro' : 'fora');
       setAviso(s?.aviso || null);
     } catch (e) {

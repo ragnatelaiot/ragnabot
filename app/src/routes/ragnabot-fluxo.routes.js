@@ -520,6 +520,53 @@ async function problemaNaCaixaDoFluxo(tenantId, cwInboxId) {
   }
 }
 
+/**
+ * GET /caixas — as caixas de entrada do escopo, para ESCOLHER pelo nome (contrato S-CLAREZA).
+ *
+ * ── POR QUE ESTA ROTA EXISTE, e por que aqui e não na rota de empresas ──────────────────────────
+ * O campo `cwInboxId` era digitado à mão. O dono disse a frase exata: *«seria melhor que esse campo
+ * já puxasse em menu lista as opções com o nome para não confundir»*. E ele tem razão pelo motivo
+ * mais caro possível: digitar 35 onde era 34 GRAVA, PUBLICA e o fluxo simplesmente nunca dispara —
+ * a família de defeito mudo que já custou um contrato inteiro (ver `CaixasDeEntrada.jsx`).
+ *
+ * O cadastro já é lido em `/api/ragnabot/inboxes`, mas aquele router inteiro exige administrador do
+ * grupo RAGNATELA — é o console de OPERAÇÃO do SaaS. Quem cria fluxo é o administrador da EMPRESA,
+ * que não é isso. Pendurar a lista lá deixaria o campo de escolha vazio justamente para quem o usa.
+ * Aqui ela nasce com o MESMO isolamento das outras rotas deste arquivo: `clausulaEscopo`.
+ *
+ * ⛔ A LISTA É CONVENIÊNCIA; A RECUSA CONTINUA NO SERVIDOR. `problemaNaCaixaDoFluxo()` segue
+ * conferindo o número em todo POST/PATCH de fluxo. Uma tela que escolhe bem não é uma guarda —
+ * quem chama a API direto continua encontrando a mesma porta trancada.
+ *
+ * ⛔ NENHUMA CREDENCIAL SAI DAQUI: o serviço já escolhe a dedo o que devolve (nome, identificador,
+ * canal, estado) e o mais sensível é a impressão digital sha256 do segredo, que existe para
+ * auditar SEM guardar o segredo.
+ */
+router.get('/caixas', async (req, res) => {
+  try {
+    const cl = clausulaEscopo(req, req.query.tenantId);
+    // Sem escopo, lista vazia com o motivo dito em voz alta — nunca 403: a tela usa esta resposta
+    // para explicar o que fazer, e um 403 aqui derrubaria a modal inteira por causa de um campo.
+    if (!cl) return res.json({ total: 0, itens: [], aviso: 'usuário sem empresa vinculada' });
+
+    const t = await import('../services/ragnabot-tenant.service.js');
+    // `incluirRemovidas: false` de propósito: aqui se ESCOLHE uma caixa para um fluxo NOVO, e
+    // oferecer uma conexão que sumiu da plataforma é oferecer um fluxo que nasce morto. A tela de
+    // «Caixas de entrada» continua mostrando as removidas — lá elas explicam um fluxo que parou.
+    const itens = cl.tenantId
+      ? await t.listarCaixasRegistradas(cl.tenantId, { incluirRemovidas: false })
+      : await t.listarTodasAsCaixasRegistradas({ incluirRemovidas: false });
+
+    res.json(semBigInt({ total: itens.length, itens }));
+  } catch (e) {
+    // Módulo/banco indisponível não pode derrubar a modal: a tela cai no campo numérico de sempre.
+    if (e?.code === 'ERR_MODULE_NOT_FOUND') {
+      return res.status(503).json({ error: 'O cadastro de caixas não está disponível nesta instalação.' });
+    }
+    erro(res, e, 500);
+  }
+});
+
 /** GET /fluxos — lista os fluxos do escopo. */
 router.get('/fluxos', async (req, res) => {
   try {

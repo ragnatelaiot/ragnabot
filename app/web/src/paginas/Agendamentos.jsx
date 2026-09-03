@@ -35,6 +35,8 @@ import {
 } from 'lucide-react';
 
 import CapaSecao from '../componentes/CapaSecao.jsx';
+// ⭐ 03/09/2026 (contrato S-CLAREZA): a conexão passou a ser escolhida pelo NOME, não pelo número.
+import { CampoDeCaixa, useCaixasDoEscopo } from '../componentes/EscolhaDeCaixa.jsx';
 // ⚠️ Os tijolos visuais moram em `EmpresaFormulario.jsx` porque foi lá que nasceram. Reusar é a
 // regra da casa — «não reescreva o que já existe, estenda».
 import {
@@ -222,9 +224,12 @@ const VAZIO = {
   usarTemplate: false, templateNome: '', templateIdioma: 'pt_BR',
 };
 
-export function FormularioDeAgendamento({ valor, aoMudar, erro, previa, aoPedirPrevia }) {
+export function FormularioDeAgendamento({ valor, aoMudar, erro, previa, aoPedirPrevia, ativo = true }) {
   const v = valor;
   const set = (campo) => (novo) => aoMudar({ ...v, [campo]: novo });
+  // As conexões da empresa, para escolher pelo nome. `ativo` é a modal estar aberta: o formulário
+  // fica montado o tempo todo, e consultar com ele fechado seria uma chamada que ninguém pediu.
+  const caixas = useCaixasDoEscopo(ativo);
   const contatos = useMemo(() => lerListaDeContatos(v.destinosTexto), [v.destinosTexto]);
   const fusoNav = fusoDoNavegador();
 
@@ -244,8 +249,8 @@ export function FormularioDeAgendamento({ valor, aoMudar, erro, previa, aoPedirP
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
         <Campo rotulo="Conta na plataforma" dica="cwAccountId" tipo="number"
           valor={v.cwAccountId} aoMudar={set('cwAccountId')} />
-        <Campo rotulo="Conexão" dica="obrigatória — sem canal a mensagem não sai" tipo="number"
-          valor={v.cwInboxId} aoMudar={set('cwInboxId')} />
+        <CampoDeCaixa rotulo="Conexão" dica="obrigatória — sem canal a mensagem não sai"
+          valor={v.cwInboxId} aoMudar={set('cwInboxId')} caixas={caixas} />
         <Campo rotulo="Setor" dica="opcional" tipo="number" valor={v.cwTeamId} aoMudar={set('cwTeamId')} />
       </div>
 
@@ -550,7 +555,8 @@ export default function Agendamentos() {
             <button type="button" style={botao('primaria')} onClick={salvar}>Agendar</button>
           </>
         )}>
-        <FormularioDeAgendamento valor={form} aoMudar={setForm} erro={erroForm} previa={previa} aoPedirPrevia={pedirPrevia} />
+        <FormularioDeAgendamento valor={form} aoMudar={setForm} erro={erroForm} previa={previa}
+          aoPedirPrevia={pedirPrevia} ativo={formAberto} />
       </Modal>
 
       {/* ── O que aconteceu ───────────────────────────────────────────────────────────────── */}

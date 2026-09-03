@@ -68,6 +68,19 @@ versão, o ponto some sozinho — e nada mais muda: mesmo lugar no menu, mesmo n
 da casa (o remendo por JavaScript já quebrou aquele painel duas vezes, em 31/08/2026). Preferimos o
 menu duplo a um painel quebrado.
 
+### ⭐ Desde a v1.12.00 não há segunda senha, nem no sentido inverso
+
+Se você **já está logado na plataforma de atendimento** neste navegador, abrir `/painel/` te põe
+direto dentro — sem formulário. O motor reconhece a credencial que o navegador já carrega, confirma
+com a plataforma de quem ela é, e abre. A tela de entrada só aparece para quem não tem sessão em
+lugar nenhum. Detalhe em §7-A.
+
+⏳ **O que ainda falta para o endereço ser um só.** Hoje `bot.ragnatela.com.br` (a raiz, sem
+`/painel/`) continua entregando o painel do fornecedor. Fazer a raiz levar ao painel único é uma
+mudança de quatro linhas no proxy, já escrita e medida em `app/deploy/nginx/bot-painel.conf` —
+**pendente de aplicação**, porque aquele proxy serve cerca de vinte domínios e a mão é do chefe.
+Até lá, o endereço a divulgar continua sendo `bot.ragnatela.com.br/painel/`.
+
 ### ⚠️ Quem já estava logado precisa SAIR e ENTRAR uma vez
 
 A credencial da plataforma de atendimento é entregue ao navegador **no momento da entrada**. Quem
@@ -514,7 +527,30 @@ resolvida no momento da entrada e fica dentro da sessão), migração do motor f
 (**avise a Ragnatela** — não é permissão) e usuário com papel de atendente (**criar e publicar é de
 quem administra a empresa**).
 
----
+**Como se diz de onde o fluxo começa (v1.12.00).** No formulário de criar, «Como este fluxo começa»
+tem três respostas: **sub-fluxo** (só quando outro fluxo chamar), **caixa de entrada** (toda conversa
+que chegar naquela conexão) e **palavra-chave**.
+
+Escolhendo *caixa de entrada*, aparece um campo com a **lista das conexões da empresa, pelo nome** —
+*«WhatsApp Ragnatela · +55 98 3197-0997»*, *«Site - Ragnatela · ragnatela.com.br»*. Antes desta
+versão ali se digitava um **número** (o `cwInboxId`), e essa era a armadilha: **errar um dígito não
+dá erro**. O fluxo grava, publica e simplesmente **nunca dispara** — porque o motor compara o número
+gravado com o da caixa de onde a conversa chegou. O sintoma aparece dias depois, como «o robô não
+responde», longe da causa.
+
+O campo **só aparece quando a entrada é por caixa**: perguntar de qual conexão vem um sub-fluxo é
+pergunta sem resposta. A mesma lista foi aplicada ao campo **«Conexão»** do agendamento de mensagens
+(§1-D), que tinha exatamente o mesmo problema.
+
+| Se acontecer isto | A tela faz isto |
+|---|---|
+| o cadastro de caixas está vazio | diz para abrir **Caixas de entrada** e clicar em «Sincronizar agora» (§1-A), e deixa você seguir pelo número |
+| a consulta da lista falha | mostra o motivo e volta ao campo de número — a criação não trava por causa de uma lista |
+| o fluxo aponta para uma caixa que saiu do cadastro | a opção continua no campo, marcada como **«fora do cadastro»**, em vez de sumir em silêncio |
+
+⚠️ **A lista é conveniência; quem recusa continua sendo o servidor.** O motor confere a caixa antes
+de gravar, venha o pedido da tela ou de quem chame a API direto. Escolher pelo nome faz errar menos;
+não é o que impede o erro.
 
 ## 5-A. A portaria de entrada (o primeiro "oi")
 
@@ -990,6 +1026,33 @@ inteira: cookie legível por JavaScript é o pior lugar para carregar cabeçalho
 
 **Se a plataforma não devolver essa credencial, a entrada acontece do mesmo jeito** — só as telas
 embutidas é que pedirão login. Entrar no Ragnabot não pode falhar por causa de uma tela de terceiro.
+
+### ⭐ Desde a v1.12.00: quem já está logado na plataforma NÃO digita nada
+
+Faltava o **sentido inverso** da peça acima. Quem já estava autenticado na plataforma de
+atendimento e abria o nosso painel levava a **nossa** tela de login — a mesma senha, dois
+formulários. Era o relato do dono: *«por que tem outra autenticação para acessar esse /painel»*.
+
+Agora, ao abrir o painel sem sessão nossa, o motor olha se o navegador traz a credencial da
+plataforma. Se traz, **pergunta à plataforma de quem ela é** (`GET /api/v1/profile`) e, com a
+resposta dela, emite a nossa sessão. **Sem formulário nenhum.** A tela de entrada só aparece para
+quem realmente não tem sessão em lugar nenhum.
+
+⛔ **A presença do cookie nunca é a prova.** `cw_d_session_info` não é `HttpOnly` — por desenho do
+fornecedor, como explicado acima —, então qualquer script ou pessoa com o inspetor aberto escreve
+um. Se bastasse existir, escrever um cookie inventado com o e-mail de outra pessoa seria entrar como
+ela. Quem responde quem é a pessoa é **a plataforma**, e a resposta dela é a única que abre a porta.
+
+**Nada foi afrouxado.** A sessão emitida por este caminho é idêntica à da senha digitada: mesmo
+cookie assinado, mesmas 8 horas de teto, mesmo papel medido na conta, mesmo escopo de empresa,
+mesma revogação no «Sair». As mesmas recusas continuam recusando — conta inativa na plataforma,
+papel que ela não reconhece, empresa suspensa no nosso cadastro.
+
+**Na trilha de auditoria os dois caminhos têm nomes diferentes** (`ragnabot_sessao_entrada` e
+`ragnabot_sessao_adotada`), porque são dois fatos diferentes sobre a mesma pessoa e quem ler a
+trilha meses depois precisa distinguir «digitou a senha aqui» de «trouxe a sessão da plataforma».
+Credencial vencida **não** vira registro: é o caso normal de quem passou da hora, e um registro por
+aba aberta afogaria a trilha justamente quando ela precisar ser lida.
 
 **Sair.** Encerra a sessão na hora e apaga o cookie. Trocar de pessoa na mesma máquina recarrega a
 tela, para que nenhum rascunho da pessoa anterior sobreviva.

@@ -357,14 +357,9 @@ a:hover { text-decoration: underline; }
   box-shadow: inset 3px 0 0 var(--primary);
 }
 
-.casca__rodape-menu {
-  margin-top: auto;
-  padding-top: var(--space-md);
-  border-top: 1px solid var(--border-primary);
-  font-size: 0.6875rem;
-  line-height: 1.5;
-  color: var(--text-muted);
-}
+/* ⛔ `.casca__rodape-menu` e `.casca__marca-embutido--exemplo` saíram em 03/09/2026
+   (contrato S-CLAREZA) junto com o parágrafo de bastidor do menu. Regra sem dono na tela é
+   regra que só é descoberta quando alguém a copia por engano. Ver `componentes/Casca.jsx`. */
 
 /* ── Cabeçalho ──────────────────────────────────────────────────────────────────────────────── */
 .casca__cabecalho {
@@ -539,14 +534,6 @@ a:hover { text-decoration: underline; }
   flex: none;
 }
 .casca__item--ativo .casca__marca-embutido { background: var(--primary); }
-
-/* O mesmo ponto usado como EXEMPLO dentro do parágrafo do rodapé do menu. `inline-block` porque ali
-   ele está no meio de uma frase, não numa linha de menu. */
-.casca__marca-embutido--exemplo {
-  display: inline-block;
-  margin: 0 2px;
-  vertical-align: middle;
-}
 
 /* Texto só para leitor de tela. O ponto verde é informação, e informação que só existe em cor é
    informação que uma parte das pessoas não recebe. */

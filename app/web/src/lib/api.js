@@ -112,6 +112,39 @@ export async function entrar({ email, senha, codigo, contaId }) {
   return sessao;
 }
 
+/**
+ * ⭐ UMA ENTRADA SÓ (contrato S-CLAREZA, 03/09/2026).
+ *
+ * Pergunta ao motor se dá para aproveitar a sessão que a pessoa JÁ tem na plataforma de
+ * atendimento. Quem responde é o servidor, depois de conferir a credencial COM a plataforma —
+ * daqui não sai nem entra credencial nenhuma: os dois cookies viajam sozinhos, por mesma origem.
+ *
+ * ⚠️ NÃO LANÇA no caso comum. «Não há sessão da plataforma neste navegador» é a resposta NORMAL de
+ * quem está entrando pela primeira vez, e transformá-la em exceção faria o portão mostrar «não
+ * consigo falar com o servidor» para quem só precisava ver o formulário.
+ *
+ * @returns {Promise<object|null>} a sessão, ou `null` quando não há o que adotar
+ */
+export async function adotarSessao() {
+  try {
+    const r = await fetch(`${BASE_SESSAO}/adotar`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json' },
+    });
+    const texto = await r.text();
+    let dados = null;
+    try { dados = JSON.parse(texto); } catch { dados = null; }
+    if (!r.ok || !dados?.autenticado) return null;
+    sessao = dados;
+    anunciar();
+    return sessao;
+  } catch {
+    // Rede fora: quem trata isso é o `carregarSessao` que veio antes. Aqui, silêncio.
+    return null;
+  }
+}
+
 /** Sai. Sempre limpa o lado de cá, mesmo se o servidor não responder — sair tem de sair. */
 export async function sair() {
   try {
@@ -218,6 +251,39 @@ export async function chamarFluxo(caminho, { metodo = 'GET', corpo, tempoLimiteM
     throw e;
   }
   return dados || {};
+}
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// ⭐ ESCOLHER A CAIXA PELO NOME (contrato S-CLAREZA, 03/09/2026)
+//
+// O campo era um número digitado à mão. Errar um dígito grava, publica e o fluxo nunca dispara —
+// e o sintoma é «o robô não responde», dias depois e longe da causa.
+//
+// Mora AQUI, no cliente da API de fluxo, e não em `api-caixas.js`: aquele fala com
+// `/api/ragnabot/inboxes`, que é o console de OPERAÇÃO do SaaS (só administrador do grupo
+// RAGNATELA). Quem cria fluxo é o administrador da EMPRESA. Dois donos, duas portas.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** As caixas que a pessoa pode escolher. Só as ATIVAS — o servidor já filtra as que sumiram. */
+export async function listarCaixasDoEscopo({ tenantId } = {}) {
+  const consulta = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : '';
+  const r = await chamarFluxo(`/caixas${consulta}`);
+  return { itens: Array.isArray(r.itens) ? r.itens : [], aviso: r.aviso || null };
+}
+
+/**
+ * O rótulo de uma caixa numa lista de escolha: «WhatsApp Ragnatela · +55 98 3197-0997».
+ * O nome primeiro porque é o que a pessoa reconhece; o identificador depois porque é o que
+ * desempata duas conexões com nome parecido. O número da plataforma NÃO entra no texto — ele é o
+ * valor do campo, e repeti-lo no rótulo é devolver a confusão que a lista veio tirar.
+ */
+export function rotuloDaCaixa(c) {
+  if (!c) return '';
+  const canal = c.canalRotulo || c.tipoCanal || null;
+  const partes = [c.nome || `caixa ${c.cwInboxId}`];
+  if (c.identificador && c.identificador !== c.nome) partes.push(c.identificador);
+  else if (canal) partes.push(canal);
+  return partes.join(' · ');
 }
 
 /** Texto único para o 503 de componente ausente do motor — é diagnóstico, não erro do operador. */

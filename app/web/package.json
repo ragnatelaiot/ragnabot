@@ -11,18 +11,20 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "npm run test:servir && npm run test:montar && npm run test:navegacao && npm run test:respostas && npm run test:empresas && npm run test:caixas && npm run test:conexoes && npm run test:testador && npm run test:agendamentos && npm run test:capa && npm run test:prefixo",
+    "test": "npm run test:servir && npm run test:montar && npm run test:navegacao && npm run test:respostas && npm run test:empresas && npm run test:caixas && npm run test:escolha-caixa && npm run test:conexoes && npm run test:testador && npm run test:agendamentos && npm run test:capa && npm run test:prefixo && npm run test:ligacao",
     "test:servir": "node tests/servir.smoke.mjs",
     "test:montar": "vite build --ssr tests/_monta-entrada.jsx --outDir tests/.ssr --logLevel warn && node tests/monta.smoke.mjs",
     "test:navegacao": "node tests/navegacao.smoke.mjs",
     "test:respostas": "node tests/respostas-rapidas.smoke.mjs",
     "test:empresas": "node tests/empresas.smoke.mjs",
     "test:caixas": "node tests/caixas.smoke.mjs",
+    "test:escolha-caixa": "node tests/escolha-de-caixa.smoke.mjs",
     "test:conexoes": "node tests/conexoes.smoke.mjs",
     "test:testador": "node tests/testador.smoke.mjs",
     "test:prefixo": "node tests/prefixo.smoke.mjs",
     "test:capa": "node tests/capa-acoes.smoke.mjs",
-    "test:agendamentos": "node tests/agendamentos.smoke.mjs"
+    "test:agendamentos": "node tests/agendamentos.smoke.mjs",
+    "test:ligacao": "vite build --ssr tests/_monta-fluxos.jsx --outDir tests/.ssr/ligacao --logLevel warn && node tests/ligacao.smoke.mjs"
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.8",

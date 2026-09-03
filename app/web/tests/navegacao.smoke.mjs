@@ -292,14 +292,22 @@ medir('o rodapé assina o produto (doc 34 §F5.2)', () => {
 // não tem tela», que era verdade até o contrato S7 e virou MENTIRA quando a tela nasceu — e ficou
 // verde do mesmo jeito, porque o teste media a frase, não o fato. Agora ela mede o que continua
 // sendo verdade e é o que o rodapé precisa explicar: DE QUEM é cada tela.
-medir('o menu DIZ quais telas ainda são do fornecedor, em vez de fingir que são nossas', () => {
-  assert.match(comoAtendente, /ainda\s+são telas do painel de atendimento/u);
-  assert.match(comoAtendente, /não pedem senha de novo/);
-  // A metade que continua faltando de verdade, dita com todas as letras.
-  // (`i` porque a frase abre período no rodapé — «Criar…» com maiúscula. Casar a caixa exata só
-  //  criaria um teste que quebra quando alguém move a frase de lugar, sem nada ter piorado.)
-  assert.match(comoAtendente, /criar e remover conexão/iu);
-  // ⛔ E a frase obsoleta não pode voltar: Configurações TEM tela desde o contrato S7.
+// ⭐ INVERTIDO EM 03/09/2026 (contrato S-CLAREZA). Este teste EXIGIA o parágrafo de bastidor no pé
+// do menu — «os itens marcados com ● ainda são telas do painel de atendimento… vamos substituindo
+// uma a uma». O dono leu aquilo na tela dele e a frase que voltou foi «tá muito confuso». É
+// anotação de obra: fala com quem CONSTRÓI o produto, no lugar onde está quem o USA.
+//
+// Agora o teste guarda a decisão contrária, e guarda com nome: o parágrafo não pode voltar. O
+// PONTO ao lado do item fica — ele explica, sem parágrafo nenhum, por que aquela tela se comporta
+// um pouco diferente —, e é o teste seguinte que o protege.
+medir('⛔ o menu NÃO exibe anotação de obra para quem usa o produto', () => {
+  assert.doesNotMatch(comoAtendente, /ainda\s+são telas do painel de atendimento/u,
+    'o parágrafo de bastidor voltou ao pé do menu');
+  assert.doesNotMatch(comoAtendente, /Vamos substituindo/iu,
+    'o menu voltou a narrar o roteiro de construção');
+  assert.doesNotMatch(comoAtendente, /casca__rodape-menu/u,
+    'o parágrafo de bastidor voltou (a classe dele reapareceu no HTML)');
+  // ⛔ E a frase obsoleta de antes também não pode voltar: Configurações TEM tela desde o S7.
   assert.doesNotMatch(comoAtendente, /Configurações ainda não tem tela/,
     'o rodapé voltou a dizer que Configurações não tem tela — e ela existe');
 });

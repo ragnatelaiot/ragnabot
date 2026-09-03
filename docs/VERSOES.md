@@ -19,6 +19,92 @@
 
 ---
 
+## v1.12.00 — Uma entrada só, e a caixa escolhida pelo nome (03/09/2026)
+
+A frase que resume: **quem já está logado na plataforma de atendimento entra no painel sem digitar
+nada — e o campo que pedia o número da conexão virou uma lista com o nome dela.**
+
+### O que aconteceu
+
+O dono abriu o painel e disse, com todas as letras: *«não entendi nada, por que tem outra
+autenticação para acessar esse /painel… tá muito confuso»*. E, diante do formulário de criar fluxo:
+*«seria melhor que esse campo já puxasse em menu lista as opções com o nome para não confundir»*.
+
+As duas reclamações são a mesma coisa vista de dois lugares: o produto pedia à pessoa que soubesse
+o que a máquina sabe — a senha que ela já tinha dado, e o número que identifica uma conexão.
+
+### 1. Uma entrada só
+
+A senha nunca foi outra: quem confere e-mail e senha é a própria plataforma de atendimento, e o
+Ragnabot só recebe de volta quem é a pessoa. O incômodo era ter de **digitar duas vezes**.
+
+A v1.11.00 tinha resolvido metade: depois de entrar aqui, as telas do painel de atendimento abrem
+dentro da nossa casca **já logadas**. Faltava o sentido inverso — e era o que ele vivia: quem já
+estava autenticado na plataforma, ao abrir o painel, levava a **nossa** tela de login.
+
+Agora não. Se o navegador já traz a credencial da plataforma, o painel **a reconhece, confirma com
+a plataforma de quem ela é, e emite a nossa sessão sozinho**. Formulário nenhum. Só vê a tela de
+entrada quem realmente não tem sessão em lugar nenhum.
+
+**Nada foi afrouxado, e isso importa mais do que a comodidade.** A credencial da plataforma fica num
+cookie que o navegador deixa qualquer script ler — é assim por desenho do fornecedor, porque a
+interface dele precisa lê-la. Quer dizer que **a presença dela não prova nada**: qualquer um a
+escreve. Por isso o motor **pergunta à plataforma quem é o dono daquela credencial** antes de abrir
+a porta. Se ela responder que a credencial não vale, a tela de entrada aparece como sempre apareceu.
+A sessão emitida por este caminho tem a **mesma validade** (no máximo 8 horas), o **mesmo papel**
+medido na plataforma, o **mesmo escopo de empresa** e a **mesma saída**.
+
+### 2. A caixa de entrada, escolhida pelo nome
+
+Ao criar um fluxo que começa numa conexão, o campo pedia `cwInboxId` — um número. Agora é uma
+**lista**: *«WhatsApp Ragnatela · +55 98 3197-0997»*, *«Site - Ragnatela · ragnatela.com.br»*. O
+campo só aparece quando o fluxo de fato começa por uma caixa; perguntar de qual conexão vem um
+sub-fluxo é pergunta sem resposta.
+
+Não é conforto. Errar um dígito ali **não dá erro**: grava, publica, e o fluxo simplesmente nunca
+dispara — o robô fica mudo, dias depois e longe da causa. A mesma lista foi aplicada ao campo
+«Conexão» do agendamento de mensagens, que tinha o mesmo problema.
+
+Se o cadastro de caixas estiver vazio, a tela **diz o que fazer** («Sincronizar agora», em Caixas de
+entrada) em vez de mostrar uma lista vazia. E se a consulta falhar, ela explica o motivo e deixa
+seguir pelo número — porque **a recusa continua sendo do servidor**: o motor confere a caixa antes
+de gravar, tanto pela tela quanto por quem chamar a API direto. A lista é conveniência; a guarda
+não mudou de lugar.
+
+### 3. O bastidor saiu da tela
+
+O pé do menu explicava que *«os itens marcados com ● ainda são telas do painel de atendimento…
+vamos substituindo uma a uma»*. Isso é anotação de obra: fala com quem constrói o produto, no lugar
+onde está quem o usa. Saiu. **O ponto ao lado do item fica** — ele explica, sem parágrafo nenhum,
+por que aquela tela se comporta um pouco diferente.
+
+### O que ficou medido
+
+Duas suítes novas, e as duas foram **conferidas quebrando o código de propósito** — teste que só
+sabe passar não prova nada:
+
+- `app/tests/ragnabot-sessao-adocao.test.mjs` (**19 medições**) sobe uma plataforma de mentira e
+  mede a entrada por credencial existente. A medição central é **«cookie forjado não vira sessão»**:
+  ao trocar a conferência por «acredite no cookie», ela ficou vermelha junto com outras seis
+  (12 de 19), e voltou a 19 de 19 com o código restaurado.
+- `app/web/tests/escolha-de-caixa.smoke.mjs` (**14 medições**) mede a lista: de onde ela vem, o que
+  o rótulo mostra, e os quatro estados da tela.
+
+Interface: **197 medições em 12 suítes, zero reprovações**. Motor: **26 suítes verdes**; as 7
+restantes falham por falta de `DATABASE_URL` ou por serem de ponta a ponta — o mesmo conjunto do
+lote anterior, não regressão.
+
+### O que ficou de fora, e por quê
+
+**O endereço único ainda não foi ligado.** Hoje `bot.ragnatela.com.br` entrega o painel do
+fornecedor e o nosso vive em `/painel/`. A mudança é de quatro linhas no proxy compartilhado (a raiz
+passa a desviar para o painel único, sem tocar em mais nada), foi medida e está escrita e comentada
+em `app/deploy/nginx/bot-painel.conf` — **mas não foi aplicada**: escrever no proxy que serve ~20
+domínios exige a mão do chefe. Enquanto isso, quem entra pelo painel do fornecedor e vai ao nosso
+não digita senha de novo, que era o pior da confusão.
+
+---
+
 ## v1.11.01 — O botão de criar fluxo voltou a existir em qualquer tela (03/09/2026)
 
 A frase que resume: **uma linha de CSS apagava a ação principal de oito telas em qualquer janela
