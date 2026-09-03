@@ -2,6 +2,141 @@
 > LOG CANÔNICO local da construção (regra do dono, 27/08). Espelho versionado no repo:
 > `ragnatelaiot/ragnabot` → docs/ACTIONLOG.md. Sem segredos, por lei.
 
+## 2026-09-03 — S-PUBLICAR: os dois validadores viraram um (v1.16.00, no ar) ✅
+
+**Relato do dono, ao vivo:** desenho fechado, barra em **VERDE** dizendo «desenho fechado», e a
+caixa de publicar recusando com **«Não consegui publicar — O fluxo tem 2 erro(s) e não pode ser
+publicado»**. Sem dizer quais. Selo: `primeira_publicacao · 0 conversa(s) viva(s) · 0 órfã(s)`.
+Bloqueio de USO em produção — o dono não tinha como saber onde mexer.
+
+### Os 2 erros, medidos no ar (resposta crua de `POST /fluxos/<id>/validar`)
+
+```
+{"ok":false,"erros":[
+ {"codigo":"LIMITE_EXCEDIDO","campo":"nos.no_midia.config.categoria",
+  "mensagem":"Categoria desconhecida. Aceitas: image, video, audio, document, sticker.","noId":"no_midia"},
+ {"codigo":"SEM_NO_RESGATE","campo":"documento",
+  "mensagem":"O fluxo tem nó que espera resposta, mas não define nó de resgate."}],
+ "avisos":[],"temEstaciona":true,"noResgateId":null}
+```
+
+**Os dois eram defeito NOSSO.**
+
+1. O rascunho tinha `categoria: "imagem"`. O **seletor da tela** oferecia «Imagem» e «Documento» e
+   gravava os valores **em português**; o executor só aceitava o vocabulário da Meta
+   (`image`, `document`). **Duas das quatro opções do seletor** produziam um fluxo impossível de
+   publicar — e a mensagem apontava uma lista que o seletor nem mostrava.
+2. O nó de resgate só é lido em `migrarConversas()`, no modo `retrofit_forcado`, quando uma conversa
+   **viva** está parada num nó que sumiu. Este fluxo era `primeira_publicacao`, **0 conversa viva**.
+   Pior: a instrução mandava marcar `config.resgate=true` — **campo que a tela não oferecia em lugar
+   nenhum**. Regra impossível de cumprir não protege nada: trava o produto. Efeito real: **qualquer
+   fluxo com bloco de botões/pergunta/lista era impublicável.**
+
+### Por que os dois discordavam (medido, não suposto)
+
+`conferirDesenho()` (tela) e `validarDocumento()` (serviço) eram implementações independentes:
+
+| regra | tela | servidor (antes) |
+|---|---|---|
+| saída do caminho feliz sem destino | erro | erro |
+| saída de exceção sem destino | aviso | **ignorada, calada** |
+| duas ligações na mesma saída | erro | **ignorada** |
+| ligação fantasma · nó órfão | erro | erro |
+| **configuração de CADA nó** (`validarNo`) | **—** | erro |
+| **nó de resgate** | **—** | erro |
+
+Os 2 erros do dono caíam justamente nas duas linhas que a tela **não olhava**. Daí o verde mentiroso.
+
+### O conserto — uma regra, um dono
+
+- **O servidor é o único dono do veredito.** A barra do editor passou a chamar
+  `POST /fluxos/:id/validar` (recuo de 500 ms) e a mostrar a resposta **dele**: o número da barra e
+  o da publicação são o mesmo número por construção. Sem resposta do servidor a tela ainda mostra a
+  conferência local — **mas diz que é local**.
+- **A caixa de publicar LISTA os erros**: o que é, **em qual bloco** (pelo nome), o que fazer, botão
+  **«Ir para o nó»** (fecha a caixa e leva a vista até lá) e, para ligação fantasma, o botão que a
+  apaga. «Publicar» fica **desabilitado** enquanto houver erro, dizendo quantos são.
+- **O erro aparece enquanto se desenha**: gaveta **«Problemas»** na barra de vista, com a mesma
+  lista; o contador virou botão que a abre.
+- O servidor **ganhou** as regras que só a tela tinha (duas ligações na mesma saída) e passou a
+  **avisar** sobre saída de exceção sem destino em vez de pulá-la em silêncio.
+- Todo problema sai com `noId` — é o que dá destino ao botão «Ir para o nó».
+- Seletor de mídia grava o valor canônico (e ganhou «Figurinha»); o motor passou a aceitar **também**
+  os nomes em português, para não punir rascunho já salvo.
+- `SEM_NO_RESGATE` virou **aviso** na publicação normal e continua **erro** no retrofit forçado; a
+  guarda dentro da transação segue de pé. Interruptor **«Usar este nó como resgate»** passou a
+  existir, na aba Avançado do bloco.
+- A recusa da publicação **nomeia** o primeiro erro em vez de só contar.
+
+### ⭐ A PROVA QUE VALE: o dono publicou sozinho
+
+Rollout às **15:07 (BRT)**. Às **15:09:44**, a auditoria registra:
+
+```
+ator = user cw:7 «Emmanuel Castro» · ip 45.186.120.43 · Chrome/152 (Windows)
+Versão 1 publicada (fixar); 0 migrada(s), 0 resgatada(s)
+```
+
+Ele publicou o fluxo «Principal» **da tela dele**, sem intervenção nenhuma, ~2 min depois do rollout.
+O fluxo agora está `estado=publicado`, versão 1, `hashEstrutura b745d830…`.
+
+### Prova por observação (medida no ar, motor publicado)
+
+- `POST /validar` do fluxo dele, modo `fixar`: **`ok:true`, 0 erro, 1 aviso** (`SEM_NO_RESGATE`,
+  com `noId: "no_encerrar"` sugerido). Modo `retrofit_forcado`: `ok:false`, erro `SEM_NO_RESGATE` —
+  a severidade muda com o modo, como projetado.
+- Fluxo **descartável** criado, publicado, quebrado e apagado contra o motor publicado — 5 de 5:
+  fluxo válido publica (versão 1) · fluxo com ligação faltando é recusado com
+  **«Não dá para publicar: A saída "sim" do nó "no_pergunta" não leva a lugar nenhum.»** ·
+  **barra e publicação dizem o MESMO número** (1 erro, `SAIDA_SEM_DESTINO`, nos dois) · toda âncora
+  aponta nó existente. Apagado no `finally`; a lista voltou a ter **só** o fluxo do dono.
+- `tests/ragnabot-fluxo-validacao-unica.test.mjs` (novo): **27 verificações**, incluindo a matriz
+  5 documentos × 3 modos que compara os dois contadores, e a estrutural que impede a tela de voltar
+  a contar sozinha.
+- Bateria completa: **29 verdes / 10 vermelhos**; worktree limpo do HEAD anterior: **28 / 10** —
+  **mesmos 10 arquivos**, mesmos códigos de saída (falta de `DATABASE_URL` no NOC). **Zero vermelho
+  novo.** Frontend: 14 baterias smoke, todas verdes (`ligacao.smoke.mjs` ampliado, 16 medições).
+
+### A imagem e o rollout
+
+`ragnabot-motor:1.16.00`, construída do **worktree do commit** `a747581` (nunca da árvore de
+trabalho), com `--build-arg RAGNABOT_PREFIXO_WEB=/painel/`. Conferido **dentro do artefato antes de
+subir**: `VERSAO`=1.16.00, o índice pede `/painel/assets/index-kXa5KRQs.js`, **zero** `/assets/` cru
+e **zero** `/painel/app/`. Levada por SFTP aos containerds de `rgtk8s001` e `rgtk8s002` — **mesma
+impressão digital nos três pontos** (`sha256:6308e8f9…`; tar `717c060f…`). Rollout **2/2, zero
+reinícios**. `/saude` nos dois pods: `1.16.00`, `interface.prefixo=/painel/`.
+
+⛔ **Executor de fluxo, agendamento e carteiro de webhook seguem DESLIGADOS**, medidos no processo.
+**Zero migração** — nada sob `app/prisma/`. Nenhum webhook cadastrado.
+
+### ⚠️ Achado de passagem — o arquivo que o `grep` não enxergava
+
+`app/src/services/ragnabot-fluxo-publicacao.service.js` continha **três bytes NUL LITERAIS** (usados
+como separador de chave composta, `${de}\0${saida}`). Consequência: `file` dizia **`data`** e o
+`grep` tratava o arquivo inteiro como binário — **não achava nada** dentro de um serviço crítico de
+780 linhas. Passei minutos convencido de que `validarDocumento` não existia ali. Trocados pelo
+escape equivalente: mesmo caractere em execução, arquivo legível de novo por qualquer ferramenta.
+
+### Backup, no líder MEDIDO NA HORA
+
+`SELECT NOT pg_is_in_recovery()` = **`t` em pg132 / `f` em pg133**, medido imediatamente antes.
+Backup disparado no líder (`/usr/local/bin/ragnabot-backup.py`, que **re-mede** o papel antes de
+agir). Objeto `backup-postgres/ragnabot-completo_2026-09-03T18-11-20-134Z.sql.gz`, **98 702 bytes**,
+Object Lock **GOVERNANCE** até 13/09. Conferido por `head_object` **+** `get_object` **da chave
+exata** — nunca pela listagem. Dentro: **151 tabelas**, `RagnabotFluxoVersao` e as **3 chaves
+compostas** (`rb_no_versao_fk`, `rb_aresta_versao_fk`, `rb_exec_versao_fk`).
+
+### O que NÃO foi provado
+
+- **Não abri o navegador do dono** — a lista de erros, o botão «Ir para o nó» e a gaveta «Problemas»
+  foram provados pelo pacote construído e pelas baterias SSR/jsdom, **não** por clique humano. (Mas
+  o dono usou a tela e publicou: o caminho principal está exercitado por gente de verdade.)
+- Ele pode precisar recarregar com **Ctrl+Shift+R**: o pacote mudou de nome
+  (`index-CLf83vzw` → `index-kXa5KRQs`).
+- O interruptor **«Usar este nó como resgate»** foi provado no validador (teste 6c), **não** clicado.
+
+---
+
 ## 2026-09-03 — S-DEPLOY-LOTE: três versões subiram juntas (v1.15.00, no ar)
 
 Publicação do lote que quatro contratos deixaram pronto e nenhum publicou. No ar rodava a
