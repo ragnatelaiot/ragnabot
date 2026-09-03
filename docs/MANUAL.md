@@ -1314,6 +1314,78 @@ ajuste é o resto do produto.
 
 ---
 
+## 6-D. ⭐ Ligar e desligar o robô, caixa por caixa (v1.17.00)
+
+**O que faz.** Decide, **em cada conexão**, se quem escrever é atendido pelo robô ou vai direto para
+a fila de gente. A decisão é sua, na tela — não depende do NOC.
+
+### Onde fica
+Menu **Conexões** → o cartão da conexão → interruptor **«O robô atende nesta caixa»**.
+
+### O que cada estado faz
+
+| interruptor | quem escrever para essa caixa |
+|---|---|
+| **ligado** | é atendido pelo robô (o fluxo publicado daquela caixa) |
+| **desligado** | vai **direto para a fila de gente**, sem passar pelo robô |
+
+**Ligar numa caixa não liga nas outras.** Cada conexão tem o seu. Dá para deixar só o WhatsApp
+ligado hoje e incluir o Instagram amanhã — ou tirar, a qualquer momento.
+
+### Desligar não corta ninguém no meio
+Quem **já está** numa conversa com o robô **termina o que começou**. O interruptor só vale para quem
+chegar depois. Se você precisa interromper uma conversa específica agora, assuma-a pela **mesa de
+atendimento** — é o caminho que fala com a pessoa em vez de emudecer com ela.
+
+### Padrão: desligado
+Uma conexão nova **não** nasce sendo atendida por robô. Alguém tem de dizer que sim. É proposital:
+estrear um robô com cliente de verdade por omissão é o pior jeito de estrear.
+
+### «Ligado, mas parado»
+Se aparecer essa etiqueta, o interruptor da caixa está ligado mas o **freio de emergência do NOC**
+está acionado — o motor do robô está parado no sistema inteiro. A sua escolha fica gravada e passa a
+valer sozinha assim que o freio sair. **Fale com o NOC**, não mexa no interruptor.
+
+### Quem pode
+Só quem **administra a empresa**. A recusa é do servidor: esconder o botão não é a trava.
+
+### O que fica registrado
+Toda mudança vai para a auditoria com quem mudou, qual caixa, para qual estado e quando.
+
+---
+
+## 5-M. ⭐ Configuração do fluxo — trocar nome, entrada e caixa (v1.17.00)
+
+**O que faz.** Edita o que antes ficava congelado no momento da criação: **nome**, **descrição**,
+**como o fluxo começa** e **em qual caixa** ele atende.
+
+### Onde fica
+Dois lugares, e os dois levam à mesma tela:
+- na lista de fluxos, botão **«Configuração»** no cartão;
+- dentro do editor, botão **«Configuração»** na barra de cima.
+
+### A caixa é escolhida por NOME
+Nunca digitada. Digitar 35 onde era 34 grava, publica e o fluxo **nunca dispara** — e o sintoma é «o
+robô não responde», dias depois e longe da causa.
+
+### O aviso antes de gravar
+Se o fluxo estiver **no ar**, a tela diz o que vai mudar, com todas as letras:
+
+> *Ele deixará de atender **Site - Ragnatela** e passará a atender **WhatsApp Ragnatela**, a partir
+> do momento em que você gravar.*
+
+E o lembrete que evita susto: **quem já está no meio de uma conversa não é movido** — essas conversas
+seguem até o fim pela versão em que entraram. A mudança vale para quem chegar depois.
+
+### Duas bocas na mesma caixa: recusado
+Se outro fluxo **vivo** já atende aquela caixa, a gravação é recusada dizendo qual é e o que fazer.
+Dois fluxos publicados na mesma caixa deixariam indefinido qual responde ao cliente — e o sintoma
+disso é «o robô respondeu o fluxo errado», intermitente e sem rastro.
+
+Para trocar: **desligue** o fluxo antigo (ou aponte-o para outra caixa) e então ponha o novo.
+
+---
+
 ## 7. Protocolo e auditoria
 
 **O que faz.** Todo atendimento tem um número humano; toda ação sensível fica registrada.

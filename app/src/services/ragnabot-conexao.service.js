@@ -154,6 +154,14 @@ export function comoCartao(linha, { agoraMs = Date.now() } = {}) {
     reiniciadaEm: linha.reiniciadaEm || null,
     removidaEm: linha.removedAt || null,
 
+    // ── ⭐ O INTERRUPTOR DO ROBÔ (contrato S-INTERRUPTOR, 03/09/2026) ─────────────────────────
+    // Quem decide se o robô atende NESTA caixa é o administrador da empresa, aqui — não mais uma
+    // variável de ambiente do Kubernetes. `roboAtendeTeto` diz se a chave GLOBAL permite: com ela
+    // desligada, este interruptor pode estar ligado e mesmo assim nada acontece — e a tela precisa
+    // dizer as duas coisas com frases diferentes, senão o operador procura no lugar errado.
+    roboAtende: linha.roboAtende === true,
+    roboAtendeEm: linha.roboAtendeEm || null,
+
     phoneNumberId: meta.phoneNumberId ?? null,
     wabaId: meta.wabaId ?? null,
     credencial: linha.credentialFingerprint || null,
@@ -775,6 +783,79 @@ async function emitir(tenantId, evento, carga) {
   }
 }
 
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// ⭐ O INTERRUPTOR DO ROBÔ, POR CAIXA — contrato S-INTERRUPTOR, 03/09/2026
+//
+// ── A ORDEM DO DONO, nas palavras dele ──────────────────────────────────────────────────────────
+// «preciso eu mesmo ter o poder dessa decisão. No momento usar apenas para o WhatsApp, mas a
+// qualquer momento posso incluir outra caixa ou remover se quiser — tenho que ter essa
+// possibilidade.»
+//
+// Até aqui, ligar o robô era editar `RAGNABOT_EXECUTOR_FLUXO` no `ConfigMap` e reiniciar os pods.
+// Ou seja: quem decidia sobre o atendimento era quem tinha acesso ao cluster. Isso está errado, e
+// esta função é o conserto — um `UPDATE` de coluna, sem deploy e sem reiniciar nada.
+//
+// ── O QUE ACONTECE COM QUEM JÁ ESTÁ CONVERSANDO (decisão declarada) ─────────────────────────────
+// **Quem já está numa conversa com o robô TERMINA o que começou. Nenhuma nova entra.**
+//
+// Não é uma preferência: é onde a guarda cabe. A portaria (`ragnabot-portaria.service.js`, passo 3)
+// procura execução VIVA e a continua ANTES de chamar `resolverEntrada()`. Pôr o interruptor dentro
+// do resolvedor produz exatamente esse comportamento sem nenhuma linha extra. E é o certo: cortar
+// no meio deixaria a pessoa falando sozinha depois de o robô ter feito uma pergunta.
+//
+// Quem quiser cortar AGORA tem o caminho honesto e visível: desligar o FLUXO (`estado=desligado`),
+// que também não mata conversa viva, ou assumir a conversa pela mesa.
+//
+// ⛔ QUEM PODE: administrador da EMPRESA. A trava é do servidor (`exigirAdmin` no router) — esconder
+// o botão não é guarda.
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Liga ou desliga o robô numa caixa.
+ * @returns {Promise<object>} o cartão atualizado + `efeito`, a frase em português do que mudou
+ */
+export async function definirRoboDaCaixa(tenantId, cwInboxId, { ligado }, { ator = null, req = null } = {}) {
+  if (typeof ligado !== 'boolean') throw erro('Diga se o robô deve atender (`ligado` verdadeiro ou falso).', 400);
+  const linha = await exigirConexao(tenantId, cwInboxId);
+  if (linha.removedAt) {
+    throw erro('Esta conexão foi removida da plataforma — não há o que o robô atender aqui.', 409, 'CONEXAO_REMOVIDA');
+  }
+  const antes = linha.roboAtende === true;
+  if (antes === ligado) {
+    // Idempotente e SILENCIOSO na auditoria: registrar "mudou de ligado para ligado" enche o
+    // histórico de linha sem fato, e é justamente no histórico que se procura quem mudou o quê.
+    return { ...comoCartao(linha), mudou: false, efeito: ligado
+      ? `O robô já atendia em "${linha.name}".`
+      : `O robô já estava desligado em "${linha.name}".` };
+  }
+
+  const atualizada = await db().ragnabotInbox.update({
+    where: { id: linha.id },
+    data: {
+      roboAtende: ligado,
+      roboAtendeEm: agora(),
+      roboAtendePorUserId: ator?.id ? String(ator.id) : null,
+    },
+  });
+
+  const onde = `"${linha.name}"${linha.identifier ? ` (${linha.identifier})` : ''}`;
+  const efeito = ligado
+    ? `A partir de agora, quem escrever para ${onde} passa a ser atendido pelo robô.`
+    : `A partir de agora, quem escrever para ${onde} vai direto para a fila de gente. `
+      + 'Quem já está numa conversa com o robô termina o que começou.';
+
+  await auditar({
+    tenantId, ator, req,
+    acao: ligado ? 'robo_ligado_na_caixa' : 'robo_desligado_na_caixa',
+    descricao: `Robô ${ligado ? 'LIGADO' : 'DESLIGADO'} na caixa ${linha.cwInboxId} — ${onde}. ${efeito}`,
+    entidadeId: linha.id,
+    antes: { roboAtende: antes },
+    depois: { roboAtende: ligado, cwInboxId: linha.cwInboxId, caixa: linha.name },
+  });
+
+  return { ...comoCartao(atualizada), mudou: true, efeito };
+}
+
 async function auditar({ tenantId, ator, req, acao, descricao, entidadeId = null, antes = null, depois = null }) {
   try {
     const aud = portas.auditoria || (await import('./ragnabot-auditoria.service.js'));
@@ -793,6 +874,7 @@ export default {
   ESTADOS, ESTADOS_TRANSFERIVEIS,
   listarConexoes, comoCartao,
   definirProvedor, opcoesDeProvedor,
+  definirRoboDaCaixa,
   cotaDeCanais, exigirCotaParaLigar,
   registrarEstado, reiniciarConexao,
   previaDaTransferencia, transferirConversas, listarTransferencias,

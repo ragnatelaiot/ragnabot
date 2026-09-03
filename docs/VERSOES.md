@@ -19,6 +19,83 @@
 
 ---
 
+## v1.17.00 — O interruptor do robô é seu, e a caixa do fluxo deixou de ser eterna (03/09/2026)
+
+A frase que resume: **ligar ou desligar o robô numa caixa virou um botão na tela do dono. Antes era
+uma variável de ambiente do Kubernetes — quem decidia sobre o atendimento era quem tinha acesso ao
+cluster.**
+
+### 1. ⭐ O interruptor do robô, caixa por caixa
+
+**Ordem do dono, nas palavras dele:** *«preciso eu mesmo ter o poder dessa decisão. No momento usar
+apenas para o WhatsApp, mas a qualquer momento posso incluir outra caixa ou remover se quiser.»*
+
+Na tela **Conexões**, cada conexão ganhou o interruptor **«O robô atende nesta caixa»**, com a frase
+do que ele faz escrita ao lado — não é preciso testar num cliente real para descobrir.
+
+| estado | o que acontece com quem escrever |
+|---|---|
+| ligado | é atendido pelo robô |
+| desligado | vai **direto para a fila de gente** |
+
+**Ligar numa caixa não liga nas outras.** É o pedido literal: hoje só o WhatsApp, amanhã o que ele
+quiser, e dá para tirar a qualquer momento.
+
+**Quem já está conversando termina o que começou.** Desligar não corta ninguém no meio de uma
+pergunta — nenhuma conversa nova entra, e as que estão em curso seguem até o fim. Isso não é
+preferência: é onde a guarda cabe. A portaria continua a conversa viva **antes** de consultar quem
+atende, então o interruptor só alcança quem chega depois.
+
+**Padrão: desligado.** Caixa nova não começa a ser atendida por robô sem alguém dizer que sim.
+Estrear um robô com cliente de verdade por omissão seria o pior jeito de estrear.
+
+**A chave global do NOC continua existindo**, como freio de emergência do motor. Quando ela está
+acionada, o interruptor mostra **«ligado, mas parado»** e explica — porque «o robô não atende nesta
+caixa» e «o motor está parado no sistema inteiro» mandam procurar em lugares diferentes.
+
+### 2. Configuração do fluxo: nome, descrição, entrada e caixa
+
+Depois de criado, o fluxo não tinha **nenhuma** tela de edição: o cartão só oferecia «Abrir editor»
+e «Arquivar». Nome, descrição, tipo de entrada e caixa ficavam congelados na escolha do primeiro
+minuto.
+
+Efeito concreto: o fluxo do dono nasceu amarrado à caixa **34 — o WhatsApp real da empresa**. A
+recomendação era estrear no chat do site, onde só conversa quem ele mandar, e **não havia como
+trocar**. A falta da tela estava empurrando o primeiro teste para o número de verdade.
+
+Agora existe o botão **«Configuração»**, no cartão da lista e dentro do editor. A caixa é escolhida
+**por nome numa lista**, nunca digitada. E quando o fluxo está no ar, a tela avisa antes de gravar:
+*«ele deixará de atender X e passará a atender Y»* — com o lembrete de que quem já está no meio de
+uma conversa não é movido.
+
+### 3. Duas bocas na mesma caixa deixaram de ser sorteio
+
+Medido: o resolvedor escolhia o fluxo da caixa **sem ordem definida**. Com dois fluxos publicados na
+mesma caixa, quem ganhava era o que o banco devolvesse primeiro — podendo mudar de uma mensagem
+para a outra. O sintoma em produção não seria erro nenhum: seria *«o robô respondeu o fluxo
+errado»*, intermitente e sem rastro.
+
+Três camadas fecharam isso: a tela **recusa** pôr um segundo fluxo vivo na mesma caixa, com a frase
+que ensina o que fazer; o **banco** passou a ter um índice que impede a dupla; e o resolvedor, para
+o caso de a dupla já existir de antes, **declara** quem ganha (o alterado mais recentemente) e grita
+no registro com os dois nomes.
+
+### Prova
+`app/tests/ragnabot-robo-por-caixa.test.mjs` — **10 verificações**, entre elas: ligar numa caixa não
+liga nas outras; conversa em andamento termina; e as duas que existem para dois **erros meus** não
+voltarem (ver abaixo).
+
+### ⚠️ Dois erros meus, corrigidos antes de subir
+1. Fiz o interruptor também obedecer ao freio global do NOC. Parecia razoável e **redefinia o que
+   aquele freio significa** — ele desliga o motor, não a decisão de entrada. Quebrou 6 verificações
+   da portaria, e elas estavam certas.
+2. Fiz a leitura do interruptor **falhar fechada** («na dúvida, não atende»). Soa prudente e é o
+   contrário: o caso comum de «não consegui ler» é o processo com o cliente de banco defasado —
+   estado **normal** nos minutos entre a migração e o reinício. Fechando, um rollout de rotina
+   viraria **apagão silencioso do robô em todas as caixas**. Agora falha aberta e grita no registro.
+
+---
+
 ## v1.16.00 — O sistema parou de saber e não contar: publicar agora diz o que está errado (03/09/2026)
 
 A frase que resume: **acabaram os dois validadores que discordavam. Agora existe um número só, com

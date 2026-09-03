@@ -86,6 +86,15 @@ export const lerTransferencias = (filtros = {}) => chamarConexoes(`/transferenci
 // ── ESCRITA ────────────────────────────────────────────────────────────────────────────────────
 export const trocarProvedor = (cwInboxId, corpo) =>
   chamarConexoes(`/conexoes/${encodeURIComponent(cwInboxId)}/provedor`, { metodo: 'PUT', corpo });
+/**
+ * ⭐ O INTERRUPTOR DO ROBÔ, POR CAIXA (contrato S-INTERRUPTOR, 03/09/2026).
+ * Ordem do dono: «preciso eu mesmo ter o poder dessa decisão». Antes, ligar o robô era mexer numa
+ * variável de ambiente do Kubernetes. A recusa continua sendo do servidor (`exigirAdmin`): esta
+ * função é só o caminho, não a permissão.
+ */
+export const definirRoboDaCaixa = (cwInboxId, ligado) =>
+  chamarConexoes(`/conexoes/${encodeURIComponent(cwInboxId)}/robo`, { metodo: 'PUT', corpo: { ligado: !!ligado } });
+
 export const reiniciarConexao = (cwInboxId, motivo = null) =>
   chamarConexoes(`/conexoes/${encodeURIComponent(cwInboxId)}/reiniciar`, { metodo: 'POST', corpo: { motivo } });
 export const previaDeTransferencia = (corpo) =>

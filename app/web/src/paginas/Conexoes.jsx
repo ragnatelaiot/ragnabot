@@ -26,7 +26,7 @@ import CapaSecao from '../componentes/CapaSecao.jsx';
 import { Etiqueta, Faixa, T, Vazio, cartao } from './EmpresaFormulario.jsx';
 import { diagnosticar } from '../lib/api-empresas.js';
 import {
-  corDoUso, desdeQuando, frasearCota, frescorDaMedicao, lerConexoes, lerCota,
+  corDoUso, definirRoboDaCaixa, desdeQuando, frasearCota, frescorDaMedicao, lerConexoes, lerCota,
   opcoesDeConexao, previaDeTransferencia, reiniciarConexao, sinalDe, transferir, trocarProvedor,
 } from '../lib/api-conexoes.js';
 
@@ -54,7 +54,86 @@ export function Sinal({ conexao }) {
 }
 
 /** Um cartão de conexão — a tela 40 do chat atual, com o que temos a mais. */
-export function CartaoDeConexao({ conexao, administra = false, ocupado = false, aoReiniciar, aoTrocarProvedor, aoTransferir }) {
+/**
+ * ⭐ O INTERRUPTOR DO ROBÔ — contrato S-INTERRUPTOR, 03/09/2026.
+ *
+ * ORDEM DO DONO: «preciso eu mesmo ter o poder dessa decisão. No momento usar apenas para o
+ * WhatsApp, mas a qualquer momento posso incluir outra caixa ou remover se quiser».
+ *
+ * Até hoje isso era `RAGNABOT_EXECUTOR_FLUXO` — variável de ambiente do Kubernetes. Quem decidia
+ * sobre o atendimento era quem tinha acesso ao cluster. Este bloco é o conserto.
+ *
+ * ⚠️ DUAS FRASES DIFERENTES, de propósito. «O robô está desligado no sistema inteiro» manda falar
+ * com o NOC; «o robô não atende nesta caixa» manda mexer no interruptor que está do lado. Juntá-las
+ * numa só faria o operador procurar no lugar errado — e é justamente por isso que o teto global
+ * viaja separado, em `roboTeto`.
+ */
+export function InterruptorDoRobo({ conexao, teto, administra = false, ocupado = false, aoMudar }) {
+  const ligado = conexao.roboAtende === true;
+  const tetoLigado = teto?.ligado !== false;
+  const onde = conexao.identificador ? ` para ${conexao.identificador}` : ` em "${conexao.nome}"`;
+
+  return (
+    <div
+      data-robo={conexao.cwInboxId ?? 'sem-id'}
+      data-robo-ligado={ligado ? 'sim' : 'nao'}
+      style={{
+        display: 'grid', gap: 6, padding: 10, borderRadius: 10,
+        border: `1px solid ${ligado && tetoLigado ? T.ok || T.borda2 : T.borda}`,
+        background: T.sup,
+      }}
+    >
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 40, cursor: administra ? 'pointer' : 'not-allowed' }}>
+          <input
+            type="checkbox"
+            checked={ligado}
+            disabled={!administra || ocupado}
+            onChange={(ev) => aoMudar?.(conexao, ev.target.checked)}
+            style={{ width: 20, height: 20, accentColor: 'var(--primary)' }}
+          />
+          <span style={{ fontWeight: 700, color: T.ink, fontSize: '0.86rem' }}>
+            O robô atende nesta caixa
+          </span>
+        </label>
+        <Etiqueta tom={ligado ? (tetoLigado ? 'ok' : 'aviso') : 'neutro'}>
+          {ligado ? (tetoLigado ? 'atendendo' : 'ligado, mas parado') : 'desligado'}
+        </Etiqueta>
+      </div>
+
+      {/* O EFEITO EM PORTUGUÊS. Um interruptor sem esta frase obriga a testar no cliente real
+          para descobrir o que ele faz. */}
+      <div style={{ fontSize: '0.75rem', color: T.sec }}>
+        {ligado
+          ? `Quem escrever${onde} é atendido pelo robô.`
+          : `Quem escrever${onde} vai direto para a fila de gente.`}
+        {' '}
+        <span style={{ color: T.mut }}>
+          Desligar não corta ninguém no meio: quem já está numa conversa com o robô termina o que
+          começou, e nenhuma nova entra.
+        </span>
+      </div>
+
+      {!tetoLigado ? (
+        <Faixa tom="aviso" titulo="O robô está desligado no sistema inteiro">
+          {teto?.motivo
+            || 'Enquanto o freio de emergência do NOC estiver acionado, nenhuma caixa é atendida por '
+            + 'robô — mesmo com este interruptor ligado. A sua escolha fica gravada e passa a valer '
+            + 'assim que o freio sair.'}
+        </Faixa>
+      ) : null}
+
+      {!administra ? (
+        <div style={{ fontSize: '0.72rem', color: T.mut }}>
+          Só quem administra a empresa pode mexer neste interruptor. (O servidor recusa de qualquer
+          jeito — o botão desabilitado é conveniência, não a trava.)
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+export function CartaoDeConexao({ conexao, administra = false, ocupado = false, roboTeto = null, aoReiniciar, aoTrocarProvedor, aoTransferir, aoMudarRobo }) {
   const ativa = conexao.ativa !== false;
   return (
     <div
@@ -92,6 +171,13 @@ export function CartaoDeConexao({ conexao, administra = false, ocupado = false, 
       {/* O que este par canal+provedor CONSEGUE fazer, em português. Sem esta linha,
           «interativo: false» não diz a ninguém que o menu vai virar lista numerada no celular. */}
       <div style={{ fontSize: '0.76rem', color: T.sec }}>{conexao.capacidadeResumo}</div>
+
+      {ativa ? (
+        <InterruptorDoRobo
+          conexao={conexao} teto={roboTeto} administra={administra} ocupado={ocupado}
+          aoMudar={aoMudarRobo}
+        />
+      ) : null}
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', fontSize: '0.72rem', color: T.mut }}>
         <span>atualizada {desdeQuando(conexao.atualizadaEm) || '—'}</span>
@@ -178,6 +264,8 @@ export default function Conexoes() {
   const [conexoes, setConexoes] = useState([]);
   const [cota, setCota] = useState(null);
   const [opcoes, setOpcoes] = useState(null);
+  // O TETO GLOBAL do robô (`RAGNABOT_EXECUTOR_FLUXO`), separado do interruptor de cada caixa.
+  const [roboTeto, setRoboTeto] = useState(null);
   const [busca, setBusca] = useState('');
   const [carregando, setCarregando] = useState(false);
   const [ocupado, setOcupado] = useState(false);
@@ -195,6 +283,7 @@ export default function Conexoes() {
         opcoesDeConexao().catch(() => null),
       ]);
       setConexoes(Array.isArray(lista?.conexoes) ? lista.conexoes : []);
+      setRoboTeto(lista?.roboTeto ?? null);
       setCota(c);
       setOpcoes(o);
       setErro(null);
@@ -206,6 +295,33 @@ export default function Conexoes() {
   }, []);
 
   useEffect(() => { carregar(); }, [carregar]);
+
+  /**
+   * ⭐ Liga/desliga o robô numa caixa. A resposta traz `efeito` — a frase que o servidor escreveu
+   * sobre o que MUDOU —, e é ela que aparece na tela: inventar a frase aqui abriria espaço para a
+   * tela dizer uma coisa e o servidor ter feito outra.
+   */
+  const aoMudarRobo = async (conexao, ligado) => {
+    setOcupado(true); setRecado(null);
+    // Pintura otimista: o interruptor responde na hora. Se o servidor recusar, o `carregar()` do
+    // `finally` devolve o estado REAL — a tela nunca fica mostrando uma decisão que não valeu.
+    setConexoes((atual) => atual.map((c) => (c.cwInboxId === conexao.cwInboxId ? { ...c, roboAtende: ligado } : c)));
+    try {
+      const r = await definirRoboDaCaixa(conexao.cwInboxId, ligado);
+      if (r?.teto) setRoboTeto(r.teto);
+      setRecado({ tom: ligado ? 'ok' : 'aviso', texto: r?.efeito || 'Interruptor alterado.' });
+    } catch (e) {
+      setRecado({
+        tom: 'erro',
+        texto: e.status === 403
+          ? `O servidor recusou: ${e.message} (só quem administra a empresa decide isto — e a trava é do servidor, não do botão).`
+          : `Não consegui mudar o interruptor: ${e.message}`,
+      });
+    } finally {
+      setOcupado(false);
+      await carregar();
+    }
+  };
 
   const aoReiniciar = async (conexao) => {
     setOcupado(true); setRecado(null);
@@ -334,6 +450,8 @@ export default function Conexoes() {
           busca={busca}
           administra={opcoes?.administra === true}
           ocupado={ocupado}
+          roboTeto={roboTeto}
+          aoMudarRobo={aoMudarRobo}
           aoReiniciar={aoReiniciar}
           aoTrocarProvedor={aoTrocarProvedor}
           aoTransferir={aoTransferir}

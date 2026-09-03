@@ -111,7 +111,10 @@ router.get('/conexoes', async (req, res) => {
     const tenantId = empresaDe(req, res);
     if (!tenantId) return undefined;
     const lista = await conexoes.listarConexoes(tenantId, { incluirRemovidas: req.query.incluirRemovidas !== '0' });
-    return res.json({ conexoes: lista });
+    // O teto global viaja junto: sem ele a tela não sabe diferenciar «não atende nesta caixa» de
+    // «o robô está desligado no sistema inteiro», e essas duas frases mandam procurar em lugares
+    // diferentes.
+    return res.json({ conexoes: lista, roboTeto: tetoGlobalDoRobo() });
   } catch (e) { return erro(res, e, 500); }
 });
 
@@ -151,6 +154,50 @@ router.put('/conexoes/:cwInboxId/estado', async (req, res) => {
     return res.json(r);
   } catch (e) { return erro(res, e); }
 });
+
+/**
+ * ⭐ O INTERRUPTOR DO ROBÔ, POR CAIXA (contrato S-INTERRUPTOR, 03/09/2026).
+ *
+ * ORDEM DO DONO: «preciso eu mesmo ter o poder dessa decisão». Antes disto, ligar o robô era editar
+ * `RAGNABOT_EXECUTOR_FLUXO` no `ConfigMap` e reiniciar os pods — decisão de quem tem o cluster, não
+ * de quem tem o atendimento.
+ *
+ * ⛔ `exigirAdmin` PRIMEIRO, e é a trava de verdade: a tela esconde o botão de quem não pode, mas
+ * quem chamar a API direto encontra a mesma porta trancada. Esconder botão nunca foi segurança.
+ */
+router.put('/conexoes/:cwInboxId/robo', async (req, res) => {
+  try {
+    if (!exigirAdmin(req, res)) return undefined;
+    const tenantId = empresaDe(req, res);
+    if (!tenantId) return undefined;
+    const r = await conexoes.definirRoboDaCaixa(tenantId, req.params.cwInboxId, {
+      ligado: req.body?.ligado === true,
+    }, { ator: req.user, req });
+    return res.json({ ...r, teto: tetoGlobalDoRobo() });
+  } catch (e) { return erro(res, e); }
+});
+
+/**
+ * O TETO GLOBAL — `RAGNABOT_EXECUTOR_FLUXO`. Continua existindo como FREIO DE EMERGÊNCIA, mas
+ * deixou de ser o interruptor: com ele desligado NENHUMA caixa atende, aconteça o que acontecer no
+ * interruptor de cada uma; com ele ligado, quem manda é a caixa.
+ *
+ * A tela precisa das DUAS informações porque as frases são diferentes e mandam procurar em lugares
+ * diferentes: «o robô está desligado no sistema inteiro» (fale com o NOC) não é «o robô não atende
+ * nesta caixa» (o interruptor é seu, está aqui do lado).
+ */
+function tetoGlobalDoRobo() {
+  const v = String(process.env.RAGNABOT_EXECUTOR_FLUXO ?? '').trim();
+  const ligado = v === '1' || v.toLowerCase() === 'true';
+  return {
+    ligado,
+    motivo: ligado
+      ? null
+      : 'O robô está desligado no sistema inteiro (freio de emergência do NOC). Enquanto isso valer, '
+        + 'nenhuma caixa é atendida por robô — mesmo com o interruptor da caixa ligado. '
+        + 'O interruptor de cada caixa continua valendo e passa a ter efeito assim que o freio sair.',
+  };
+}
 
 /** ⭐ F9.2.5 — reiniciar. Pode responder `naoDisponivel` COM O MOTIVO: botão que mente é pior que
  *  botão que falta. */

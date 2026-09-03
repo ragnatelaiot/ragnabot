@@ -521,6 +521,54 @@ async function problemaNaCaixaDoFluxo(tenantId, cwInboxId) {
 }
 
 /**
+ * ⚠️ DUAS BOCAS NA MESMA CAIXA — contrato S-CONFIGURAR, 03/09/2026.
+ *
+ * ── O QUE EU MEDI, e por que esta guarda nasceu ─────────────────────────────────────────────────
+ * `resolverEntrada()` (em `ragnabot-atendimento.service.js`) escolhe o fluxo da caixa assim:
+ *
+ *     findFirst({ where: { tenantId, estado:'publicado', versaoPublicadaId:{not:null},
+ *                          entrada:'caixa', cwInboxId } })
+ *
+ * **Sem `orderBy`.** Com DOIS fluxos publicados na mesma caixa, quem ganha é o que o Postgres
+ * devolver primeiro — ou seja, indefinido, e podendo mudar de uma consulta para a outra. O sintoma
+ * em produção não é erro: é «o robô respondeu o fluxo errado», intermitente, sem nada no log.
+ *
+ * A resposta tem DUAS camadas, porque uma só não basta:
+ *   1. **AQUI**: recusar que uma segunda boca fique viva na mesma caixa. É a porta.
+ *   2. **No resolvedor**: ordem determinística declarada + aviso no log, para o caso de a dupla já
+ *      existir de antes desta guarda. Guarda nova não conserta dado velho.
+ *
+ * @returns {Promise<object|null>} o fluxo que já atende aquela caixa, ou `null` quando está livre
+ */
+async function outroFluxoJaAtendeACaixa(tenantId, cwInboxId, excetoFluxoId) {
+  if (cwInboxId == null) return null;
+  return prisma.ragnabotFluxo.findFirst({
+    where: {
+      tenantId,
+      id: { not: excetoFluxoId },
+      entrada: 'caixa',
+      cwInboxId,
+      estado: 'publicado',
+      versaoPublicadaId: { not: null },
+      arquivadoEm: null,
+    },
+    select: { id: true, nome: true },
+  });
+}
+
+/** A recusa, com a frase que ENSINA o que fazer — nunca «conflito». */
+function recusaDeCaixaOcupada(res, outro, cwInboxId) {
+  return res.status(409).json({
+    error: `A caixa ${cwInboxId} já é atendida pelo fluxo "${outro.nome}", que está no ar. `
+      + 'Dois fluxos vivos na mesma caixa deixam indefinido qual responde ao cliente — e o sintoma '
+      + 'disso em produção é «o robô respondeu o fluxo errado», intermitente e sem rastro. '
+      + `Desligue "${outro.nome}" (ou aponte-o para outra caixa) antes de pôr este no lugar dele.`,
+    code: 'CAIXA_JA_ATENDIDA',
+    conflito: { fluxoId: outro.id, nome: outro.nome, cwInboxId },
+  });
+}
+
+/**
  * GET /caixas — as caixas de entrada do escopo, para ESCOLHER pelo nome (contrato S-CLAREZA).
  *
  * ── POR QUE ESTA ROTA EXISTE, e por que aqui e não na rota de empresas ──────────────────────────
@@ -676,14 +724,40 @@ router.patch('/fluxos/:id', async (req, res) => {
       if (problemaCaixa) return res.status(400).json({ error: problemaCaixa, code: 'CAIXA_NAO_REGISTRADA' });
     }
 
+    // ⛔ DUAS BOCAS NA MESMA CAIXA (S-CONFIGURAR). Só recusa quando ESTE fluxo está VIVO — mudar a
+    // caixa de um rascunho não ambiguiza nada, e travar por antecipação é guarda que atrapalha.
+    const entradaFinal = s.dados.entrada ?? f.entrada;
+    const caixaFinal = 'cwInboxId' in s.dados ? s.dados.cwInboxId : f.cwInboxId;
+    const vivoAgora = f.estado === 'publicado' && !!f.versaoPublicadaId;
+    if (vivoAgora && entradaFinal === 'caixa' && caixaFinal != null) {
+      const outro = await outroFluxoJaAtendeACaixa(f.tenantId, caixaFinal, f.id);
+      if (outro) return recusaDeCaixaOcupada(res, outro, caixaFinal);
+    }
+
     const novo = await prisma.ragnabotFluxo.update({ where: { id: f.id }, data: s.dados });
+
+    // Quantas conversas estão em andamento POR ESTE FLUXO. Trocar a caixa não as move: elas seguem
+    // até o fim pela versão em que entraram. Devolver o número é o que deixa a tela dizer isso em
+    // vez de o operador supor que "mudou tudo agora".
+    const vivas = await prisma.ragnabotFluxoExecucao
+      .count({ where: { fluxoId: f.id, estado: { in: ESTADOS_ATIVOS } } })
+      .catch(() => null);
+
+    const mudouOnde = ('cwInboxId' in s.dados && s.dados.cwInboxId !== f.cwInboxId)
+      || ('entrada' in s.dados && s.dados.entrada !== f.entrada);
     await auditoria.registrar({
       tenantId: f.tenantId, atorTipo: 'user', atorId: req.user?.id || null, atorNome: req.user?.name || null,
       categoria: 'configuracao', acao: 'fluxo_editado', entidade: 'fluxo', entidadeId: f.id,
-      descricao: `Metadados do fluxo "${novo.nome}" alterados`, ip: req.ip, userAgent: req.get('user-agent'),
+      // A descrição NOMEIA a mudança de porta de entrada. «Metadados alterados» some no meio de mil
+      // linhas de auditoria; «passou a atender a caixa 1 em vez da 34» é o que se procura depois.
+      descricao: mudouOnde
+        ? `Fluxo "${novo.nome}": porta de entrada mudou de ${descreverEntrada(f)} para ${descreverEntrada(novo)}`
+          + (vivoAgora ? ' — o fluxo estava NO AR no momento da troca' : '')
+        : `Metadados do fluxo "${novo.nome}" alterados`,
+      ip: req.ip, userAgent: req.get('user-agent'),
       antes: Object.fromEntries(Object.keys(s.dados).map((k) => [k, f[k]])), depois: s.dados,
     });
-    res.json(semBigInt(novo));
+    res.json(semBigInt({ ...novo, conversasEmAndamento: vivas, estavaNoAr: vivoAgora }));
   } catch (e) {
     if (e.code === 'P2002') return res.status(409).json({ error: 'Já existe um fluxo com esse nome nesta empresa.' });
     erro(res, e, 500);

@@ -245,6 +245,26 @@ model RagnabotInbox {
   estadoEm      DateTime? // quando o estado foi MEDIDO — sem isto, «desconectado» de 3 dias atrás
   //                      // parece novidade
 
+  // ── ⭐ O INTERRUPTOR DO ROBÔ, POR CAIXA (contrato S-INTERRUPTOR, 03/09/2026) ───────────────
+  // ORDEM DO DONO, nas palavras dele: «preciso eu mesmo ter o poder dessa decisão. No momento
+  // usar apenas para o WhatsApp, mas a qualquer momento posso incluir outra caixa ou remover se
+  // quiser».
+  //
+  // Até hoje ligar o robô era mexer em `RAGNABOT_EXECUTOR_FLUXO`, uma variável de ambiente do
+  // Kubernetes: quem decidia era quem tinha acesso ao cluster, não o dono do atendimento. Errado.
+  //
+  // ⚠️ O PADRÃO É `false`, e é falha fechada de propósito: uma caixa nova NÃO começa a ser
+  // atendida por robô sem alguém dizer que sim. O contrário — nascer ligada — poria um robô a
+  // falar com cliente de verdade por omissão, que é o pior jeito de estrear.
+  //
+  // ⚠️ A CHAVE GLOBAL VIROU TETO, não interruptor: com `RAGNABOT_EXECUTOR_FLUXO` desligada,
+  // NENHUMA caixa atende, aconteça o que acontecer aqui. Com ela ligada, quem manda é esta coluna.
+  // As duas mensagens são diferentes na tela, e têm de continuar sendo: «o robô está desligado no
+  // sistema inteiro» e «o robô não atende nesta caixa» mandam procurar em lugares diferentes.
+  roboAtende          Boolean   @default(false)
+  roboAtendeEm        DateTime? // quando a decisão foi tomada
+  roboAtendePorUserId String? //  e por quem — a auditoria completa fica em RagnabotAuditoria
+
   // ── REINÍCIO (F9.2.5) ─────────────────────────────────────────────────────────────────────
   reiniciadaEm        DateTime?
   reiniciadaPorUserId String?

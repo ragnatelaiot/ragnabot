@@ -68,7 +68,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Plus, Search, X, Save, Play, Trash2, RefreshCw, AlertTriangle, CheckCircle, Info,
   ZoomIn, ZoomOut, Maximize2, Eye, EyeOff, Copy, ArrowLeft, Clock, Send, Layers,
-  History, Activity, Crosshair, Upload, ChevronRight, Map as IconeMapa,
+  History, Activity, Crosshair, Upload, ChevronRight, Map as IconeMapa, Settings,
 } from 'lucide-react';
 import CapaSecao from '../componentes/CapaSecao.jsx';
 // ⭐ 03/09/2026 (contrato S-CLAREZA): escolher a caixa pelo NOME, nunca pelo número.
@@ -4364,6 +4364,7 @@ function ModalDeVersoes({ aberta, fluxoId, versaoPublicadaId, aoFechar, aoRevert
 function BarraDoEditor({
   fluxo, sujo, salvando, ultimoSalvamentoEm, saude, bytes, mudandoEstado, podeSalvar, motivoSemSalvar,
   aoVoltar, aoSalvar, aoPublicar, aoVerVersoes, aoAlternarEstado, aoTestar, aoArrumar, aoAbrirMapa,
+  aoConfigurar,
 }) {
   const podePublicar = saude?.podeAgora?.publicar !== false;
   const podeTestar = saude?.podeAgora?.modoDeTeste !== false;
@@ -4414,6 +4415,11 @@ function BarraDoEditor({
       </button>
       <button className="btn btn-secondary" style={{ minHeight: 40 }} onClick={() => aoVerVersoes()}>
         <History size={15} /> <span className="rgfx-esconde-no-celular">Versões</span>
+      </button>
+      {/* ⭐ S-CONFIGURAR: nome, descrição, tipo de entrada e CAIXA. Alcançável de dentro do editor
+          e do cartão da lista — não adianta existir só num lugar que quem desenha não visita. */}
+      <button className="btn btn-secondary" style={{ minHeight: 40 }} title="Nome, descrição, entrada e caixa" onClick={() => aoConfigurar?.()}>
+        <Settings size={15} /> <span className="rgfx-esconde-no-celular">Configuração</span>
       </button>
       <button
         className="btn btn-secondary" style={{ minHeight: 40 }} disabled={mudandoEstado}
@@ -4513,7 +4519,7 @@ function useVeredito(fluxoId, documento, catalogo) {
 
 function Editor({
   fluxoId, catalogo, catalogoVeioDoServidor, saude, fluxosDaEmpresa, chaveDeAtualizacao,
-  aoVoltar, aoAbrirPublicacao, aoAbrirVersoes, pedirConfirmacao, aoMudarFluxo, canalDoEditor,
+  aoVoltar, aoAbrirPublicacao, aoAbrirVersoes, aoAbrirConfiguracao, pedirConfirmacao, aoMudarFluxo, canalDoEditor,
 }) {
   const r = useRascunhoDeFluxo(fluxoId, catalogo);
   const [selecionadoId, setSelecionadoId] = useState(null);
@@ -4987,6 +4993,7 @@ function Editor({
         aoSalvar={() => salvarPeloBotao()}
         aoPublicar={() => publicar()}
         aoVerVersoes={() => aoAbrirVersoes()}
+        aoConfigurar={() => aoAbrirConfiguracao?.()}
         aoAlternarEstado={(estado) => alternarEstado(estado)}
         aoTestar={() => setAbaLateral(abaLateral === 'teste' ? null : 'teste')}
         aoArrumar={() => {
@@ -5387,7 +5394,158 @@ const ESTADO_DO_FLUXO = {
   desligado: { tom: 'aviso', rotulo: 'desligado' },
 };
 
-function CartaoDeFluxo({ fluxo, aoAbrir, aoArquivar }) {
+/**
+ * ⭐ CONFIGURAÇÃO DO FLUXO — contrato S-CONFIGURAR, 03/09/2026.
+ *
+ * ── O QUE FALTAVA, e o que isso estava causando ─────────────────────────────────────────────────
+ * Depois de criado, o fluxo não tinha NENHUMA tela de edição: o cartão só oferecia «Abrir editor» e
+ * «Arquivar». Nome, descrição, tipo de entrada e caixa ficavam congelados na escolha do primeiro
+ * minuto. O `PATCH /fluxos/:id` sempre existiu — faltava a porta.
+ *
+ * Efeito concreto medido em 03/09/2026: o fluxo do dono nasceu amarrado à caixa 34, que é o
+ * **WhatsApp real da empresa**. A recomendação era estrear no chat do site (caixa 1), onde só
+ * conversa quem ele mandar — e ele não conseguia trocar. A falta desta tela estava empurrando o
+ * primeiro teste para o número de verdade.
+ *
+ * ── A CAIXA VEM DE LISTA, NUNCA DIGITADA ────────────────────────────────────────────────────────
+ * Reusa `CampoDeCaixa` (contrato S-CLAREZA): digitar 35 onde era 34 grava, publica e o fluxo nunca
+ * dispara — defeito mudo que já custou um contrato inteiro.
+ *
+ * ⛔ A TELA É CONVENIÊNCIA; A RECUSA É DO SERVIDOR. Caixa não cadastrada volta 400
+ * `CAIXA_NAO_REGISTRADA`; caixa já atendida por outro fluxo VIVO volta 409 `CAIXA_JA_ATENDIDA`.
+ * Quem chamar a API direto encontra as mesmas portas.
+ */
+function ModalDeConfiguracao({ aberta, fluxo, ehSuperusuario, aoFechar, aoSalvo }) {
+  const [nome, setNome] = useState('');
+  const [descricao, setDescricao] = useState('');
+  const [entrada, setEntrada] = useState('subfluxo');
+  const [cwInboxId, setCwInboxId] = useState('');
+  const [palavrasChave, setPalavrasChave] = useState('');
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState(null);
+
+  const caixas = useCaixasDoEscopo(aberta, { tenantId: ehSuperusuario ? (fluxo?.tenantId || null) : null });
+
+  useEffect(() => {
+    if (!aberta || !fluxo) return;
+    setNome(fluxo.nome || '');
+    setDescricao(fluxo.descricao || '');
+    setEntrada(fluxo.entrada || 'subfluxo');
+    setCwInboxId(fluxo.cwInboxId != null ? String(fluxo.cwInboxId) : '');
+    setPalavrasChave((fluxo.palavrasChave || []).join(', '));
+    setErro(null);
+  }, [aberta, fluxo]);
+
+  const noAr = fluxo?.estado === 'publicado' && !!fluxo?.versaoPublicadaId;
+  const caixaAtual = (caixas?.itens || []).find((c) => String(c.cwInboxId) === String(fluxo?.cwInboxId));
+  const caixaNova = (caixas?.itens || []).find((c) => String(c.cwInboxId) === String(cwInboxId));
+  const trocouPorta = String(entrada) !== String(fluxo?.entrada || '')
+    || String(cwInboxId || '') !== String(fluxo?.cwInboxId ?? '');
+  const nomeDaCaixa = (c, id) => (c ? `${c.nome}${c.identificador ? ` (${c.identificador})` : ''}` : `caixa ${id ?? '—'}`);
+
+  const salvar = async () => {
+    setSalvando(true); setErro(null);
+    try {
+      const corpo = {
+        nome: nome.trim(),
+        descricao: descricao.trim() || null,
+        entrada,
+        cwInboxId: entrada === 'caixa' ? Number(cwInboxId) : null,
+        ...(entrada === 'palavra_chave' ? { palavrasChave: textoParaLista(palavrasChave) } : {}),
+      };
+      const r = await chamarFluxo(`/fluxos/${encodeURIComponent(fluxo.id)}`, { metodo: 'PATCH', corpo });
+      aoSalvo(r, { trocouPorta, noAr });
+    } catch (e) { setErro(e); } finally { setSalvando(false); }
+  };
+
+  return (
+    <Modal
+      aberta={aberta} titulo="Configuração do fluxo" aoFechar={aoFechar}
+      rodape={
+        <>
+          <button className="btn btn-secondary" onClick={() => aoFechar()}>Cancelar</button>
+          <button
+            className="btn btn-primary"
+            disabled={!nome.trim() || salvando || (entrada === 'caixa' && !cwInboxId)}
+            onClick={() => salvar()}
+          >
+            {salvando ? 'Gravando…' : 'Gravar configuração'}
+          </button>
+        </>
+      }
+    >
+      {erro ? (
+        <div style={{ marginBottom: 12 }}>
+          <Faixa
+            tom="erro"
+            titulo={erro.code === 'CAIXA_JA_ATENDIDA'
+              ? 'Essa caixa já é atendida por outro fluxo'
+              : erro.code === 'CAIXA_NAO_REGISTRADA'
+                ? 'Essa caixa não existe no cadastro desta empresa'
+                : erro.status === 409 ? 'Já existe um fluxo com esse nome' : 'Não consegui gravar'}
+          >
+            {erro.message}
+          </Faixa>
+        </div>
+      ) : null}
+
+      <CampoTexto rotulo="Nome do fluxo" dica="até 120 caracteres" valor={nome} aoMudar={setNome} />
+      <CampoTexto rotulo="Descrição" linhas={2} valor={descricao} aoMudar={setDescricao} />
+      <CampoSelecao
+        rotulo="Como este fluxo começa" valor={entrada} vazio="sub-fluxo (chamado por outro)"
+        aoMudar={(v) => setEntrada(v || 'subfluxo')}
+        opcoes={[
+          { valor: 'caixa', rotulo: 'Por caixa — toda conversa que chegar nela' },
+          { valor: 'palavra_chave', rotulo: 'Por palavra-chave' },
+          { valor: 'subfluxo', rotulo: 'Sub-fluxo (chamado por outro fluxo)' },
+        ]}
+      />
+      {entrada === 'caixa' ? (
+        <CampoDeCaixa
+          dica="obrigatório para esta entrada"
+          valor={cwInboxId} aoMudar={setCwInboxId} caixas={caixas} desabilitado={salvando}
+        />
+      ) : null}
+      {entrada === 'palavra_chave' ? (
+        <CampoTexto rotulo="Palavras-chave" dica="separadas por vírgula" valor={palavrasChave} aoMudar={setPalavrasChave} />
+      ) : null}
+
+      {/* ⚠️ O AVISO DO QUE MUDA. Trocar a caixa de um fluxo NO AR muda DE ONDE ele passa a
+          atender — e isso não pode ser descoberto por um cliente escrevendo no número errado. */}
+      {trocouPorta && noAr ? (
+        <div style={{ marginTop: 12 }}>
+          <Faixa tom="aviso" titulo="Este fluxo está NO AR — a porta de entrada vai mudar">
+            {fluxo?.entrada === 'caixa' && entrada === 'caixa' ? (
+              <>
+                Ele deixará de atender <b>{nomeDaCaixa(caixaAtual, fluxo?.cwInboxId)}</b> e passará a
+                atender <b>{nomeDaCaixa(caixaNova, cwInboxId)}</b>, a partir do momento em que você gravar.
+              </>
+            ) : (
+              <>A forma de entrada muda de <b>{fluxo?.entrada}</b> para <b>{entrada}</b>.</>
+            )}
+            <div style={{ marginTop: 6 }}>
+              Quem já está no meio de uma conversa <b>não é movido</b>: essas conversas seguem até o
+              fim pela versão em que entraram. A mudança vale para quem chegar depois.
+            </div>
+            <div style={{ marginTop: 6 }}>
+              Fica registrado na auditoria quem trocou, de que para quê e quando.
+            </div>
+          </Faixa>
+        </div>
+      ) : null}
+
+      {trocouPorta && !noAr ? (
+        <div style={{ marginTop: 12 }}>
+          <Faixa tom="info" titulo="Este fluxo ainda não está no ar">
+            A mudança de porta de entrada só passa a valer quando ele for publicado e ligado.
+          </Faixa>
+        </div>
+      ) : null}
+    </Modal>
+  );
+}
+
+function CartaoDeFluxo({ fluxo, aoAbrir, aoArquivar, aoConfigurar }) {
   const e = ESTADO_DO_FLUXO[fluxo.estado] || ESTADO_DO_FLUXO.rascunho;
   return (
     <div style={{ ...cartao, display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -5410,6 +5568,11 @@ function CartaoDeFluxo({ fluxo, aoAbrir, aoArquivar }) {
       <div style={{ display: 'flex', gap: 8, marginTop: 'auto', flexWrap: 'wrap' }}>
         <button className="btn btn-primary" style={{ minHeight: 40 }} onClick={() => aoAbrir(fluxo.id)}>
           Abrir editor <ChevronRight size={14} />
+        </button>
+        {/* ⭐ S-CONFIGURAR: antes daqui, nome/descrição/entrada/caixa eram congelados na criação —
+            e foi isso que prendeu o fluxo do dono ao WhatsApp real da empresa. */}
+        <button className="btn btn-secondary" style={{ minHeight: 40 }} onClick={() => aoConfigurar?.(fluxo)}>
+          <Settings size={14} /> Configuração
         </button>
         <button className="btn btn-secondary" style={{ minHeight: 40 }} onClick={() => aoArquivar(fluxo)}>
           Arquivar
@@ -5443,6 +5606,7 @@ export default function FluxosRagnabot() {
   // ── modais: TODAS aqui na raiz, fora de qualquer bloco condicional de aba ou de tela ──────────
   const [modalCriar, setModalCriar] = useState(false);
   const [modalPublicar, setModalPublicar] = useState(false);
+  const [fluxoEmConfiguracao, setFluxoEmConfiguracao] = useState(null);
   // Ponte entre o Editor e a caixa de publicar (que é montada na raiz da página, fora dele).
   const canalDoEditor = useRef(null);
   const [modalVersoes, setModalVersoes] = useState(false);
@@ -5717,6 +5881,7 @@ export default function FluxosRagnabot() {
             aoVoltar={() => { setAbertoId(null); setFluxoAberto(null); carregarLista(); }}
             aoAbrirPublicacao={() => setModalPublicar(true)}
             aoAbrirVersoes={() => setModalVersoes(true)}
+            aoAbrirConfiguracao={() => setFluxoEmConfiguracao(fluxoAberto)}
             pedirConfirmacao={(c) => setConfirmacao(c)}
             aoMudarFluxo={setFluxoAberto}
             canalDoEditor={canalDoEditor}
@@ -5797,6 +5962,7 @@ export default function FluxosRagnabot() {
                   fluxo={f}
                   aoAbrir={(id) => setAbertoId(id)}
                   aoArquivar={(fl) => pedirArquivamento(fl)}
+                  aoConfigurar={(fl) => setFluxoEmConfiguracao(fl)}
                 />
               ))}
             </div>
@@ -5816,6 +5982,27 @@ export default function FluxosRagnabot() {
           setRecadoDaPagina({ tom: 'ok', texto: `Fluxo "${criado.nome}" criado.` });
           carregarLista();
           setAbertoId(criado.id);
+        }}
+      />
+
+      <ModalDeConfiguracao
+        aberta={!!fluxoEmConfiguracao}
+        fluxo={fluxoEmConfiguracao}
+        ehSuperusuario={ehSuperusuario}
+        aoFechar={() => setFluxoEmConfiguracao(null)}
+        aoSalvo={(novo, { trocouPorta, noAr }) => {
+          setFluxoEmConfiguracao(null);
+          setChaveDeAtualizacao((k) => k + 1);
+          carregarLista();
+          if (abertoId === novo.id) setFluxoAberto(novo);
+          setRecadoDaPagina({
+            tom: 'ok',
+            texto: trocouPorta
+              ? `Configuração gravada. A porta de entrada de "${novo.nome}" mudou`
+                + (noAr ? ' — e ele está no ar, então já vale para quem chegar agora.' : '.')
+                + (novo.conversasEmAndamento ? ` ${novo.conversasEmAndamento} conversa(s) em andamento seguem até o fim pela versão em que entraram.` : '')
+              : `Configuração de "${novo.nome}" gravada.`,
+          });
         }}
       />
 

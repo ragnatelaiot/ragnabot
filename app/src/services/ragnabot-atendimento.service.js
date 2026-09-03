@@ -1567,6 +1567,66 @@ async function auditar(evento) {
 }
 
 /**
+ * O robô pode atender esta caixa AGORA? Devolve o MOTIVO da recusa, ou `null` quando pode.
+ *
+ * ── ⚠️ POR QUE O FREIO GLOBAL **NÃO** ESTÁ AQUI (erro meu, corrigido em 03/09/2026) ─────────────
+ * A primeira versão desta função também vetava quando `RAGNABOT_EXECUTOR_FLUXO` estava desligada.
+ * Parecia razoável e estava ERRADO, por dois motivos que só apareceram quando a bateria rodou:
+ *
+ *   1. **Redefinia o que aquele freio significa.** `RAGNABOT_EXECUTOR_FLUXO` desliga o TRABALHADOR
+ *      que anda com o fluxo — não a decisão de entrada. Pôr o veto aqui fazia a portaria deixar de
+ *      criar execução, mudando um comportamento que ninguém pediu e que 6 verificações da portaria
+ *      documentavam. Contrato de outro componente não se muda de passagem.
+ *   2. **Misturava as duas perguntas.** «Quem atende esta caixa?» é do dono da empresa. «O motor
+ *      está andando?» é do NOC. Uma função que responde as duas some com a fronteira.
+ *
+ * O freio global continua existindo e continua sendo mostrado na tela — mas viaja SEPARADO, em
+ * `roboTeto` (rota de conexões), justamente para a tela poder dizer «ligado, mas parado» com uma
+ * frase diferente. Aqui mora **um veto só**: o interruptor da CAIXA.
+ *
+ * Veto único: `robo_desligado_na_caixa` — o interruptor da caixa, do administrador da EMPRESA.
+ *
+ * ⚠️ CAIXA SEM CADASTRO não é veto. Uma caixa que ainda não foi sincronizada, ou uma entrada sem
+ * `cwInboxId` (fluxo por palavra-chave), não pode ficar refém de um cadastro que talvez não tenha
+ * rodado — guarda que trava por dúvida vira guarda contornada. O veto só existe quando a linha
+ * EXISTE e diz `roboAtende=false`.
+ *
+ * ── ⚠️ E SE NÃO DER PARA LER O INTERRUPTOR? FALHA **ABERTA**, e a decisão é declarada ────────────
+ * Minha primeira versão falhava FECHADA («na dúvida, não atende»). Soa prudente e é a escolha
+ * errada aqui — a bateria mostrou por quê: o caso comum de «não consegui ler» **não** é o banco
+ * fora, é o **cliente Prisma fora de passo com a base**, que é o estado NORMAL de um pod nos
+ * minutos entre aplicar a migração e reiniciar o processo (está escrito na lei da casa: «o cliente
+ * Prisma novo só vale no processo após restart»). Falhando fechada, esse intervalo de rotina vira
+ * **apagão silencioso do robô em TODAS as caixas**, com o sintoma «parou de responder» e nenhuma
+ * causa visível.
+ *
+ * O outro lado do risco é bem menor e mais curto: enquanto a leitura estiver quebrada, o robô pode
+ * atender numa caixa que o dono desligou. Entre um apagão geral provável e um vazamento pontual
+ * improvável, escolho o segundo — e GRITO no log, porque decisão silenciosa é que corrói confiança.
+ *
+ * É a mesma convenção que `problemaNaCaixaDoFluxo()` já segue neste repositório: falha de
+ * infraestrutura na conferência não pode impedir o trabalho de acontecer.
+ */
+async function vetoDoRobo(cliente, { tenantId, idCaixa }) {
+  if (idCaixa === null) return null;
+  try {
+    const caixa = await cliente.ragnabotInbox.findFirst({
+      where: { tenantId, cwInboxId: idCaixa, removedAt: null },
+      select: { roboAtende: true },
+    });
+    if (!caixa) return null;                       // sem cadastro ⇒ sem veto (ver acima)
+    return caixa.roboAtende === true ? null : 'robo_desligado_na_caixa';
+  } catch (e) {
+    // Falha ABERTA, declarada acima. O caso comum é cliente Prisma fora de passo com a base — e
+    // fechar aqui transformaria um rollout de rotina em apagão do robô em todas as caixas.
+    logger.warn(`[atendimento] NÃO consegui ler o interruptor do robô da caixa ${idCaixa} `
+      + `(${e.message}). Seguindo SEM veto: se esta caixa estiver desligada, ela vai atender até a `
+      + 'leitura voltar. Confira se o processo está com o cliente Prisma da migração do interruptor.');
+    return null;
+  }
+}
+
+/**
  * O resolvedor de entrada, com banco: decide qual fluxo atende a mensagem que acabou de chegar.
  * Devolve a INTENÇÃO — quem chama `iniciarOuRecuperarExecucao()` é a portaria, dona daquele arquivo.
  */
@@ -1579,11 +1639,63 @@ export async function resolverEntrada({
   const expediente = avaliarExpediente({ agora: quando, fuso: politica.fuso ?? FUSO_PADRAO, janelas, excecoes });
 
   const publicados = { tenantId, estado: 'publicado', versaoPublicadaId: { not: null } };
-  const porPalavra = await cliente.ragnabotFluxo.findMany({ where: { ...publicados, entrada: 'palavra_chave' } });
   const idCaixa = inteiroEstrito(cwInboxId);
-  const daCaixa = idCaixa !== null
-    ? await cliente.ragnabotFluxo.findFirst({ where: { ...publicados, entrada: 'caixa', cwInboxId: idCaixa } })
-    : null;
+
+  // ── ⭐ O INTERRUPTOR DO ROBÔ, POR CAIXA (contrato S-INTERRUPTOR, 03/09/2026) ──────────────────
+  // ORDEM DO DONO: «preciso eu mesmo ter o poder dessa decisão… a qualquer momento posso incluir
+  // outra caixa ou remover se quiser». O interruptor mora em `RagnabotInbox.roboAtende` e é o
+  // administrador da EMPRESA que o move, pela tela de Conexões — não uma variável do Kubernetes.
+  //
+  // ⚠️ ELE ESTÁ AQUI, E NÃO NO EXECUTOR, DE PROPÓSITO. A portaria continua uma execução VIVA no
+  // passo 3, ANTES de chamar este resolvedor. Logo, desligar o interruptor **não abandona ninguém
+  // no meio da conversa**: quem já estava falando com o robô termina o que começou, e nenhuma nova
+  // entra. É o comportamento declarado, e é consequência de onde a guarda cabe — não de sorte.
+  //
+  // ⚠️ O FREIO GLOBAL (`RAGNABOT_EXECUTOR_FLUXO`) NÃO ENTRA AQUI — ver a explicação em
+  // `vetoDoRobo()`. Ele desliga o TRABALHADOR que anda com o fluxo, não a decisão de entrada, e
+  // misturá-lo neste ponto mudava o contrato da portaria por tabela. Ele continua aparecendo na
+  // tela, por caminho próprio (`roboTeto`), com uma frase própria — porque «o robô não atende
+  // nesta caixa» e «o motor está parado no sistema inteiro» mandam procurar em lugares diferentes.
+  const veto = await vetoDoRobo(cliente, { tenantId, idCaixa });
+  if (veto) {
+    const anteriorV = await cliente.ragnabotFluxoExecucao.findFirst({
+      where: { cwAccountId, cwConversationId }, orderBy: { iniciadaEm: 'desc' },
+    });
+    return {
+      acao: ACOES_ENTRADA.FILA_HUMANA, fluxoId: null, versaoId: null, motivo: veto,
+      expediente,
+      primeiroContato: ehPrimeiroContato({
+        execucaoAnterior: anteriorV, agora: quando,
+        reiniciaFluxoAposHoras: politica.reiniciaFluxoAposHoras ?? 24,
+      }),
+      politica,
+    };
+  }
+
+  const porPalavra = await cliente.ragnabotFluxo.findMany({ where: { ...publicados, entrada: 'palavra_chave' } });
+
+  // ⚠️ ORDEM DETERMINÍSTICA, e não é enfeite: até 03/09/2026 este `findFirst` não tinha `orderBy`.
+  // Com DOIS fluxos publicados na mesma caixa, quem ganhava era o que o Postgres devolvesse
+  // primeiro — indefinido, e podendo mudar de uma consulta para a outra. O sintoma em produção não
+  // é erro: é «o robô respondeu o fluxo errado», intermitente e sem rastro.
+  //
+  // A porta agora recusa a dupla (guarda no router + índice único parcial `rb_fluxo_uma_boca_por_caixa`),
+  // mas guarda nova não conserta dado velho: se a dupla existir, DECLARO quem ganha — o publicado
+  // mais RECENTE — e grito no log com os dois nomes, para alguém arrumar.
+  let daCaixa = null;
+  if (idCaixa !== null) {
+    const candidatos = await cliente.ragnabotFluxo.findMany({
+      where: { ...publicados, entrada: 'caixa', cwInboxId: idCaixa },
+      orderBy: [{ atualizadoEm: 'desc' }, { id: 'asc' }],
+      take: 5,
+    });
+    daCaixa = candidatos[0] ?? null;
+    if (candidatos.length > 1) {
+      logger.warn(`[atendimento] AMBIGUIDADE na caixa ${idCaixa} da empresa ${tenantId}: `
+        + `${candidatos.length} fluxos publicados (${candidatos.map((f) => `"${f.nome}"`).join(', ')}). `
+        + `Atendendo com "${daCaixa.nome}" (o alterado mais recentemente). Desligue os outros.`);
+    }
+  }
 
   const anterior = await cliente.ragnabotFluxoExecucao.findFirst({
     where: { cwAccountId, cwConversationId },
