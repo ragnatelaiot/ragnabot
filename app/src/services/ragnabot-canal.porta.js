@@ -40,7 +40,14 @@
 //   · texto e nota interna → `POST …/messages` (`private` separa um do outro);
 //   · interativo → `content_type:'input_select'` + `content_attributes.items`. O provedor do
 //     WhatsApp Cloud traduz isso em botões (até 3) ou lista (acima disso); o widget do site
-//     renderiza a escolha. Facebook, Instagram e Telegram NÃO traduzem;
+//     renderiza a escolha.
+//     ⭐ CORRIGIDO EM 03/09/2026 (contrato S-BOTOES-NATIVOS). Esta linha dizia «Facebook, Instagram
+//     e Telegram NÃO traduzem», e estava errada em DOIS dos três. Fui ler o código da plataforma
+//     (v4.17.1) em vez de repetir a frase: o Telegram traduz em teclado embutido
+//     (`channel/telegram.rb#reply_markup`) e o Facebook em respostas rápidas
+//     (`send_on_facebook_service.rb#fb_text_message_payload`). Só o Instagram manda texto puro
+//     (`instagram/base_send_service.rb#message_params`). A tabela `CAPACIDADES` abaixo carrega a
+//     medição inteira, com o arquivo de origem de cada afirmação;
 //   · anexo → só `multipart/form-data` com o ARQUIVO. Não existe campo de URL;
 //   · etiqueta → `POST …/labels` SUBSTITUI o conjunto (por isso lemos o atual antes);
 //   · carimbo → `POST …/custom_attributes`.
@@ -84,16 +91,104 @@ import { capacidadeEfetiva, normalizarProvedor } from './ragnabot-provedor.servi
 // só sabe texto. É de propósito: mandar `input_select` para um canal que não o traduz entrega ao
 // cliente uma pergunta sem alternativas, e ele não tem como responder. Errar para o lado do texto
 // numerado custa estética; errar para o outro lado custa o atendimento.
+//
+// ⭐ CONTRATO S-BOTOES-NATIVOS (03/09/2026) — ESTA TABELA ESTAVA ERRADA EM DOIS CANAIS.
+//
+// O cabeçalho antigo deste arquivo afirmava: «Facebook, Instagram e Telegram NÃO traduzem
+// `input_select`». Fui conferir no código da plataforma (Chatwoot v4.17.1, tag exata) em vez de
+// repetir a frase, e DOIS dos três traduzem — desde sempre:
+//
+//   · TELEGRAM — `app/models/channel/telegram.rb`, método privado `reply_markup(message)`:
+//         return unless message.content_type == 'input_select'
+//         { one_time_keyboard: true,
+//           inline_keyboard: items.map { |item| [{ text: item['title'], callback_data: item['value'] }] } }
+//     Ou seja: TECLADO EMBUTIDO de verdade, um botão por linha, e a `callback_data` é o nosso
+//     `value` (o id do item do fluxo). Marcar o Telegram como «sem interativo» estava fazendo o
+//     robô mandar texto numerado para um canal que desenha botão.
+//
+//   · FACEBOOK — `app/services/facebook/send_on_facebook_service.rb`, `fb_text_message_payload`:
+//         if message.content_type == 'input_select' && items.any?
+//           { text: …, quick_replies: items.map { {content_type:'text', payload: item['title'],
+//                                                  title: item['title']} } }
+//     RESPOSTAS RÁPIDAS de verdade. ⚠️ Repare no `payload: item['title']`: a plataforma joga fora
+//     o nosso `value` e manda o RÓTULO nos dois campos. É por isso que `voltaDoClique` abaixo diz
+//     `rotulo` para o Facebook e `carga` para o Telegram — a diferença não é detalhe, é o que
+//     decide como a opção é casada na volta.
+//
+//   · INSTAGRAM — `app/services/instagram/base_send_service.rb`, `message_params`:
+//         { recipient: {...}, message: { text: message.outgoing_content } }
+//     Texto, e só texto. Vale para as DUAS formas de ligar o Instagram (login próprio, em
+//     `instagram/send_on_instagram_service.rb`, e via página do Facebook, em
+//     `instagram/messenger/send_on_instagram_service.rb`): as duas herdam este `message_params`.
+//     O Instagram é o único dos três em que a plataforma realmente não desenha botão — e é por
+//     isso que ele é o único que tem `nativo` preenchido (ver `ragnabot-canal-nativo.porta.js`).
+//
+// ── OS TETOS, E DE ONDE VEIO CADA NÚMERO ────────────────────────────────────────────────────────
+// `botoesMax`/`listaMax` são o teto do DESTINO, não da plataforma: quem recusa a mensagem inteira
+// quando o teto estoura é a Meta/o Telegram, e a recusa chega tarde e feia (mensagem perdida no
+// meio do menu). Por isso o corte é aqui, com degradação declarada.
+//
+//   whatsapp   botão 3 · lista 10  — Cloud API (já era, não medi de novo neste contrato)
+//   facebook   13 — «A maximum of 13 quick replies are supported»
+//              (developers.facebook.com/docs/messenger-platform/send-messages/quick-replies/)
+//   telegram   SEM TETO DOCUMENTADO. A referência da Bot API (core.telegram.org/bots/api,
+//              `InlineKeyboardMarkup`) só diz «Array of Array of InlineKeyboardButton» — não há
+//              número. Os 10/20 abaixo são ESCOLHA NOSSA por legibilidade (o mesmo do widget), não
+//              limite da plataforma, e estão declarados como escolha para ninguém os citar como
+//              se fossem regra do Telegram.
+//   instagram  quick reply 13 · botão de modelo 3 — ver `ragnabot-canal-nativo.porta.js`.
+//
+// ── OS DOIS CAMPOS NOVOS, E POR QUE ELES PRECISAM EXISTIR ───────────────────────────────────────
+// `rotuloMax` — quantos caracteres cabem no RÓTULO do botão. O nó já corta em 20 (botão) e 24
+//   (item de lista), que são os limites da Meta para WhatsApp. Mas o Messenger exige 20 TAMBÉM em
+//   item de lista, e um rótulo de 24 caracteres numa `quick_reply` é a mensagem inteira recusada.
+//   Cortar aqui seria pior que degradar: no Facebook o clique volta como o RÓTULO, então um rótulo
+//   cortado é uma opção que não casa mais. Por isso: rótulo acima do teto → texto numerado.
+// `cargaMax` — quantos BYTES cabem no que viaja como carga do botão. O Telegram documenta
+//   «callback_data … 1-64 bytes». O nosso `value` é o id do item do fluxo; um id de 70 bytes faz o
+//   Telegram recusar o teclado inteiro. Acima do teto → texto numerado, declarado.
+// `voltaDoClique` — o que o webhook da PLATAFORMA entrega quando a pessoa toca. Medido, não
+//   suposto (ver o relatório e `ragnabot-canal-nativo.porta.js` §VOLTA DO CLIQUE). É o campo que
+//   explica por que o casamento de opção tem de funcionar pelos DOIS caminhos.
+// `nativo` — o canal que a plataforma NÃO traduz, mas que sabe desenhar botão pela API dele. Só o
+//   Instagram tem isto hoje. Ver `ragnabot-canal-nativo.porta.js`.
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 export const CAPACIDADES = Object.freeze({
-  whatsapp: { interativo: true, botoesMax: 3, listaMax: 10, anexo: true, template: true },
-  web_widget: { interativo: true, botoesMax: 10, listaMax: 20, anexo: true, template: false },
-  api: { interativo: true, botoesMax: 10, listaMax: 20, anexo: true, template: false },
-  telegram: { interativo: false, botoesMax: 0, listaMax: 0, anexo: true, template: false },
-  facebook: { interativo: false, botoesMax: 0, listaMax: 0, anexo: true, template: false },
-  instagram: { interativo: false, botoesMax: 0, listaMax: 0, anexo: true, template: false },
-  email: { interativo: false, botoesMax: 0, listaMax: 0, anexo: true, template: false },
-  desconhecido: { interativo: false, botoesMax: 0, listaMax: 0, anexo: false, template: false },
+  whatsapp: {
+    interativo: true, botoesMax: 3, listaMax: 10, anexo: true, template: true,
+    rotuloMax: null, cargaMax: null, voltaDoClique: 'carga', nativo: null,
+  },
+  web_widget: {
+    interativo: true, botoesMax: 10, listaMax: 20, anexo: true, template: false,
+    rotuloMax: null, cargaMax: null, voltaDoClique: 'carga', nativo: null,
+  },
+  api: {
+    interativo: true, botoesMax: 10, listaMax: 20, anexo: true, template: false,
+    rotuloMax: null, cargaMax: null, voltaDoClique: 'carga', nativo: null,
+  },
+  // ⭐ Teclado embutido REAL, traduzido pela plataforma. `callback_data` = o nosso `value`.
+  telegram: {
+    interativo: true, botoesMax: 10, listaMax: 20, anexo: true, template: false,
+    rotuloMax: null, cargaMax: 64, voltaDoClique: 'carga', nativo: null,
+  },
+  // ⭐ Respostas rápidas REAIS, traduzidas pela plataforma — mas o clique volta como RÓTULO.
+  facebook: {
+    interativo: true, botoesMax: 13, listaMax: 13, anexo: true, template: false,
+    rotuloMax: 20, cargaMax: null, voltaDoClique: 'rotulo', nativo: null,
+  },
+  // A plataforma manda só texto. O botão existe na API do canal — por isso `nativo`.
+  instagram: {
+    interativo: false, botoesMax: 0, listaMax: 0, anexo: true, template: false,
+    rotuloMax: 20, cargaMax: 1000, voltaDoClique: 'rotulo', nativo: 'instagram',
+  },
+  email: {
+    interativo: false, botoesMax: 0, listaMax: 0, anexo: true, template: false,
+    rotuloMax: null, cargaMax: null, voltaDoClique: null, nativo: null,
+  },
+  desconhecido: {
+    interativo: false, botoesMax: 0, listaMax: 0, anexo: false, template: false,
+    rotuloMax: null, cargaMax: null, voltaDoClique: null, nativo: null,
+  },
 });
 
 /** A capacidade de um tipo de canal. Tipo que não está na tabela é tratado como `desconhecido`. */
@@ -118,6 +213,10 @@ const portas = {
    *  existir, o nó `http` falha com mensagem clara em vez de este arquivo abrir um `fetch` sem
    *  guarda de destino, que transformaria o editor de fluxo em varredor da rede interna. */
   egresso: null,
+  /** ⭐ S-BOTOES-NATIVOS. `ragnabot-canal-nativo.porta.js` — o envio pela API DO CANAL, usado só
+   *  onde a plataforma não traduz o interativo (hoje: Instagram). Carregado sob demanda, como o
+   *  Capitão e o pagamento, para não criar ciclo de importação. */
+  nativo: null,
   log: null,
 };
 
@@ -375,28 +474,196 @@ async function despacharMidia(intencao, alvo, capacidade) {
   return { idExterno: r?.id ?? null, resumo: `midia enviada (${r?.bytes ?? '?'} bytes)` };
 }
 
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// LISTA E BOTÕES — o ponto onde se decide botão de verdade × texto numerado
+//
+// ⭐ CONTRATO S-BOTOES-NATIVOS (03/09/2026). Antes deste contrato havia dois caminhos: `input_select`
+// pela plataforma, ou texto numerado. Agora são TRÊS, e a diferença entre eles é medida:
+//
+//   1. PLATAFORMA (`input_select`) — o caminho normal e o melhor. A plataforma traduz para o
+//      formato nativo do canal: botões/lista no WhatsApp Cloud, escolha no widget, TECLADO EMBUTIDO
+//      no Telegram e RESPOSTAS RÁPIDAS no Facebook (os dois últimos medidos no código dela — ver a
+//      tabela `CAPACIDADES`). Nada sai por fora, então o histórico e o eco cuidam de si.
+//   2. NATIVO (`ragnabot-canal-nativo.porta.js`) — só onde a plataforma NÃO traduz e o canal SABE
+//      desenhar: hoje, o Instagram. Manda pela API do canal e REGISTRA a mensagem na conversa com
+//      o `source_id` que o canal devolveu (é o que impede a plataforma de mandar de novo) e com a
+//      marca `rgt_efeito` (é o que impede o eco de realimentar o motor).
+//   3. TEXTO NUMERADO — a rede que sempre esteve aqui, e continua sendo o padrão do canal pobre.
+//
+// A escolha da rota é uma função PURA (`rotaDaEscolha`), separada do despacho de propósito: é a
+// parte que erra por engano de tabela, e é a barata de provar.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** O tamanho em BYTES — porque o teto de carga do Telegram é em bytes, não em caracteres, e
+ *  "opção não" tem 9 caracteres e 10 bytes. Medir em caractere deixaria passar o que a API recusa. */
+function bytesDe(v) { return Buffer.byteLength(String(v ?? ''), 'utf8'); }
+
 /**
- * Lista e botões — o ponto onde a degradação por canal acontece de verdade.
+ * POR ONDE ESTA ESCOLHA VAI SAIR. Função pura.
  *
- * Três casos, e os três estão medidos no nó:
- *  · `modo:'url'` (botão que leva a um link) NÃO tem equivalente em `input_select`. Vai como texto
- *    com o endereço, em todo canal — inclusive no WhatsApp. Fingir botão aqui entregaria um item
- *    que a pessoa toca e não acontece nada.
- *  · canal sem interativo → texto numerado.
- *  · itens acima do teto do canal → o nó já recusa na publicação e em `executar()`; se ainda assim
- *    chegar aqui (fluxo publicado com o bloqueio contornado), degradamos em vez de deixar a
- *    plataforma recusar a mensagem inteira.
+ * A ordem das recusas importa e cada uma tem uma razão própria:
+ *  · `modo:'url'` (botão que leva a um link) NÃO tem equivalente em `input_select` nem em resposta
+ *    rápida. Vai como texto com o endereço, em TODO canal — inclusive no WhatsApp. Fingir botão
+ *    aqui entregaria um item que a pessoa toca e não acontece nada.
+ *  · itens acima do teto: o nó já recusa na publicação, mas um fluxo publicado com o bloqueio
+ *    contornado ainda chega aqui. Degradar é melhor que a plataforma recusar a mensagem inteira.
+ *  · RÓTULO acima do teto (Facebook, 20): a plataforma manda o rótulo como carga E como título, e
+ *    o clique volta pelo RÓTULO. Cortar o rótulo seria criar uma opção que não casa mais na volta.
+ *  · CARGA acima do teto (Telegram, 64 bytes de `callback_data`): a API recusa o teclado inteiro.
  */
-async function despacharEscolha(intencao, alvo, capacidade) {
-  const cw = exigirChatwoot('enviarMensagem');
+export function rotaDaEscolha(intencao = {}, capacidade = CAPACIDADES.desconhecido) {
   const itens = intencao.tipo === 'lista'
     ? (Array.isArray(intencao.itens) ? intencao.itens : [])
     : (Array.isArray(intencao.botoes) ? intencao.botoes : []);
-  const temUrl = intencao.modo === 'url' || intencao.modo === 'misto' || itens.some((i) => i.tipo === 'url');
-  const teto = intencao.tipo === 'lista' ? capacidade.listaMax : capacidade.botoesMax;
-  const cabeNoCanal = capacidade.interativo && !temUrl && itens.length > 0 && itens.length <= teto;
 
-  if (cabeNoCanal) {
+  const decidir = (rota, motivo) => ({ rota, motivo, itens });
+
+  if (!itens.length) return decidir('texto_numerado', 'sem_itens');
+
+  const temUrl = intencao.modo === 'url' || intencao.modo === 'misto' || itens.some((i) => i.tipo === 'url');
+  if (temUrl) return decidir('texto_numerado', 'botao_de_url');
+
+  if (capacidade.interativo) {
+    // ⚠️ ITEM SEM RÓTULO É PERDA SILENCIOSA, e a perda já existia antes deste contrato:
+    // `enviarInterativo` monta a lista com `.filter((i) => i.title && i.value)`, ou seja, um item
+    // sem rótulo simplesmente SOME — o cliente recebe um menu com menos opções do que o fluxo tem
+    // e ninguém fica sabendo. No texto numerado ele ao menos aparece com o número.
+    if (itens.some((i) => !String(i.titulo ?? i.rotulo ?? '').trim())) {
+      return decidir('texto_numerado', 'item_sem_rotulo');
+    }
+    const teto = intencao.tipo === 'lista' ? capacidade.listaMax : capacidade.botoesMax;
+    if (itens.length > teto) return decidir('texto_numerado', 'itens_acima_do_teto');
+    if (capacidade.rotuloMax) {
+      const longo = itens.some((i) => [...String(i.titulo ?? i.rotulo ?? '')].length > capacidade.rotuloMax);
+      if (longo) return decidir('texto_numerado', 'rotulo_acima_do_teto');
+    }
+    if (capacidade.cargaMax) {
+      const pesado = itens.some((i) => bytesDe(i.id ?? i.value ?? '') > capacidade.cargaMax);
+      if (pesado) return decidir('texto_numerado', 'carga_acima_do_teto');
+    }
+    return decidir('plataforma', 'canal_traduz_interativo');
+  }
+
+  if (capacidade.nativo) return decidir('nativo', `canal_nativo:${capacidade.nativo}`);
+  return decidir('texto_numerado', 'canal_sem_interativo');
+}
+
+/**
+ * CÓDIGOS DE RECUSA DO ENVIO NATIVO QUE SÃO **CERTEZA DE QUE NADA SAIU**.
+ *
+ * ⚠️ A separação é a mesma regra R-C do topo do arquivo, e aqui ela é ainda mais cara: degradar
+ * para texto numerado depois de uma DÚVIDA (rede caiu, o canal aceitou e não devolveu id) mandaria
+ * ao cliente o mesmo menu DUAS VEZES — uma em botão e outra em número. Dúvida sobe como erro, o
+ * motor congela e chama gente. Certeza degrada e declara.
+ */
+const NATIVO_NAO_SAIU = Object.freeze([
+  'SEM_CREDENCIAL', 'CANAL_SEM_NATIVO', 'SEM_DESTINATARIO', 'SEM_HTTP',
+  'ACIMA_DO_TETO', 'ROTULO_LONGO', 'ROTULO_VAZIO', 'CARGA_LONGA', 'SEM_ITENS', 'SEM_CORPO', 'CORPO_LONGO',
+]);
+
+function nativoTemCertezaDeQueNaoSaiu(e) {
+  if (NATIVO_NAO_SAIU.includes(e?.codigo)) return true;
+  // O destino RESPONDEU dizendo não (4xx). Resposta é certeza; timeout não é.
+  return e?.codigo === 'CANAL_RECUSOU' && Number(e.status) >= 400 && Number(e.status) < 500;
+}
+
+async function nativo() {
+  if (portas.nativo) return portas.nativo;
+  portas.nativo = await import('./ragnabot-canal-nativo.porta.js');
+  return portas.nativo;
+}
+
+/** O texto que vai para o histórico depois de um envio nativo. */
+function textoDaEscolha(intencao, itens) {
+  return textoNumerado({
+    cabecalho: intencao.cabecalho, corpo: intencao.corpo, rodape: intencao.rodape,
+    itens, rotuloBotao: intencao.rotuloBotao,
+  });
+}
+
+/**
+ * ROTA 2 — ENVIO NATIVO, e o registro que o torna honesto.
+ *
+ * São dois passos e a ordem é obrigatória:
+ *   1. mandar pela API do canal → o canal devolve o `message_id`;
+ *   2. registrar na conversa COM esse id em `source_id` e com a marca `rgt_efeito`.
+ *
+ * ⚠️ Se o passo 2 falhar depois do passo 1 ter dado certo, NÃO se refaz nada e NÃO se degrada: o
+ * cliente já recebeu. O que se faz é gritar no log e devolver `registrado:false` — a mensagem
+ * existe para o cliente e falta no painel do atendente, que é ruim, mas é MUITO menos ruim que
+ * mandar o menu duas vezes para consertar um problema de painel.
+ */
+async function despacharEscolhaNativa(intencao, alvo, itens) {
+  const mod = await nativo();
+  const cw = exigirChatwoot('enviarMensagem');
+
+  // A CONFERÊNCIA BARATA VEM PRIMEIRO, e não é estilo: achar o identificador do cliente no canal
+  // custa DUAS chamadas à plataforma (conversa e contato). Gastá-las para descobrir depois que não
+  // há credencial é caro e, pior, devolve o diagnóstico errado — quem lesse o log consertaria o
+  // cadastro do contato quando o que falta é o token.
+  if (!mod.nativoDisponivel(alvo.channelType)) {
+    const e = new Error(
+      `o canal "${alvo.channelType}" desenha botão pela API dele, mas esta instalação não tem de onde tirar a `
+      + 'credencial do canal (a plataforma não a publica e o cofre cifrado ainda não tem leitor)',
+    );
+    e.codigo = 'SEM_CREDENCIAL';
+    throw e;
+  }
+
+  const origem = typeof portas.chatwoot?.origemDoContato === 'function'
+    ? await portas.chatwoot.origemDoContato({
+      cwAccountId: alvo.cwAccountId, cwConversationId: alvo.cwConversationId, cwInboxId: alvo.cwInboxId ?? null,
+    })
+    : null;
+  if (!origem?.sourceId) {
+    const e = new Error(`não achei o identificador do cliente no canal "${alvo.channelType}" — sem ele não há para quem mandar`);
+    e.codigo = 'SEM_DESTINATARIO';
+    throw e;
+  }
+
+  const corpo = [intencao.cabecalho, intencao.corpo, intencao.rodape].filter(Boolean).join('\n\n');
+  const r = await mod.enviarInterativoNativo({
+    canal: alvo.channelType,
+    tenantId: alvo.tenantId,
+    cwInboxId: origem.cwInboxId ?? alvo.cwInboxId ?? null,
+    destinatarioId: origem.sourceId,
+    corpo,
+    itens,
+  });
+
+  // ── O REGISTRO. Sem ele o atendente não vê o que o robô falou com o cliente ──────────────────
+  let registrado = false;
+  try {
+    await cw.enviarMensagem({
+      cwAccountId: alvo.cwAccountId, cwConversationId: alvo.cwConversationId, tenantId: alvo.tenantId,
+      // O histórico guarda o menu em texto numerado: é o que um humano lê rápido, e as mesmas
+      // opções, na mesma ordem, com os mesmos rótulos que o cliente tocou.
+      texto: textoDaEscolha(intencao, itens),
+      atributosConteudo: { ...marca(intencao), rgt_nativo: String(alvo.channelType) },
+      // ⭐ É ISTO que impede a plataforma de mandar a mesma mensagem uma segunda vez.
+      sourceId: r.idExterno,
+    });
+    registrado = true;
+  } catch (e) {
+    log().error?.(
+      `[canal] a escolha SAIU nativa no ${alvo.channelType} (msg ${r.idExterno}) mas NÃO entrou no histórico da `
+      + `conversa ${alvo.cwConversationId}: ${e.message}. O cliente recebeu; o atendente não vai ver.`,
+    );
+  }
+
+  return {
+    idExterno: r.idExterno,
+    resumo: `${intencao.tipo} nativa no ${alvo.channelType} (${itens.length} opções)${registrado ? '' : ' — SEM registro no histórico'}`,
+    nativo: alvo.channelType,
+    registrado,
+  };
+}
+
+async function despacharEscolha(intencao, alvo, capacidade) {
+  const cw = exigirChatwoot('enviarMensagem');
+  const { rota, motivo, itens } = rotaDaEscolha(intencao, capacidade);
+
+  if (rota === 'plataforma') {
     const cwI = exigirChatwoot('enviarInterativo');
     const r = await cwI.enviarInterativo({
       cwAccountId: alvo.cwAccountId, cwConversationId: alvo.cwConversationId, tenantId: alvo.tenantId,
@@ -409,17 +676,33 @@ async function despacharEscolha(intencao, alvo, capacidade) {
     return { idExterno: r?.id ?? null, resumo: `${intencao.tipo} interativa enviada (${itens.length} opções)` };
   }
 
-  const motivo = temUrl ? 'botao_de_url' : (!capacidade.interativo ? 'canal_sem_interativo' : 'itens_acima_do_teto');
-  const texto = textoNumerado({
-    cabecalho: intencao.cabecalho, corpo: intencao.corpo, rodape: intencao.rodape,
-    itens, rotuloBotao: intencao.rotuloBotao,
-  });
+  let motivoFinal = motivo;
+  if (rota === 'nativo') {
+    try {
+      return await despacharEscolhaNativa(intencao, alvo, itens);
+    } catch (e) {
+      if (!nativoTemCertezaDeQueNaoSaiu(e)) {
+        // DÚVIDA: pode ter saído. Sobe — o motor congela e chama gente. Degradar aqui arriscaria o
+        // mesmo menu duas vezes no aparelho do cliente.
+        throw e;
+      }
+      log().info?.(`[canal] envio nativo em ${alvo.channelType} não saiu (${e.codigo}) — caindo no texto numerado`);
+      motivoFinal = `nativo_indisponivel:${e.codigo ?? 'desconhecido'}`;
+    }
+  }
+
+  const texto = textoDaEscolha(intencao, itens);
   const r = await cw.enviarMensagem({
     cwAccountId: alvo.cwAccountId, cwConversationId: alvo.cwConversationId, tenantId: alvo.tenantId,
     texto, atributosConteudo: marca(intencao),
   });
-  log().info?.(`[canal] ${intencao.tipo} degradada para texto numerado (${motivo})`);
-  return { idExterno: r?.id ?? null, resumo: `${intencao.tipo} em texto numerado (${motivo})`, degradado: 'texto_numerado', motivoDegradacao: motivo };
+  log().info?.(`[canal] ${intencao.tipo} degradada para texto numerado (${motivoFinal})`);
+  return {
+    idExterno: r?.id ?? null,
+    resumo: `${intencao.tipo} em texto numerado (${motivoFinal})`,
+    degradado: 'texto_numerado',
+    motivoDegradacao: motivoFinal,
+  };
 }
 
 /**
@@ -785,6 +1068,9 @@ export async function portaCanalDa(alvoBruto = {}) {
     cwConversationId,
     execucaoId: alvoBruto.id ?? null,
     channelType: canal.channelType,
+    // A CAIXA. O envio nativo precisa dela para achar o `contact_inbox` certo do cliente: um mesmo
+    // contato pode ter caixa de WhatsApp e de Instagram, com identificador diferente em cada uma.
+    cwInboxId: canal.cwInboxId ?? null,
     phoneNumberId: canal.phoneNumberId ?? null,
     // Só para DIAGNÓSTICO e log. ⛔ Nenhum despacho deste arquivo pode ramificar por ele — quem
     // decide o que dá para mandar é `capacidade`, e é assim que se troca de provedor sem tocar em
@@ -867,6 +1153,7 @@ export default {
   configurarCanal,
   portasDoCanal,
   capacidadeDoCanal,
+  rotaDaEscolha,
   textoNumerado,
   normalizarErroDeCanal,
   esquecerEnvios,
@@ -883,6 +1170,12 @@ export default {
 //   declarada, não silêncio.
 // • NÃO faz a chamada do nó `http`. O egresso da casa (com guarda de destino) não existe no
 //   repositório; abrir `fetch` para URL de editor sem essa guarda seria pior que a falta.
+// • ⭐ ATUALIZADO em 03/09/2026 (contrato S-BOTOES-NATIVOS). Este arquivo passou a ter TRÊS rotas
+//   para uma escolha: plataforma (`input_select`), nativo (API do canal, só onde a plataforma não
+//   traduz) e texto numerado. O nativo mora em `ragnabot-canal-nativo.porta.js` e hoje está
+//   DESLIGADO por falta de credencial — a plataforma não publica o token do canal e o cofre
+//   cifrado (`RagnabotFluxoSegredo`) ainda não tem leitor. Enquanto isso, ele recusa com
+//   `SEM_CREDENCIAL` e a escolha cai no texto numerado, declarando `nativo_indisponivel:…`.
 // • ⭐ RESOLVIDO em 02/09/2026 (contrato S6). Este parágrafo dizia: «NÃO conhece Whatsmeow nem
 //   intermediário; quando a camada de provedor existir, ela entra em `descobrirCanal` — o resto
 //   deste arquivo não muda». Foi exatamente assim: `ragnabot-provedor.service.js` entrou em

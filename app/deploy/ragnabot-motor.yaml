@@ -234,6 +234,11 @@ data:
   #    ❓ DECISÃO DO CHEFE: manter o RAGNABOT_PROXY_IP (caminho de hoje, pelo proxy) ou apontar
   #    para http://ragnabot-web:3000 e aposentar a variável.
   # RAGNABOT_PROXY_IP: «DEFINIR — só se continuar saindo pelo proxy reverso»
+  #
+  # ⭐ S-CREDENCIAL-IG (03/09/2026) — valor PÚBLICO, por isso aqui e não no Secret:
+  # RAGNABOT_META_PAGINA_ID: "101726462586673"   # página "Ragnatela"; é dela que sai o token de
+  #                                              # Página e o id da conta de Instagram vinculada
+  #                                              # (17841453478471563). Aplicado no cluster em 03/09.
 ---
 # ════════════════════════════════════════════════════════════════════════════════════════════════
 # O `Secret` ragnabot-motor-env NÃO ESTÁ NESTE ARQUIVO, de propósito (LEI 1: nenhum segredo no
@@ -257,6 +262,38 @@ data:
 #                                    esconde a causa em vez de cobrir a falha.
 #                                    Conferir sem ver o valor:
 #                                      GET /saude → cadastroDeCaixas.tokenConfigurado
+#   RAGNABOT_META_TOKEN_SISTEMA      ⭐ ACRESCENTADA EM 03/09/2026 (contrato S-CREDENCIAL-IG).
+#                                    Token de USUÁRIO DE SISTEMA da Meta. É dele que o motor deriva
+#                                    o token da PÁGINA para mandar mensagem no Instagram Direct
+#                                    (`GET /<paginaId>?fields=access_token`). Sem ele, a escolha com
+#                                    botão no Instagram DEGRADA para texto numerado — declarando o
+#                                    motivo, nunca em silêncio.
+#                                    Conferir sem ver o valor:
+#                                      kubectl -n ragnabot get secret ragnabot-motor-env \
+#                                        -o jsonpath='{.data.RAGNABOT_META_TOKEN_SISTEMA}' \
+#                                        | base64 -d | sha256sum | cut -c1-16
+#
+#                                    ⚠️ DECISÃO DE SEGURANÇA PENDENTE DO DONO. O token gravado hoje é
+#                                    o MESMO que o marketing usa para publicar: 29 escopos, entre eles
+#                                    `instagram_content_publish` e `instagram_manage_insights`. O
+#                                    motor precisa de DOIS: `instagram_manage_messages` e
+#                                    `pages_messaging`. Para separar, NÃO se mexe em código —
+#                                    grave um token restrito em:
+#   RAGNABOT_CANAL_INSTAGRAM_TOKEN   (opcional) token DIRETO do canal. Quando existe, o motor o usa e
+#   RAGNABOT_CANAL_FACEBOOK_TOKEN     NEM CONSULTA a Meta para derivar nada. É o ponto de troca.
+#   RAGNABOT_CANAL_TELEGRAM_TOKEN     No Telegram é o ÚNICO caminho: `bot_token` não sai da Meta e a
+#                                     plataforma não o publica (ela expõe só `bot_name`). Sem ele, o
+#                                     toque no botão fica sem `answerCallbackQuery` e a barrinha gira
+#                                     no aparelho do cliente.
+#                                    Acompanham, se o endereço da API precisar ser fixado:
+#                                     RAGNABOT_CANAL_<CANAL>_CONTA · _GRAFO · _VERSAO
+#   RAGNABOT_CREDENCIAL_CACHE_MS     (opcional) validade do cache da credencial. Padrão 30 min.
+#
+#   ⛔ ALTERNATIVA POR EMPRESA, e a preferida no SaaS: gravar o token no COFRE CIFRADO
+#      (`RagnabotFluxoSegredo`) com o apelido `canal_<canal>_token` — ou o apelido que estiver em
+#      `RagnabotInbox.provedorConfig.segredoApelido`, que vence tudo. O ambiente é o caminho da
+#      instalação ÚNICA; o cofre é o caminho de várias empresas com tokens diferentes.
+#
 #   RAGNABOT_WEBHOOK_SEGREDO         segredo do webhook plataforma → motor
 #   RAGNABOT_COBRANCA_WEBHOOK_SEGREDO segredo do webhook do provedor de cobrança
 #   RAGNABOT_DB_URL                  base `chatwoot` (liberar/suspender conta pelo caminho direto)

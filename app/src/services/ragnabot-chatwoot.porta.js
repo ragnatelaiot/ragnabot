@@ -19,7 +19,7 @@
 // aqui, uma vez por rodada, com cache curto — ver `empresaDaConta`.
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 import prisma from '../base/db.js';
-import { comoAdminDaEmpresa, comoAdminDaEmpresaMultipart } from './ragnabot-tenant.service.js';
+import { comoAdminDaEmpresa, comoAdminDaEmpresaMultipart, comoAdminDaEmpresaBinario } from './ragnabot-tenant.service.js';
 import logger from '../base/logger.js';
 
 // Cache de conta→empresa. Curto de propósito: uma empresa nova provisionada no meio da rodada
@@ -186,11 +186,31 @@ export async function resolver({ cwAccountId, cwConversationId } = {}) {
  */
 export async function enviarMensagem({
   cwAccountId, cwConversationId, texto,
-  privada = false, tipoConteudo = null, atributosConteudo = null,
+  privada = false, tipoConteudo = null, atributosConteudo = null, sourceId = null,
 } = {}) {
   const tenantId = await empresaDaConta(cwAccountId);
   if (!tenantId || !texto) return false;
   const corpo = { content: texto, message_type: 'outgoing', private: privada === true };
+  // ⭐ CONTRATO S-BOTOES-NATIVOS (03/09/2026) — `source_id` é a chave do REGISTRO SEM REENVIO.
+  //
+  // Quando uma mensagem sai por FORA da plataforma (o caminho nativo do Instagram, em
+  // `ragnabot-canal-nativo.porta.js`), ela precisa aparecer no histórico da conversa — senão o
+  // atendente abre o atendimento e não vê o que o robô falou com o cliente. Mas criar a linha pela
+  // API normal faria a plataforma MANDAR a mensagem de novo, e o cliente receberia duas.
+  //
+  // O que separa um do outro está medido no código da plataforma, em
+  // `app/services/base/send_on_channel_service.rb`:
+  //     def invalid_message?
+  //       message.private? || outgoing_message_originated_from_channel? || …
+  //     def outgoing_message_originated_from_channel?
+  //       message.source_id.present?
+  // Ou seja: mensagem de saída COM `source_id` é reconhecida como "já nasceu no canal" e NÃO é
+  // reentregue. E `Messages::MessageBuilder#message_params` aceita `source_id:` vindo da API
+  // (o controlador passa `params` cru, sem filtro de campo).
+  //
+  // ⛔ NUNCA mande `sourceId` numa mensagem que a plataforma AINDA PRECISA entregar: ela seria
+  // gravada no histórico e nunca sairia — o cliente esperaria uma resposta que ninguém mandou.
+  if (sourceId) corpo.source_id = String(sourceId);
   // `content_type` só viaja quando existe. Mandar `null` faz o Rails gravar o tipo como nulo em vez
   // de usar o padrão 'text', e a mensagem sai sem renderização em canal nenhum.
   if (tipoConteudo) corpo.content_type = tipoConteudo;
@@ -860,12 +880,189 @@ export async function agentePorReferencia({ cwAccountId, referencia } = {}) {
   return null;
 }
 
+/**
+ * O IDENTIFICADOR DO CLIENTE **NO CANAL** — o que a API do canal chama de destinatário.
+ *
+ * Contrato S-BOTOES-NATIVOS (03/09/2026). O envio nativo (fora da tradução da plataforma) não fala
+ * em "conversa 900": ele fala com um IGSID (Instagram), um PSID (Messenger) ou um `chat_id`
+ * (Telegram). Esse número mora no `contact_inbox.source_id` da plataforma, e o caminho até ele é
+ * este — medido no serializador `app/views/api/v1/models/_contact_inbox.json.jbuilder`, que expõe
+ * `source_id`, e no `contacts_controller`, cujo `include_contact_inboxes` já vem `true` por padrão:
+ *
+ *   1. ler a conversa → `meta.sender.id` é o id do CONTATO (não serve para a API do canal);
+ *   2. ler o contato → `contact_inboxes[]`, e escolher o da CAIXA desta conversa.
+ *
+ * ⚠️ O passo 2 não é enfeite: um mesmo contato pode ter caixa de WhatsApp e de Instagram, com
+ * `source_id` diferente em cada uma. Pegar o primeiro da lista mandaria a mensagem do Instagram
+ * para o número de WhatsApp de outra pessoa.
+ *
+ * Devolve `null` quando não dá para resolver — e quem chama DEGRADA, nunca chuta.
+ */
+export async function origemDoContato({ cwAccountId, cwConversationId, cwInboxId = null } = {}) {
+  const tenantId = await empresaDaConta(cwAccountId);
+  if (!tenantId) return null;
+  let bruta = null;
+  try {
+    bruta = await comoAdminDaEmpresa(tenantId, 'get',
+      (conta) => `/api/v1/accounts/${conta}/conversations/${cwConversationId}`);
+  } catch (e) {
+    logger.warn(`[cw-porta] não li a conversa ${cwConversationId} para achar a origem do contato: ${e.message.slice(0, 140)}`);
+    return null;
+  }
+  const c = bruta?.payload || bruta;
+  const contactId = c?.meta?.sender?.id ?? null;
+  const caixa = cwInboxId ?? c?.inbox_id ?? null;
+  if (!contactId) return null;
+
+  let contato = null;
+  try {
+    const r = await comoAdminDaEmpresa(tenantId, 'get',
+      (conta) => `/api/v1/accounts/${conta}/contacts/${contactId}`);
+    contato = r?.payload || r;
+  } catch (e) {
+    logger.warn(`[cw-porta] não li o contato ${contactId}: ${e.message.slice(0, 140)}`);
+    return null;
+  }
+
+  const caixas = Array.isArray(contato?.contact_inboxes) ? contato.contact_inboxes : [];
+  const daCaixa = caixa === null ? null : caixas.find((ci) => Number(ci?.inbox?.id) === Number(caixa));
+  const escolhida = daCaixa ?? (caixas.length === 1 ? caixas[0] : null);
+  if (!escolhida?.source_id) return null;
+  return {
+    sourceId: String(escolhida.source_id),
+    cwInboxId: Number(escolhida?.inbox?.id ?? caixa ?? 0) || null,
+    cwContactId: Number(contactId),
+  };
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// LER A CONVERSA — contrato S-ATENDER (03/09/2026)
+//
+// O dono abriu a nossa tela de Atendimentos e disse: «não consigo ver nada da conversa». A lista
+// existia; o que não existia era o lugar onde se lê o que o cliente escreveu.
+//
+// ⛔ A REGRA QUE MANDA AQUI: **as mensagens vivem na plataforma, e continuam lá.** Nada do que esta
+// função lê é copiado para as nossas tabelas — texto de cliente não entra no nosso banco (é a mesma
+// regra já escrita no schema de `RagnabotConversa`). O nosso índice guarda a FICHA do atendimento
+// (quem, quando, qual setor); o CONTEÚDO é lido ao vivo, a cada abertura.
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+/** De onde veio a mensagem, no vocabulário do atendente. A plataforma usa números. */
+function ladoDaMensagem(m) {
+  // `message_type`: 0=incoming (cliente) · 1=outgoing (nós) · 2=activity (o sistema) · 3=template.
+  const t = m?.message_type;
+  if (m?.private === true) return 'nota';
+  if (t === 0 || t === 'incoming') return 'cliente';
+  if (t === 2 || t === 'activity') return 'sistema';
+  // Saída SEM autor é o ROBÔ: quem escreve pelo painel sempre viaja com `sender`; o que o motor
+  // manda pela API do admin chega sem autor humano nenhum.
+  const autor = m?.sender || null;
+  if (!autor || (!autor.name && !autor.id)) return 'robo';
+  // ⚠️ `type` é `'user'` (atendente) ou `'contact'` (o próprio cliente — acontece em mensagem de
+  // saída registrada em nome dele). Nunca deduzir pelo `availability_status`: já escrevi esta linha
+  // com precedência errada (`a?.type || a?.x !== undefined ? 'user' : ''`), o que transformava o
+  // ramo do contato em código morto e mostraria «Atendente» onde quem falou foi o cliente.
+  const tipo = String(autor.type ?? autor.sender_type ?? '').toLowerCase();
+  if (tipo === 'contact') return 'cliente';
+  return 'atendente';
+}
+
+/**
+ * UMA mensagem, no formato que a nossa tela desenha.
+ *
+ * ⚠️ O anexo NÃO leva o `data_url`. Ele aponta para o host da plataforma e seria endereço interno
+ * publicado na tela; quem entrega o arquivo é o painel (`baixarAnexo`), pelo índice do anexo dentro
+ * da mensagem. O que sai daqui é o suficiente para desenhar o cartão: tipo, nome e tamanho.
+ */
+export function mensagemParaTela(m) {
+  if (!m) return null;
+  const anexos = Array.isArray(m.attachments) ? m.attachments : [];
+  return {
+    id: m.id ?? null,
+    lado: ladoDaMensagem(m),
+    // `content` vem nulo em mensagem que é só anexo — e nulo é diferente de vazio na tela.
+    texto: m.content ?? null,
+    privada: m.private === true,
+    autorNome: m.sender?.name ?? null,
+    // A plataforma carimba em epoch de SEGUNDOS. `paraData` já sabe disso — errar aqui joga toda a
+    // conversa para 1970, que foi defeito real neste arquivo.
+    quando: paraData(m.created_at),
+    // `sent | delivered | read | failed` quando a plataforma sabe; nulo quando não.
+    entrega: m.status ?? null,
+    anexos: anexos.map((a, i) => ({
+      indice: i,
+      tipo: a?.file_type ?? null, // image | audio | video | file | location | contact
+      nome: nomeDeArquivoDaUrl(a?.data_url || a?.file_url || '') || null,
+      tamanho: a?.file_size ?? null,
+    })),
+  };
+}
+
+/**
+ * As mensagens de UMA conversa, da mais antiga para a mais nova.
+ *
+ * @param {object} p
+ * @param {number} p.cwAccountId
+ * @param {number} p.cwConversationId
+ * @param {number|null} p.antesDe  id da mensagem mais antiga já carregada (paginação para trás)
+ */
+export async function lerMensagens({ cwAccountId, cwConversationId, antesDe = null } = {}) {
+  const tenantId = await empresaDaConta(cwAccountId);
+  if (!tenantId) return { itens: [], total: 0 };
+  const sufixo = antesDe ? `?before=${encodeURIComponent(antesDe)}` : '';
+  const r = await comoAdminDaEmpresa(tenantId, 'get',
+    (conta) => `/api/v1/accounts/${conta}/conversations/${cwConversationId}/messages${sufixo}`);
+  const lote = Array.isArray(r?.payload) ? r.payload : (Array.isArray(r) ? r : []);
+  const itens = lote.map(mensagemParaTela).filter(Boolean);
+  // A plataforma devolve a página já em ordem crescente de id; garantimos a ordem mesmo assim —
+  // fila de conversa fora de ordem é o tipo de defeito que o olho lê como «o bot respondeu antes
+  // de o cliente perguntar».
+  itens.sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
+  return { itens, total: itens.length };
+}
+
+/**
+ * BAIXA um anexo — bytes, para o painel entregar ao navegador.
+ *
+ * O `data_url` é lido AGORA (não guardado): endereço de anexo do Active Storage é assinado e
+ * expira, e guardá-lo criaria um segundo dono da verdade que envelhece em silêncio.
+ *
+ * @returns {Promise<{bytes:Buffer, tipo:string, nome:string}|null>} `null` = não existe
+ */
+export async function baixarAnexo({ cwAccountId, cwConversationId, cwMessageId, indice = 0 } = {}) {
+  const tenantId = await empresaDaConta(cwAccountId);
+  if (!tenantId) return null;
+  const r = await comoAdminDaEmpresa(tenantId, 'get',
+    (conta) => `/api/v1/accounts/${conta}/conversations/${cwConversationId}/messages`);
+  const lote = Array.isArray(r?.payload) ? r.payload : (Array.isArray(r) ? r : []);
+  const msg = lote.find((m) => String(m?.id) === String(cwMessageId));
+  const anexo = Array.isArray(msg?.attachments) ? msg.attachments[Number(indice) || 0] : null;
+  const url = anexo?.data_url || anexo?.file_url || null;
+  if (!url) return null;
+
+  // ⭐ SÓ O CAMINHO. O host do `data_url` é descartado: de dentro do cluster ele não é a rota que
+  // funciona, e devolvê-lo ao navegador publicaria endereço interno.
+  let caminho;
+  try { caminho = new URL(url).pathname + (new URL(url).search || ''); } catch { caminho = url; }
+  const { bytes, tipo } = await comoAdminDaEmpresaBinario(tenantId, caminho);
+  return {
+    bytes,
+    // O tipo do Active Storage é mais confiável que o `file_type` da plataforma («image» não é um
+    // Content-Type; `image/jpeg` é).
+    tipo: tipo && tipo !== 'application/octet-stream' ? tipo : (anexo?.file_type ? `${anexo.file_type}/*` : 'application/octet-stream'),
+    nome: nomeDeArquivoDaUrl(url) || `anexo-${cwMessageId}-${indice}`,
+  };
+}
+
 /** Limpa o cache de conta→empresa. Existe para o teste, e para depois de provisionar empresa. */
 export function esquecerCache() { cache.clear(); }
 
 export default {
   conversasEmAtendimento, lerConversa, devolverParaFila, transferirTime,
   resolver, enviarMensagem, notaInterna, esquecerCache,
+  // Contrato S-ATENDER (03/09/2026): ler a conversa e entregar a mídia — o conteúdo NUNCA é copiado
+  // para as nossas tabelas; é lido ao vivo, na plataforma, a cada abertura.
+  lerMensagens, baixarAnexo, mensagemParaTela,
   // Acrescentados pelo contrato S-ADAPTADOR (02/09/2026): é o que a `PortaCanal` do motor precisa
   // para despachar as intenções dos nós — antes disto o motor montava a mensagem e ninguém a levava.
   enviarInterativo, enviarAnexo, aplicarEtiquetas, atribuirAgente, carimbar, caixaDaConversa,
@@ -882,4 +1079,7 @@ export default {
   // vez de responder a uma. Sem esta função, mensagem agendada para quem nunca escreveu não teria
   // onde pousar.
   garantirConversa,
+  // Contrato S-BOTOES-NATIVOS (03/09/2026): o envio nativo precisa do identificador do cliente NO
+  // CANAL (IGSID/PSID), que a conversa não carrega — ele vem do `contact_inbox`.
+  origemDoContato,
 };

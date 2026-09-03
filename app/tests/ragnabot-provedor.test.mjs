@@ -100,13 +100,31 @@ await medir('`whatsmeow` TIRA o modelo aprovado e o interativo (pior caso declar
   assert.equal(c.anexo, true, 'anexo continua: a sessão manda mídia');
 });
 
-await medir('provedor NÃO PODE AMPLIAR capacidade — nem por engano de cadastro', () => {
-  // O Telegram não desenha botão pela nossa tabela de canal. Nenhum provedor pode inventar isso.
-  for (const id of prov.IDS_DE_PROVEDOR) {
-    if (!prov.provedor(id).canais.includes('telegram')) continue;
-    const c = prov.capacidadeEfetiva('telegram', id);
-    assert.equal(c.interativo, false, `o provedor "${id}" ampliou a capacidade do Telegram`);
-    assert.equal(c.template, false);
+await medir('provedor NÃO PODE AMPLIAR capacidade — em canal nenhum, nem por engano de cadastro', () => {
+  // ⭐ REESCRITO em 03/09/2026 (contrato S-BOTOES-NATIVOS). Esta verificação usava o Telegram como
+  // exemplo, dizendo «o Telegram não desenha botão pela nossa tabela de canal». A premissa foi
+  // MEDIDA e caiu: a plataforma traduz `input_select` em teclado embutido do Telegram
+  // (`channel/telegram.rb#reply_markup`), então a tabela passou a dizer `interativo: true` — e a
+  // verificação reprovava por causa do EXEMPLO, não da regra.
+  //
+  // A regra continua valendo inteira, e agora é medida em todo canal e todo provedor compatível,
+  // sem depender de nenhum caso particular: capacidade efetiva NUNCA passa da capacidade do canal.
+  const booleanos = ['interativo', 'anexo', 'template'];
+  const numeros = ['botoesMax', 'listaMax'];
+  for (const canal of ['whatsapp', 'instagram', 'facebook', 'web_widget', 'email', 'telegram', 'api']) {
+    const base = prov.capacidadeEfetiva(canal, undefined); // o padrão do canal
+    for (const id of prov.IDS_DE_PROVEDOR) {
+      if (!prov.provedor(id).canais.includes(canal)) continue;
+      const c = prov.capacidadeEfetiva(canal, id);
+      for (const campo of booleanos) {
+        assert.ok(!(c[campo] === true && base[campo] !== true),
+          `o provedor "${id}" ligou "${campo}" no canal "${canal}", que não tem essa capacidade`);
+      }
+      for (const campo of numeros) {
+        assert.ok(c[campo] <= base[campo],
+          `o provedor "${id}" subiu "${campo}" no canal "${canal}" (${c[campo]} > ${base[campo]})`);
+      }
+    }
   }
 });
 

@@ -56,6 +56,7 @@ import * as protocolo from '../services/ragnabot-protocolo.service.js';
 import * as auditoria from '../services/ragnabot-auditoria.service.js';
 import * as portariaModulo from '../services/ragnabot-portaria.service.js';
 import * as caixaModulo from '../services/ragnabot-caixa.service.js';
+import * as aoVivoModulo from '../services/ragnabot-tempo-real.service.js';
 import loggerGlobal from '../base/logger.js';
 
 const router = Router();
@@ -72,6 +73,15 @@ const portas = {
   // Índice da caixa de atendimento (contrato S2). É por aqui que a fila do agente se enche.
   // ⚠️ NUNCA pode derrubar o webhook: ver `projetarNaCaixa()` mais abaixo.
   caixa: caixaModulo,
+  // ⭐ O AVISO AO VIVO (contrato S-TEMPO-REAL, 03/09/2026). Porta, e não import direto lá embaixo,
+  // pela mesma razão das outras: o teste injeta um dublê e mede o que foi anunciado, sem precisar
+  // de banco nem de navegador. ⛔ NUNCA derruba o webhook — ver `anunciarNaCaixa`.
+  aoVivo: aoVivoModulo,
+  // ⭐ S-CREDENCIAL-IG (03/09/2026). Quem responde ao TOQUE no botão do Telegram
+  // (`answerCallbackQuery`) e quem resolve a credencial para isso. Carregados por importação
+  // preguiçosa em `responderToqueDoTelegram` — aqui ficam `null` para o teste injetar dublê sem
+  // tocar na rede e sem precisar de banco.
+  canalNativo: null,
   log: loggerGlobal,
 };
 
@@ -107,6 +117,17 @@ const contadores = {
   // que nada do atendimento tenha degradado. Somar as duas coisas no mesmo número faria o /saude
   // acusar degradação onde não há, e um alarme que dispara à toa é um alarme que se ignora.
   caixaNaoProjetada: 0,
+  // Quantos avisos ao vivo saíram daqui. Separado dos outros de propósito: aviso que não sai NÃO é
+  // degradação do atendimento (a mensagem foi gravada e o cliente será atendido) — é uma tela que
+  // vai demorar mais para se atualizar. Somar as duas coisas faria o /saude acusar degradação onde
+  // não há, e alarme que dispara à toa é alarme que se ignora.
+  avisosAoVivo: 0,
+  // ⭐ Toques de botão do Telegram respondidos (`answerCallbackQuery`). Contadores PRÓPRIOS, e não
+  // `degradados`: um toque não respondido deixa a barrinha girando no aparelho do cliente, o que é
+  // ruim — mas a mensagem dele foi gravada e ele SERÁ atendido. Misturar com degradação do
+  // atendimento faria o /saude acusar problema onde há incômodo.
+  toquesRespondidos: 0,
+  toquesNaoRespondidos: 0,
   porMotivo: Object.create(null),
   ultimoEm: null,
   ultimoErro: null,
@@ -121,7 +142,8 @@ export function estatisticasDoWebhook() {
 export function zerarEstatisticasDoWebhook() {
   contadores.recebidos = 0; contadores.aceitos = 0; contadores.descartados = 0;
   contadores.contaDesconhecida = 0; contadores.degradados = 0; contadores.naoGravados = 0;
-  contadores.caixaNaoProjetada = 0;
+  contadores.caixaNaoProjetada = 0; contadores.avisosAoVivo = 0;
+  contadores.toquesRespondidos = 0; contadores.toquesNaoRespondidos = 0;
   contadores.porMotivo = Object.create(null);
   contadores.ultimoEm = null; contadores.ultimoErro = null;
 }
@@ -337,11 +359,31 @@ export function roteamentoDoEvento(evt = {}) {
   };
 }
 
-/** Projeta e NUNCA estoura. Devolve o resultado só para o registro/diagnóstico. */
-async function projetarNaCaixa(tenantId, c, evt, extra = {}) {
+/**
+ * Projeta e NUNCA estoura. Devolve o resultado só para o registro/diagnóstico.
+ *
+ * ⭐ E ANUNCIA AO VIVO (contrato S-TEMPO-REAL, 03/09/2026). Este é o único funil por onde o índice
+ * da caixa muda a partir do mundo real — conversa que nasce, mensagem que chega, atribuição que
+ * muda, conversa que é resolvida. Anunciar em qualquer outro lugar seria ter dois lugares para
+ * lembrar, e um deles seria esquecido.
+ *
+ * ⚠️ POR QUE LER O «ANTES»: transferir muda QUEM VÊ. Sem o retrato anterior, o atendente que
+ * perdeu a conversa não seria avisado e o cartão ficaria morto na tela dele até um F5 — que é o
+ * defeito que este contrato veio matar. Custa uma leitura por chave primária, num caminho de
+ * volume baixo.
+ *
+ * ⚠️ O ANÚNCIO NÃO ESPERA E NÃO DERRUBA: `anunciarConversa` engole o próprio erro, e o `await`
+ * aqui existe só para o teste poder medir. Aviso perdido atrasa uma tela; exceção aqui perderia a
+ * MENSAGEM DO CLIENTE, que é incomparavelmente pior.
+ */
+async function projetarNaCaixa(tenantId, c, evt, extra = {}, motivoAoVivo = 'mudou') {
+  let antes = null;
   try {
     if (!portas.caixa?.projetarConversa) return null;
-    return await portas.caixa.projetarConversa({
+    antes = await portas.aoVivo?.lerResumo?.({
+      db: db(), cwAccountId: c.cwAccountId, cwConversationId: c.cwConversationId,
+    }) ?? null;
+    const r = await portas.caixa.projetarConversa({
       tenantId,
       cwAccountId: c.cwAccountId,
       cwConversationId: c.cwConversationId,
@@ -349,6 +391,8 @@ async function projetarNaCaixa(tenantId, c, evt, extra = {}) {
       ...roteamentoDoEvento(evt),
       ...extra,
     });
+    await anunciarAoVivo(c, motivoAoVivo, antes);
+    return r;
   } catch (e) {
     contar('caixaNaoProjetada', 'caixa_nao_projetou');
     log().warn(`[ragnabot-webhook] caixa não projetada (conversa ${c.cwConversationId}): ${e.message.slice(0, 160)}`);
@@ -356,9 +400,133 @@ async function projetarNaCaixa(tenantId, c, evt, extra = {}) {
   }
 }
 
+/** O anúncio, isolado para nunca contaminar o caminho da mensagem. */
+async function anunciarAoVivo(c, motivo, antes) {
+  try {
+    if (!portas.aoVivo?.anunciarConversa) return null;
+    const r = await portas.aoVivo.anunciarConversa({
+      db: db(), cwAccountId: c.cwAccountId, cwConversationId: c.cwConversationId, motivo, antes,
+    });
+    if (r?.ok) contadores.avisosAoVivo += 1;
+    return r;
+  } catch (e) {
+    log().warn(`[ragnabot-webhook] aviso ao vivo não saiu (conversa ${c.cwConversationId}): ${e.message.slice(0, 160)}`);
+    return null;
+  }
+}
+
+/**
+ * Que MOTIVO o aviso carrega. É só um rótulo para a tela decidir se precisa recarregar a conversa
+ * aberta ou só a lista — nenhuma decisão de permissão passa por aqui.
+ */
+export function motivoAoVivoDe(c = {}) {
+  if (c.tipo === 'conversation_created') return 'nova';
+  if (c.acao === 'encerramento') return 'resolvida';
+  if (c.classe === portariaModulo.CLASSES_ENTRADA.RESPOSTA_CLIENTE) return 'mensagem';
+  // Saída humana e eco do motor também são fala NOVA dentro da conversa: quem está com ela aberta
+  // precisa ver aparecer. `activity` (atribuiu, mudou de setor) não é fala — é mudança de estado.
+  if (c.motivo === 'saida_humana' || c.motivo === 'eco_do_motor') return 'mensagem';
+  return 'mudou';
+}
+
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 // A ROTA
 // ════════════════════════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// O TOQUE NO BOTÃO DO TELEGRAM — `answerCallbackQuery` (contrato S-CREDENCIAL-IG, 03/09/2026)
+//
+// POR QUE ISTO PRECISA EXISTIR. A referência da Bot API é explícita: «After the user presses a
+// callback button, Telegram clients will display a progress bar until you call
+// answerCallbackQuery. It is, therefore, necessary to react by calling answerCallbackQuery even if
+// no notification to the user is needed». E a plataforma NÃO chama — `answerCallbackQuery` não
+// aparece em lugar nenhum do repositório da v4.17.1. Sem isto, o cliente toca no botão e a
+// barrinha fica girando no aparelho dele até a espera estourar, mesmo com o robô já respondendo.
+//
+// ─── COMO EU SEI QUE ESTE EVENTO É UM TOQUE, E NÃO UMA MENSAGEM DIGITADA ────────────────────────
+// Não sei com certeza, e é honesto dizer isso antes de escrever a regra. A plataforma **apaga a
+// diferença**: `Telegram::ParamHelpers#telegram_params_message_id` (lido na v4.17.1) devolve
+//     params[:callback_query][:id]   quando é toque
+//     params[:message][:message_id]  quando é mensagem
+// e `Telegram::IncomingMessageService` grava os DOIS em `source_id: …to_s`. Ou seja, no webhook os
+// dois chegam como mensagem `incoming` com `source_id` — o corpo original não vem junto.
+//
+// O que separa um do outro é a NATUREZA do número:
+//   · `message_id` é um contador POR CONVERSA. Começa em 1 e cresce devagar — 4, 5, 87, 1204.
+//   · `callback_query.id` é único no Telegram inteiro; na prática, 18-19 dígitos.
+// Daí o corte em 13 dígitos: nenhuma conversa de atendimento chega a 10^13 mensagens, e nenhum
+// `callback_query.id` observado é curto.
+//
+// ⚠️ E SE A HEURÍSTICA ERRAR? O estrago é ZERO, e essa é a razão de ela ser aceitável:
+//   · falso POSITIVO (mensagem digitada tratada como toque) → mandamos um `answerCallbackQuery`
+//     com um id que o Telegram não conhece; ele responde «query ID is invalid», que é 4xx, que
+//     entra no contador `toquesNaoRespondidos` e no log. O cliente não vê nada;
+//   · falso NEGATIVO (toque não reconhecido) → é exatamente o que acontecia antes deste contrato.
+// O que NÃO pode acontecer, em nenhum dos dois casos, é a mensagem do cliente se perder — por isso
+// esta função é chamada SEM `await` e engole tudo.
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+/** Quantos dígitos separam um `callback_query.id` de um `message_id`. Ver o bloco acima. */
+const DIGITOS_DE_TOQUE = 13;
+
+/** O canal da caixa, normalizado (`Channel::Telegram` → `telegram`). */
+function canalDoEvento(evt = {}) {
+  return String(evt.inbox?.channel_type ?? evt.conversation?.channel ?? '')
+    .replace(/^Channel::/u, '').toLowerCase();
+}
+
+/**
+ * ISTO PARECE UM TOQUE EM BOTÃO DO TELEGRAM? Função PURA — é a parte que erra por engano de regra,
+ * e a barata de provar.
+ */
+export function pareceToqueDeBotao(evt = {}) {
+  const nao = (motivo) => ({ ehToque: false, callbackQueryId: null, motivo });
+  if (canalDoEvento(evt) !== 'telegram') return nao('canal_nao_telegram');
+  if (String(evt.event || '') !== 'message_created') return nao('evento_nao_e_mensagem');
+  if (tipoDeMensagem(evt.message_type) !== 'incoming') return nao('mensagem_nao_e_entrada');
+  if (evt.private === true || evt.private === 'true') return nao('nota_interna');
+  const id = String(evt.source_id ?? '');
+  if (!id) return nao('sem_source_id');
+  if (!/^\d+$/u.test(id)) return nao('source_id_nao_numerico');
+  if (id.length < DIGITOS_DE_TOQUE) return nao('source_id_curto_demais');
+  return { ehToque: true, callbackQueryId: id, motivo: 'toque_de_botao' };
+}
+
+async function moduloNativo() {
+  if (portas.canalNativo) return portas.canalNativo;
+  portas.canalNativo = await import('../services/ragnabot-canal-nativo.porta.js');
+  return portas.canalNativo;
+}
+
+/**
+ * RESPONDE AO TOQUE. **Nunca rejeita e nunca atrasa a resposta do webhook** — é chamada sem
+ * `await`, de propósito: o toque tem prazo (o `callback_query` expira), mas a mensagem do cliente
+ * tem PRIORIDADE, e uma ida à API do Telegram no meio do caminho quente seria latência colada na
+ * gravação da mensagem.
+ *
+ * Exportada para o teste poder esperar por ela sem inventar temporizador.
+ */
+export async function responderToqueDoTelegram(evt = {}, c = {}, tenant = null) {
+  try {
+    const t = pareceToqueDeBotao(evt);
+    if (!t.ehToque) return { respondido: false, motivo: t.motivo };
+    const mod = await moduloNativo();
+    await mod.responderCliqueTelegram({
+      tenantId: tenant?.id ?? null,
+      cwInboxId: c.cwInboxId ?? null,
+      callbackQueryId: t.callbackQueryId,
+    });
+    contar('toquesRespondidos', 'toque_telegram_respondido');
+    return { respondido: true, motivo: null };
+  } catch (e) {
+    const codigo = e?.codigo ?? 'ERRO';
+    contar('toquesNaoRespondidos', `toque_telegram:${codigo}`);
+    // ⛔ Sem o valor do token e sem a URL (que o carrega na consulta) — só o código e a descrição.
+    log().warn(`[ragnabot-webhook] o toque no botão do Telegram não foi respondido (${codigo}): ${e.message}. `
+      + 'A barrinha vai ficar girando no aparelho do cliente; a mensagem dele, não, foi gravada.');
+    return { respondido: false, motivo: codigo };
+  }
+}
+
 router.post('/', async (req, res) => {
   const token = req.get('x-ragnabot-token') || req.query.token;
   const ok = segredoConfere(token);
@@ -404,6 +572,12 @@ router.post('/', async (req, res) => {
     // 2xx: não é erro nosso e reentregar não mudaria nada. Não deve virar fila de repetição.
     return res.json({ ok: true, descartado: 'empresa não mapeada', account: c.cwAccountId });
   }
+
+  // ⭐ O TOQUE NO BOTÃO DO TELEGRAM, antes de tudo e SEM `await` (S-CREDENCIAL-IG).
+  // Antes de tudo porque o `callback_query` tem prazo de validade; sem `await` porque a mensagem do
+  // cliente é que não pode esperar. A função engole todo erro — o `.catch` aqui é cinto e
+  // suspensório contra uma exceção síncrona que escape dela.
+  responderToqueDoTelegram(evt, c, tenant).catch(() => { /* já registrado lá dentro */ });
 
   // ── MENSAGEM: o caminho novo, o do cliente ───────────────────────────────────────────────────
   if (c.acao === 'portaria') {
@@ -461,7 +635,7 @@ router.post('/', async (req, res) => {
     // execução de fluxo viva, a conversa está com o ROBÔ, e é isso que separa a sub-aba ChatBot da
     // sub-aba Aguardando. Sem este campo as duas colunas mostrariam o mesmo número.
     const comRobo = Boolean(r?.execucaoId);
-    await projetarNaCaixa(tenant.id, c, evt, comRobo ? { comRobo: true } : {});
+    await projetarNaCaixa(tenant.id, c, evt, comRobo ? { comRobo: true } : {}, motivoAoVivoDe(c));
 
     return res.json({
       ok: true,
@@ -506,7 +680,7 @@ router.post('/', async (req, res) => {
       }
       // A conversa nasce na caixa AQUI — antes de qualquer mensagem. Sem isto, uma conversa criada
       // e nunca respondida ficaria fora da fila, que é justamente a que precisa ser vista.
-      await projetarNaCaixa(tenant.id, c, evt, { protocolo: proto });
+      await projetarNaCaixa(tenant.id, c, evt, { protocolo: proto }, 'nova');
 
       contar('aceitos', 'protocolo');
       return res.json({ ok: true, protocolo: proto });
@@ -534,7 +708,7 @@ router.post('/', async (req, res) => {
           resolvidaPorCwUserId: evt.assignee?.id ?? null,
           resolvidaPorNome: evt.assignee?.name ?? null,
           protocolo: reg?.protocolo || undefined,
-        });
+        }, 'resolvida');
 
         contar('aceitos', 'encerramento');
         return res.json({ ok: true });

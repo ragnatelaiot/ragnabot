@@ -139,6 +139,12 @@ await montar('/api/ragnabot-capitao', './routes/ragnabot-capitao.routes.js', aut
 // ATENDENTE. O isolamento por agente e por setor é imposto no `where` da consulta, dentro do
 // serviço, nunca por esconder item de menu.
 await montar('/api/ragnabot-caixa', './routes/ragnabot-caixa.routes.js', autenticar);
+// ⭐ TEMPO REAL da caixa (contrato S-TEMPO-REAL, 03/09/2026): a conexão de eventos que faz a tela
+// se atualizar sozinha. SEM `adminOnly`, pela MESMA razão da caixa — quem vive nesta tela é o
+// ATENDENTE. O isolamento NÃO é do middleware: cada evento é conferido, um a um, contra as mesmas
+// cláusulas de empresa e de visibilidade que a consulta usa (ver
+// `services/ragnabot-tempo-real.service.js`). Empurrar para todos e filtrar na tela é vazamento.
+await montar('/api/ragnabot-tempo-real', './routes/ragnabot-tempo-real.routes.js', autenticar);
 // agendamento de mensagens (contrato S4): SEM `adminOnly` no mount, pela MESMA razão das respostas
 // rápidas e da caixa — quem agenda uma mensagem é o atendente ou o supervisor, cuja `role` do NOC é
 // 'user'. O isolamento é por `escopoDe()` dentro do serviço, e id de outra empresa responde 404.
@@ -187,6 +193,19 @@ const trabalhadores = {
   // `POST /api/ragnabot-conexao/webhooks/entregar-agora` faz UMA passada à mão, para provar a
   // entrega sem ligar nada permanentemente.
   webhookSaida: { ligado: false, intervaloMs: null, erro: null, motivo: 'desligado por decisão do chefe (lote)' },
+  // ⭐ Contrato S-TEMPO-REAL (03/09/2026). Os setores deixaram de depender de alguém clicar em
+  // «Sincronizar setores» — era o único dado da caixa que nascia de gesto humano, e é ele que
+  // decide quem vê a fila de quem.
+  setores: { ligado: false, intervaloMs: null, erro: null },
+  // ⭐ Contrato S-TEMPO-REAL. O canal COMUM entre as réplicas. `compartilhado:false` aqui significa
+  // que o aviso NÃO atravessa pods — a tela de metade dos atendentes ficaria muda, e o defeito some
+  // quando se testa com um pod só. Por isso o estado aparece no /saude.
+  tempoReal: { ligado: false, canal: null, erro: null },
+  // ⭐ Contrato S-CREDENCIAL-IG (03/09/2026). NÃO é um laço — é «a porta `credenciais` do envio
+  // nativo está amarrada». Aparece aqui porque é exatamente a diferença entre botão de verdade no
+  // Instagram e texto numerado, e entre o toque do Telegram respondido e a barrinha girando no
+  // aparelho do cliente. ⛔ NUNCA traz o valor de credencial nenhuma — só se está amarrada.
+  credencialDeCanal: { amarrada: false, erro: null },
 };
 const desligadores = [];
 
@@ -194,6 +213,10 @@ const desligadores = [];
 // ou sumiu lá fora e ninguém aqui soube») muda em escala de dias, e cada passada é uma leitura na
 // plataforma POR EMPRESA. Ajustável por ambiente para quem precisar apertar num diagnóstico.
 const INTERVALO_CAIXAS_MS = Math.max(60_000, Number(process.env.RAGNABOT_CAIXAS_INTERVALO_MS || 15 * 60 * 1000));
+
+// Tique da conferência dos SETORES. Mesmo valor e mesma razão do de cima: lotação de setor muda em
+// escala de dias. O que muda em escala de segundos não é varrido — é empurrado pelo canal ao vivo.
+const INTERVALO_SETORES_MS = Math.max(60_000, Number(process.env.RAGNABOT_SETORES_INTERVALO_MS || 15 * 60 * 1000));
 
 /** Identidade desta réplica. No Kubernetes `hostname` é o nome do pod, e é ele que aparece em
  *  `donoWorker` — sem isso, «quem estava com esta conversa quando o pod morreu?» não tem resposta.
@@ -208,6 +231,29 @@ export async function ligarTrabalhadores() {
     const chatwoot  = (await import('./services/ragnabot-chatwoot.porta.js')).default;
     const politicas = await import('./services/ragnabot-atendimento.service.js');
     const canalPorta = await import('./services/ragnabot-canal.porta.js');
+
+    // ⭐ A CREDENCIAL DO CANAL (contrato S-CREDENCIAL-IG, 03/09/2026) — a porta que faltava.
+    //
+    // Sem esta amarração, `ragnabot-canal-nativo.porta.js` nasce com `credenciais: null` e TODA
+    // escolha com botão no Instagram recusa com `SEM_CREDENCIAL` e cai no texto numerado; e o
+    // toque no botão do Telegram fica sem `answerCallbackQuery` (barrinha girando no aparelho do
+    // cliente). O resolvedor procura em: apelido do segredo na conexão → `canal_<canal>_token` no
+    // cofre cifrado da empresa → `RAGNABOT_CANAL_<CANAL>_TOKEN` no ambiente → token da Página
+    // derivado do token de sistema da Meta.
+    //
+    // ⚠️ EM `try` PRÓPRIO. Isto é uma MELHORIA do canal, não o canal: se a amarração falhar, o
+    // envio continua saindo em texto numerado — degradado e declarado. Deixá-la derrubar o bloco
+    // geral calaria a portaria e o executor por causa de um botão.
+    try {
+      const nativoPorta = await import('./services/ragnabot-canal-nativo.porta.js');
+      const credenciais = await import('./services/ragnabot-credencial-canal.service.js');
+      nativoPorta.configurarCanalNativo({ credenciais });
+      trabalhadores.credencialDeCanal.amarrada = true;
+    } catch (e) {
+      trabalhadores.credencialDeCanal.erro = e.message;
+      logger.warn(`[ragnabot] resolvedor de credencial de canal não amarrado: ${e.message} `
+        + '(botão nativo degrada para texto numerado; o toque no Telegram fica sem resposta)');
+    }
 
     // As portas são INJETADAS aqui, não importadas lá dentro — foi o que permitiu testar todas as
     // regras de tempo contra um dublê, sem plataforma no ar. Mesmo desenho do NOC (server.js:738).
@@ -250,6 +296,40 @@ export async function ligarTrabalhadores() {
       logger.warn(`[ragnabot] sincronização de caixas não subiu: ${e.message}`);
     }
 
+    // ⭐ SETORES QUE SE CONFEREM SOZINHOS (contrato S-TEMPO-REAL, item 1). Em `try` próprio, pelo
+    // mesmo motivo das caixas: espelho desatualizado degrada a visibilidade; espelho que impedisse
+    // o motor de subir calaria o atendimento inteiro.
+    try {
+      const setoresSvc = await import('./services/ragnabot-setores-sincronia.service.js');
+      const pararSetores = setoresSvc.iniciarSincronizacaoDeSetores({ intervaloMs: INTERVALO_SETORES_MS });
+      desligadores.push(pararSetores);
+      trabalhadores.setores.ligado = true;
+      trabalhadores.setores.intervaloMs = INTERVALO_SETORES_MS;
+    } catch (e) {
+      trabalhadores.setores.erro = e.message;
+      logger.warn(`[ragnabot] sincronização de setores não subiu: ${e.message}`);
+    }
+
+    // ⭐ O CANAL COMUM DO TEMPO REAL (contrato S-TEMPO-REAL). Ligado ANTES de qualquer evento
+    // poder nascer. Sem ele o motor sobe igual e a tela de quem está NESTE pod continua viva — o
+    // que NÃO acontece é o aviso atravessar para o outro pod, e é isso que o /saude declara.
+    try {
+      const tempoReal = await import('./services/ragnabot-tempo-real.service.js');
+      const estadoCanal = await tempoReal.ligarCanal({});
+      desligadores.push(() => tempoReal.desligarCanal());
+      trabalhadores.tempoReal.ligado = true;
+      trabalhadores.tempoReal.canal = estadoCanal?.tipo ?? null;
+      if (!estadoCanal?.compartilhado) {
+        logger.warn('[ragnabot] tempo real em canal LOCAL — com 2 réplicas, metade dos atendentes '
+          + 'não receberia os avisos da outra. Confira `tempoReal` no /saude.');
+      }
+      // A porta do aviso fica exposta para o webhook usá-la sem import circular.
+      app.locals.ragnabotAoVivo = tempoReal;
+    } catch (e) {
+      trabalhadores.tempoReal.erro = e.message;
+      logger.warn(`[ragnabot] canal de tempo real não subiu: ${e.message}`);
+    }
+
     // ⭐ AGENDAMENTO DE MENSAGENS (contrato S4). Em `try` próprio e DESLIGADO por padrão — ver a
     // função abaixo. Falha dele não pode levar junto a portaria nem o executor: uma agenda que não
     // sobe atrasa uma mensagem; o executor que não sobe cala o robô com o cliente escrevendo.
@@ -277,6 +357,12 @@ export async function ligarTrabalhadores() {
       // grava uma caixa vazia dizendo que deu certo.
       const retro = await import('./services/ragnabot-caixa-retrocarga.service.js');
       retro.configurarRetrocarga({ plataforma: chatwoot, caixa });
+      // A MESA (contrato S-ATENDER): aceitar, abrir, responder e transferir. Ela PRECISA da porta
+      // da plataforma — abrir a conversa é ler as mensagens LÁ (o conteúdo não é copiado para o
+      // nosso banco), e aceitar/transferir têm de valer nos dois lados. Sem a porta, as consultas
+      // da caixa seguem servindo e a mesa avisa o motivo em vez de fingir que funcionou.
+      const mesa = await import('./services/ragnabot-mesa.service.js');
+      mesa.configurarMesa({ plataforma: chatwoot });
     } catch (e) {
       logger.warn(`[ragnabot] caixa de atendimento sem porta de plataforma: ${e.message} `
         + '(as consultas seguem funcionando; só a sincronização de setores e a retrocarga ficam indisponíveis)');
@@ -284,6 +370,8 @@ export async function ligarTrabalhadores() {
 
     logger.info('[ragnabot] trabalhadores no ar: atendimento(60s), despertar(15s), portaria'
       + (trabalhadores.caixas.ligado ? `, caixas(${Math.round(INTERVALO_CAIXAS_MS / 1000)}s)` : '')
+      + (trabalhadores.setores.ligado ? `, setores(${Math.round(INTERVALO_SETORES_MS / 1000)}s)` : '')
+      + (trabalhadores.tempoReal.ligado ? `, tempo real(${trabalhadores.tempoReal.canal})` : '')
       + (trabalhadores.executorFluxo.ligado ? `, executor de fluxo(${trabalhadores.executorFluxo.intervaloMs}ms)` : ''));
   } catch (e) {
     trabalhadores.atendimento.erro = trabalhadores.atendimento.erro ?? e.message;
@@ -545,6 +633,31 @@ app.get('/saude', async (req, res) => {
     out.cadastroDeCaixas = tenantsSvc.estadoDaSincronizacaoDeCaixas();
   } catch (e) {
     out.cadastroDeCaixas = { erro: e.message };
+  }
+
+  // ── O ESPELHO DOS SETORES (contrato S-TEMPO-REAL, item 1) ─────────────────────────────────────
+  // «Rodou quando, e deu o quê». Sem isto, um atendente sem ver a fila do setor dele e um espelho
+  // que nunca rodou são o mesmo sintoma visto de fora.
+  try {
+    const setoresSvc = await import('./services/ragnabot-setores-sincronia.service.js');
+    out.cadastroDeSetores = setoresSvc.estadoDaSincronizacaoDeSetores();
+  } catch (e) {
+    out.cadastroDeSetores = { erro: e.message };
+  }
+
+  // ── ⭐ O TEMPO REAL (contrato S-TEMPO-REAL) ───────────────────────────────────────────────────
+  // O número que o contrato exige aqui é `conexoesAbertas` — quantos navegadores estão pendurados
+  // NESTE processo. E, junto, o que separa «funciona na mesa» de «funciona em produção»:
+  // `canal.compartilhado`. Com ele `false` e duas réplicas no ar, metade dos atendentes não recebe
+  // aviso nenhum, e o defeito é intermitente — some quando alguém testa com um pod só.
+  //
+  // ⚠️ NÃO derruba a sonda: tirar o pod de serviço derruba as conexões vivas e não conserta canal
+  // nenhum. Quem decide o 503 continua sendo banco/trabalhador/rota.
+  try {
+    const tempoReal = await import('./services/ragnabot-tempo-real.service.js');
+    out.tempoReal = tempoReal.estadoDoTempoReal();
+  } catch (e) {
+    out.tempoReal = { erro: e.message };
   }
 
   // ── A TELA (contrato S-PUBLICAR, 02/09/2026) ──────────────────────────────────────────────────

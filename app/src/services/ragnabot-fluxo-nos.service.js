@@ -272,7 +272,7 @@ function normalizarParaCasar(texto) {
  * joga fora cinco perguntas já respondidas. Errar para o lado de `opcao_invalida` custa uma
  * repergunta — que agora tem teto e destino.
  *
- * @returns {{id:string, via:'interativo'|'indice'|'titulo'|'prefixo'|'apelido'}|null}
+ * @returns {{id:string, via:'interativo'|'carga'|'indice'|'titulo'|'prefixo'|'apelido'}|null}
  */
 function casarOpcaoLocal(entrada, itens) {
   const lista = Array.isArray(itens) ? itens : [];
@@ -287,6 +287,24 @@ function casarOpcaoLocal(entrada, itens) {
 
   const bruto = String(entrada?.texto ?? '').trim();
   if (!bruto) return null;
+
+  // 1-B. A CARGA VOLTOU COMO TEXTO.
+  //
+  // ⭐ Contrato S-BOTOES-NATIVOS (03/09/2026), e este passo nasceu de MEDIÇÃO, não de zelo. Nem
+  // todo destino devolve a escolha no campo interativo: há destino em que o toque no botão chega
+  // como uma MENSAGEM COMUM cujo conteúdo é a carga que nós mesmos mandamos — o id do item. Sem
+  // este passo, o cliente tocava no botão certo e recebia «não entendi, escolha uma opção»: o
+  // passo 3 compara o id contra os TÍTULOS, e id nenhum é igual a um título.
+  //
+  // A comparação é EXATA e case-insensitive, nunca aproximada: id de item é sorteado ou escrito
+  // pelo editor, e a chance de um cliente digitar exatamente um id à mão é desprezível perto do
+  // custo de casar por engano. Vem DEPOIS do campo interativo (que é mais forte) e ANTES do índice
+  // numérico — se um id for «2», ele é id antes de ser posição, porque quem o mandou fomos nós.
+  //
+  // ⛔ Este arquivo é do MOTOR e continua sem citar canal nenhum: a regra é «a carga pode voltar
+  // como texto», e vale para qualquer destino que se comporte assim.
+  const porCarga = lista.filter((i) => String(i.id ?? '').trim().toLowerCase() === bruto.toLowerCase());
+  if (porCarga.length === 1) return { id: String(porCarga[0].id), via: 'carga' };
 
   // 2. índice numérico — é como a maior parte das pessoas responde quando o interativo não renderiza.
   if (/^\d{1,2}$/.test(bruto)) {

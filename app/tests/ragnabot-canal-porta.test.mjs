@@ -138,7 +138,7 @@ await medir('lista de 6 itens cabe no WhatsApp (teto 10) e vai interativa', asyn
   assert.equal(cw.registro.interativos[0].itens.length, 6);
 });
 
-await medir('Instagram (sem interativo) recebe o MESMO menu em texto NUMERADO', async () => {
+await medir('Instagram SEM credencial nativa recebe o MESMO menu em texto NUMERADO, declarando', async () => {
   const { cw, porta } = await montar({ channelType: 'instagram' });
   const r = await porta.enviar({
     tipo: 'lista', corpo: 'Escolha o setor:', rodape: 'Ragnatela',
@@ -153,7 +153,11 @@ await medir('Instagram (sem interativo) recebe o MESMO menu em texto NUMERADO', 
   assert.match(t, /responda com o número/i, 'sem a instrução, o cliente não sabe o que fazer');
   assert.match(t, /Ragnatela/);
   assert.equal(r.degradado, 'texto_numerado');
-  assert.equal(r.motivoDegradacao, 'canal_sem_interativo');
+  // ⭐ S-BOTOES-NATIVOS: o motivo MUDOU e a mudança é informação. O Instagram agora TENTA o envio
+  // nativo (a plataforma não traduz `input_select` para ele) e cai no texto porque não há
+  // credencial nesta instalação. «canal_sem_interativo» esconderia que o caminho existe e falta só
+  // o token; «nativo_indisponivel:SEM_CREDENCIAL» diz o que consertar.
+  assert.equal(r.motivoDegradacao, 'nativo_indisponivel:SEM_CREDENCIAL');
 });
 
 await medir('botão de URL NUNCA vira input_select — nem no WhatsApp', async () => {

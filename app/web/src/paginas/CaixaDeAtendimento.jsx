@@ -22,17 +22,20 @@
 // propriedade, não buscam nada, não chamam a rede. Medidos por `web/tests/caixa.smoke.mjs` com
 // `renderToString`, sem navegador e sem servidor. Só `CaixaDeAtendimento`, embaixo, fala com a rede.
 // ════════════════════════════════════════════════════════════════════════════════════════════════
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Inbox, RefreshCw, Search, History, Users } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeftRight, Check, Eye, Inbox, RefreshCw, Search, History, Users } from 'lucide-react';
 
 import CapaSecao from '../componentes/CapaSecao.jsx';
 import { Etiqueta, Faixa, T, Vazio, campoEstilo, cartao } from './EmpresaFormulario.jsx';
 import {
   ABAS, SUBABAS,
+  aceitarConversa,
   contadores as pedirContadores, historicoDoContato, listarConversas, listarSetores,
   sincronizarSetores,
   retrocarregarConversas,
 } from '../lib/api-caixa.js';
+import ConversaAberta from './ConversaAberta.jsx';
+import { ligarAoVivo } from '../lib/ao-vivo.js';
 
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 // 0. FORMATAÇÃO
@@ -92,9 +95,21 @@ export function EtiquetasDoCartao({ etiquetas = [] }) {
   );
 }
 
-/** Uma conversa na fila. */
-export function CartaoDeConversa({ conversa, aba, aoVerHistorico }) {
+/**
+ * Uma conversa na fila.
+ *
+ * ⭐ Ganhou em 03/09/2026 (contrato S-ATENDER) as três ações que faltavam: **Abrir/Espiar**,
+ * **Aceitar** e **Transferir** — porque o dono disse, com todas as letras, que não conseguia
+ * «aceitar, transferir e ver nada da conversa».
+ *
+ * ⛔ O botão «Aceitar» aparece pela FORMA da conversa (sem atendente e aberta), não pelo papel de
+ * quem olha. Quem decide se o clique vale é o servidor: se dois clicarem juntos, um recebe 409 com
+ * o nome de quem levou. A tela nunca é a trava — ela é o convite.
+ */
+export function CartaoDeConversa({ conversa, aba, aoVerHistorico, aoAbrir, aoAceitar, aceitando }) {
   const c = conversa;
+  // Sem atendente e ainda aberta ⇒ dá para aceitar. É a leitura do CARTÃO, não do usuário.
+  const naFila = !c.atendente?.id && ['aguardando', 'chatbot'].includes(c.estado);
   const quando = aba === 'resolvidos' ? c.resolvidaEm : c.ultimaAtividadeEm;
   const rotuloQuando = aba === 'resolvidos' ? 'resolvida' : 'última atividade';
   return (
@@ -128,6 +143,47 @@ export function CartaoDeConversa({ conversa, aba, aoVerHistorico }) {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
         <Etiqueta tom={TOM_DO_ESTADO[c.estado] || 'neutro'}>{ROTULO_DO_ESTADO[c.estado] || c.estado}</Etiqueta>
+
+        {/* ⭐ AS AÇÕES DO CARTÃO. O olho abre em leitura; o «Aceitar» é o que libera a escrita. */}
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {aoAbrir ? (
+            <button
+              type="button"
+              data-abrir={c.cwConversationId}
+              onClick={() => aoAbrir(c)}
+              style={acaoDoCartao('info')}
+              title={naFila
+                ? 'Abre a conversa em leitura, sem assumir. A abertura fica registrada.'
+                : 'Abre a conversa'}
+            >
+              <Eye size={13} /> {naFila ? 'Espiar' : 'Abrir'}
+            </button>
+          ) : null}
+          {naFila && aoAceitar ? (
+            <button
+              type="button"
+              data-aceitar={c.cwConversationId}
+              onClick={() => aoAceitar(c)}
+              disabled={aceitando}
+              style={{ ...acaoDoCartao('ok'), opacity: aceitando ? 0.6 : 1 }}
+              title="Assume o atendimento em seu nome. Só depois disso dá para responder."
+            >
+              <Check size={13} /> {aceitando ? 'Aceitando…' : 'Aceitar'}
+            </button>
+          ) : null}
+          {aoAbrir ? (
+            <button
+              type="button"
+              data-transferir={c.cwConversationId}
+              onClick={() => aoAbrir(c, { transferir: true })}
+              style={acaoDoCartao()}
+              title="Passa a conversa para outro atendente e/ou setor"
+            >
+              <ArrowLeftRight size={13} /> Transferir
+            </button>
+          ) : null}
+        </div>
+
         {/* Só faz sentido pedir histórico quando há setor: o histórico É por setor. */}
         {c.setor?.id && aoVerHistorico ? (
           <button
@@ -148,6 +204,20 @@ export function CartaoDeConversa({ conversa, aba, aoVerHistorico }) {
   );
 }
 
+/** O botão pequeno do cartão. Tom acompanha a PALAVRA — cor sozinha não informa nada a ninguém. */
+function acaoDoCartao(tom = 'neutro') {
+  const cores = {
+    neutro: { borda: T.borda, fundo: 'transparent', cor: T.sec },
+    ok: { borda: T.ok, fundo: T.okDim, cor: T.ink },
+    info: { borda: T.primaria, fundo: T.infoDim, cor: T.ink },
+  }[tom] || {};
+  return {
+    display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 9px', borderRadius: 8,
+    border: `1px solid ${cores.borda}`, background: cores.fundo, color: cores.cor,
+    fontSize: '0.73rem', fontWeight: 700, cursor: 'pointer',
+  };
+}
+
 function botaoAba(ativo) {
   return {
     padding: '7px 12px', borderRadius: 999, cursor: 'pointer', fontSize: '0.82rem', fontWeight: 700,
@@ -159,6 +229,36 @@ function botaoAba(ativo) {
 }
 
 /** As abas de cima. O contador fica DENTRO do botão, como no chat atual. */
+/**
+ * ⭐ O SELO «AO VIVO» (contrato S-TEMPO-REAL, 03/09/2026).
+ *
+ * ⚠️ ELE EXISTE POR CAUSA DO ITEM 5 DO CONTRATO: *"tela que congela em silêncio é pior que tela
+ * que avisa"*. Sem este selo, uma conexão caída e uma caixa sem movimento são exatamente a mesma
+ * coisa vista pelo atendente — ele fica olhando uma fila parada achando que não chegou nada.
+ * Com ele, «Reconectando…» aparece na hora, e o número de tentativas mostra que não travou.
+ *
+ * Componente PURO: recebe tudo por propriedade, não fala com a rede, e por isso é medível sem
+ * navegador.
+ */
+export function SeloAoVivo({ ligado, tentativas = 0 }) {
+  const cor = ligado ? 'var(--ok, #16a34a)' : 'var(--aviso, #d97706)';
+  return (
+    <span
+      title={ligado
+        ? 'A fila se atualiza sozinha — conversa nova, mudança de estado e mensagem aparecem sem recarregar a página.'
+        : 'A ligação ao vivo caiu. Estou reconectando sozinho; quando voltar, a fila é relida inteira.'}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6,
+        fontSize: 12, color: 'var(--texto-fraco, #64748b)',
+        border: '1px solid var(--borda, #e2e8f0)', borderRadius: 999, padding: '4px 10px',
+      }}
+    >
+      <span style={{ width: 8, height: 8, borderRadius: '50%', background: cor, flex: '0 0 auto' }} />
+      {ligado ? 'Ao vivo' : `Reconectando${tentativas > 1 ? ` (${tentativas}ª)` : ''}…`}
+    </span>
+  );
+}
+
 export function Abas({ aba, contagem = {}, aoTrocar }) {
   return (
     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }} data-abas>
@@ -264,6 +364,11 @@ export default function CaixaDeAtendimento() {
   const [retrocarregando, setRetrocarregando] = useState(false);
   const [recado, setRecado] = useState(null);
 
+  // ⭐ S-ATENDER: qual conversa está aberta. `null` = a lista. Uma tela só, dois modos — abrir em
+  // outra página perderia o contexto da fila, que é justamente onde o atendente trabalha.
+  const [aberta, setAberta] = useState(null);
+  const [aceitando, setAceitando] = useState(null);
+
   const [alvoHistorico, setAlvoHistorico] = useState(null);
   const [historico, setHistorico] = useState(null);
   const [historicoCarregando, setHistoricoCarregando] = useState(false);
@@ -274,8 +379,8 @@ export default function CaixaDeAtendimento() {
     cwTeamId: setorFiltro || undefined,
   }), [busca, setorFiltro]);
 
-  const carregar = useCallback(async () => {
-    setCarregando(true);
+  const carregar = useCallback(async (silencioso = false) => {
+    if (!silencioso) setCarregando(true);
     setErro(null);
     try {
       const [l, n] = await Promise.all([
@@ -288,11 +393,70 @@ export default function CaixaDeAtendimento() {
       setErro(e.message || 'Não consegui carregar a caixa.');
       setLista(null);
     } finally {
-      setCarregando(false);
+      if (!silencioso) setCarregando(false);
     }
   }, [aba, sub, pagina, filtros]);
 
   useEffect(() => { carregar(); }, [carregar]);
+
+  // ════════════════════════════════════════════════════════════════════════════════════════════
+  // ⭐ TEMPO REAL (contrato S-TEMPO-REAL, 03/09/2026 — doc 35 §6.8)
+  //
+  // A fila se atualiza sozinha. O botão «Atualizar» continua existindo como reforço — quem acabou
+  // de fazer algo em outra aba quer conferir na hora —, mas ele deixou de ser o caminho.
+  //
+  // ⚠️ RECARGA SILENCIOSA, e isto não é detalhe de acabamento: `carregar()` acende
+  // «carregando», o que apagaria a lista inteira a cada mensagem que chega. Numa mesa com
+  // movimento, a tela piscaria o tempo todo e o atendente perderia a linha que estava lendo. Aqui
+  // os dados são TROCADOS por baixo, sem estado de carregamento.
+  //
+  // ⚠️ E COM FREIO. Numa rajada (cliente mandando cinco mensagens seguidas, sincronização em
+  // massa) cada aviso pediria duas consultas. O freio junta o que chegar em 400 ms numa recarga
+  // só — o atraso é imperceptível para gente e divide por dez a conversa com o servidor.
+  // ════════════════════════════════════════════════════════════════════════════════════════════
+  const [aoVivo, setAoVivo] = useState({ ligado: false, tentativas: 0 });
+  const [sinalDaConversa, setSinalDaConversa] = useState(0);
+
+  // Referências para o cano não ser religado a cada troca de aba/página: o `useEffect` de baixo
+  // depende só do que ele PRECISA (nada), e lê o resto pela referência sempre atual.
+  const carregarRef = useRef(carregar);
+  useEffect(() => { carregarRef.current = carregar; }, [carregar]);
+  const abertaRef = useRef(aberta);
+  useEffect(() => { abertaRef.current = aberta; }, [aberta]);
+
+  const freio = useRef(null);
+  const recarregarComFreio = useCallback(() => {
+    if (freio.current) return;
+    freio.current = setTimeout(async () => {
+      freio.current = null;
+      try {
+        const alvo = carregarRef.current;
+        await alvo?.(true);
+      } catch { /* o erro já é tratado dentro de `carregar` */ }
+    }, 400);
+  }, []);
+
+  useEffect(() => {
+    const ligacao = ligarAoVivo({
+      // Conectou ou reconectou: relê tudo. É o «recupera o que perdeu» do item 5 do contrato.
+      aoSincronizar: () => { carregarRef.current?.(true); },
+      aoEvento: (evt) => {
+        recarregarComFreio();
+        // Fala nova DENTRO da conversa que está aberta: avisa o filho para reler o histórico.
+        if (evt?.motivo === 'mensagem' && abertaRef.current
+            && Number(evt.cwConversationId) === Number(abertaRef.current)) {
+          setSinalDaConversa((n) => n + 1);
+        }
+      },
+      aoEstado: (e) => setAoVivo({ ligado: Boolean(e?.ligado), tentativas: e?.tentativas || 0 }),
+    });
+    return () => {
+      ligacao.desligar();
+      if (freio.current) { clearTimeout(freio.current); freio.current = null; }
+    };
+    // Uma ligação só, pela vida da tela. Reabrir a cada troca de aba seria abrir e fechar conexão
+    // no servidor a cada clique.
+  }, [recarregarComFreio]);
 
   useEffect(() => {
     listarSetores().then((r) => setSetores(r.itens || [])).catch(() => setSetores([]));
@@ -316,6 +480,30 @@ export default function CaixaDeAtendimento() {
       setHistoricoCarregando(false);
     }
   }, []);
+
+  /**
+   * ⭐ ACEITAR direto do cartão, sem abrir a conversa — é o gesto de quem puxa fila.
+   *
+   * A CORRIDA aparece AQUI, do lado de quem perde: o servidor responde 409 com o nome de quem
+   * levou, e a tela repete a frase dele. Recarregar a lista logo em seguida é o que faz a conversa
+   * sumir da fila de quem perdeu, em vez de ficar ali convidando a um segundo clique inútil.
+   */
+  const aceitar = useCallback(async (c) => {
+    setAceitando(c.cwConversationId);
+    setErro(null); setRecado(null);
+    try {
+      const r = await aceitarConversa(c.cwConversationId, { cwTeamId: c.setor?.id || undefined });
+      setRecado(r.plataforma?.aplicada === false
+        ? `Conversa ${c.protocolo || `#${c.cwConversationId}`} aceita. ${r.plataforma.aviso}`
+        : `Conversa ${c.protocolo || `#${c.cwConversationId}`} é sua. Abra para responder.`);
+      setAberta(c.cwConversationId);
+    } catch (e) {
+      setErro(e.message || 'Não consegui aceitar.');
+    } finally {
+      setAceitando(null);
+      await carregar();
+    }
+  }, [carregar]);
 
   const sincronizar = useCallback(async () => {
     setSincronizando(true);
@@ -368,6 +556,23 @@ export default function CaixaDeAtendimento() {
   const administra = lista?.escopo?.administra === true;
   const semSetor = lista?.escopo && !administra && (lista.escopo.setores || []).length === 0;
 
+  // ⭐ MODO CONVERSA. A lista continua montada no estado (aba, página, filtros) — voltar não perde
+  // o lugar onde a pessoa estava, que é a diferença entre uma mesa de trabalho e um site.
+  if (aberta) {
+    return (
+      <ConversaAberta
+        cwConversationId={aberta}
+        aoFechar={(recadoDeSaida) => {
+          setAberta(null);
+          if (recadoDeSaida) setRecado(recadoDeSaida);
+          carregar();
+        }}
+        aoMudarConversa={carregar}
+        sinalAoVivo={sinalDaConversa}
+      />
+    );
+  }
+
   return (
     <div style={{ display: 'grid', gap: 'var(--space-md)' }}>
       <CapaSecao
@@ -376,19 +581,22 @@ export default function CaixaDeAtendimento() {
         titulo="Caixa de atendimento"
         apoio="A sua fila. Você vê as conversas atribuídas a você, as que você resolveu e a fila dos setores de que participa."
         acoes={(
-          <button
-            type="button"
-            onClick={carregar}
-            disabled={carregando}
-            style={{ ...botaoAba(false), opacity: carregando ? 0.6 : 1 }}
-          >
-            <RefreshCw size={14} /> Atualizar
-          </button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <SeloAoVivo ligado={aoVivo.ligado} tentativas={aoVivo.tentativas} />
+            <button
+              type="button"
+              onClick={() => carregar()}
+              disabled={carregando}
+              style={{ ...botaoAba(false), opacity: carregando ? 0.6 : 1 }}
+            >
+              <RefreshCw size={14} /> Atualizar
+            </button>
+          </div>
         )}
       />
 
       {erro ? <Faixa tom="erro" titulo="Não consegui carregar">{erro}</Faixa> : null}
-      {recado ? <Faixa tom="ok" titulo="Sincronizado">{recado}</Faixa> : null}
+      {recado ? <Faixa tom="ok" titulo="Pronto">{recado}</Faixa> : null}
 
       {semSetor ? (
         <Faixa
@@ -479,7 +687,15 @@ export default function CaixaDeAtendimento() {
       {lista?.itens?.length ? (
         <div style={{ display: 'grid', gap: 8 }}>
           {lista.itens.map((c) => (
-            <CartaoDeConversa key={c.id} conversa={c} aba={aba} aoVerHistorico={verHistorico} />
+            <CartaoDeConversa
+              key={c.id}
+              conversa={c}
+              aba={aba}
+              aoVerHistorico={verHistorico}
+              aoAbrir={(alvo) => setAberta(alvo.cwConversationId)}
+              aoAceitar={aceitar}
+              aceitando={aceitando === c.cwConversationId}
+            />
           ))}
         </div>
       ) : null}
