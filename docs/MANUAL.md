@@ -503,6 +503,17 @@ frente** (versão nova com o conteúdo antigo), mantendo a numeração contínua
 inteiro (§5-H). Ele sobe **desligado** nesta versão, de propósito, e o §5-H explica o porquê e como
 se percebe isso pelo `/saude`.
 
+**Onde fica o botão de criar (v1.11.01).** Em **Fluxos de conversa** há duas portas para o mesmo
+lugar: o botão **«Novo fluxo»** no canto direito da barra de título, e — quando ainda não existe
+nenhum fluxo — o botão **«Criar o primeiro fluxo»** no meio da tela. Em janela estreita (celular,
+tablet, ou navegador não maximizado) a barra de título **cresce** e os botões descem para baixo do
+título; eles não somem em nenhuma largura de tela. Se o botão aparecer apagado (cinza), a tela diz
+**logo acima** o motivo e o que fazer — as quatro situações possíveis são: sessão vencida (**saia e
+entre de novo**), sessão aberta sem empresa vinculada (**saia e entre uma vez**; a empresa é
+resolvida no momento da entrada e fica dentro da sessão), migração do motor faltando no banco
+(**avise a Ragnatela** — não é permissão) e usuário com papel de atendente (**criar e publicar é de
+quem administra a empresa**).
+
 ---
 
 ## 5-A. A portaria de entrada (o primeiro "oi")

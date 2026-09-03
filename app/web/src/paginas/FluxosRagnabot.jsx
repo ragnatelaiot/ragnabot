@@ -5015,6 +5015,92 @@ export default function FluxosRagnabot() {
     aoConfirmar: () => arquivar(fluxo, false),
   });
 
+  // ════════════════════════════════════════════════════════════════════════════════════════════
+  // ⭐ 03/09/2026 — POR QUE ESTE BLOCO EXISTE
+  //
+  // O dono abriu esta tela e disse: «ainda não existe o botão de criar o fluxo». O botão existia —
+  // e ESTAVA CERTO. Duas coisas o faziam desaparecer sem uma palavra:
+  //   1. `tema.css` tinha `@media (max-width: 900px) { .capa__acoes { display: none } }`. Em
+  //      qualquer janela estreita (celular, tablet, navegador não maximizado) a ÚNICA porta de
+  //      entrada da tela era apagada pelo CSS. Corrigido lá, na raiz.
+  //   2. quando algo de fato impede criar, o botão só ficava `disabled` — cinza, mudo, sem dizer o
+  //      quê nem o que fazer. Botão apagado sem explicação é o mesmo que botão inexistente para
+  //      quem está do outro lado da tela.
+  //
+  // A regra que fica: NUNCA some, e quando não dá, DIZ. E há duas portas — a da capa e a do estado
+  // vazio — porque a tela do primeiro uso é exatamente a que não tem nenhum fluxo na lista.
+  //
+  // ⚠️ SÓ DESABILITO COM A PALAVRA DO SERVIDOR (`/saude`). Para tudo o mais — papel, empresa,
+  // saúde que não respondeu — o botão continua clicável e o aviso aparece por cima: quem decide
+  // permissão é a API, e adivinhar aqui só criaria um segundo dono da regra, que divergiria.
+  // ════════════════════════════════════════════════════════════════════════════════════════════
+  const criarBloqueado = saude?.schema?.pronto === false || saude?.podeAgora?.administrarFluxos === false;
+
+  const motivoSemCriar = (() => {
+    // Sessão vencida: a mensagem tem de ser esta, e não «sem permissão» — o operador que lê
+    // «sem permissão» vai pedir acesso a alguém, quando bastava sair e entrar.
+    if (erroSaude?.status === 401) {
+      return {
+        tom: 'aviso',
+        titulo: 'Sua sessão terminou',
+        texto: 'Saia e entre de novo (menu ao lado, no seu nome → Sair). Depois de entrar, o botão «Novo fluxo» volta a funcionar.',
+      };
+    }
+    if (saude?.schema?.pronto === false) {
+      return {
+        tom: 'erro',
+        titulo: 'Não dá para criar fluxo: falta a migração do motor neste banco',
+        texto: 'Isto não é problema da sua conta nem da sua permissão — as tabelas do motor de fluxo '
+          + 'ainda não existem no banco desta instalação. Avise a Ragnatela; enquanto isso, todas as '
+          + 'rotas de fluxo respondem 503.',
+      };
+    }
+    if (saude?.podeAgora?.administrarFluxos === false) {
+      return {
+        tom: 'erro',
+        titulo: 'O servidor informou que administrar fluxos está indisponível agora',
+        texto: 'O motor respondeu que não é possível administrar fluxos nesta instalação. Avise a '
+          + 'Ragnatela com o horário — a resposta de /saude é o diagnóstico.',
+      };
+    }
+    // Conta sem empresa: quase sempre é sessão ANTIGA. A empresa é resolvida na ENTRADA e vive
+    // dentro do cookie assinado; quem entrou antes de a empresa existir carrega uma sessão sem
+    // ela até sair e entrar. Dizer «sem permissão» aqui manda a pessoa para o lugar errado.
+    if (avisoDaLista) {
+      return {
+        tom: 'aviso',
+        titulo: 'Esta sessão foi aberta sem empresa vinculada',
+        texto: 'A empresa é resolvida no momento em que você entra, e fica dentro da sua sessão. '
+          + 'Uma sessão aberta antes de a empresa ser cadastrada continua sem ela até você SAIR E '
+          + 'ENTRAR uma vez. Faça isso primeiro. Se depois de reentrar a mensagem continuar, aí sim '
+          + 'a sua conta não está ligada a nenhuma empresa — fale com a Ragnatela.',
+      };
+    }
+    if (usuario && usuario.role === 'user') {
+      return {
+        tom: 'aviso',
+        titulo: 'Criar fluxo é ação de administrador da empresa',
+        texto: 'Você entrou como atendente. Dá para abrir, conferir e testar os fluxos; criar e '
+          + 'publicar é de quem administra a empresa. Peça a um administrador — ou peça para o seu '
+          + 'usuário virar administrador na plataforma e entre de novo.',
+      };
+    }
+    return null;
+  })();
+
+  // ⚠️ `rotulo` é argumento DESTA função e NÃO vai para o `<button>`: atributo desconhecido no DOM
+  // vira aviso no console e, pior, sugere à próxima pessoa que dá para passar qualquer coisa aqui.
+  const botaoNovoFluxo = (rotulo = 'Novo fluxo') => (
+    <button
+      className="btn btn-primary"
+      onClick={() => setModalCriar(true)}
+      disabled={criarBloqueado}
+      title={criarBloqueado ? (motivoSemCriar?.titulo || 'Indisponível agora') : 'Criar um fluxo de conversa novo'}
+    >
+      <Plus size={15} /> {rotulo}
+    </button>
+  );
+
   const capa = (
     <CapaSecao
       secao="clientes"
@@ -5026,9 +5112,7 @@ export default function FluxosRagnabot() {
           <button className="btn btn-secondary" onClick={() => carregarLista()} disabled={carregando}>
             {carregando ? 'Consultando…' : 'Atualizar'}
           </button>
-          <button className="btn btn-primary" onClick={() => setModalCriar(true)} disabled={saude?.podeAgora?.administrarFluxos === false}>
-            <Plus size={15} /> Novo fluxo
-          </button>
+          {botaoNovoFluxo()}
         </div>
       }
     />
@@ -5060,10 +5144,12 @@ export default function FluxosRagnabot() {
           </Faixa>
         ) : null}
 
-        {saude && saude.schema?.pronto === false ? (
-          <Faixa tom="erro" titulo="As tabelas do motor de fluxo não existem neste banco">
-            Aplique a migração do motor antes de usar esta tela. Enquanto isso, todas as rotas
-            respondem 503.
+        {/* ⭐ 03/09/2026: a explicação fica NO LUGAR do botão, com as palavras do que fazer.
+            Substitui a faixa anterior, que só falava do caso «faltou migração» e deixava os
+            outros três motivos (sessão vencida, sessão sem empresa, papel de atendente) mudos. */}
+        {motivoSemCriar && !abertoId ? (
+          <Faixa tom={motivoSemCriar.tom} titulo={motivoSemCriar.titulo}>
+            {motivoSemCriar.texto}
           </Faixa>
         ) : null}
 
@@ -5125,10 +5211,15 @@ export default function FluxosRagnabot() {
               </Faixa>
             ) : null}
 
+            {/* ⚠️ O texto que estava aqui dizia «o campo da empresa ainda não viaja no token de
+                sessão». Isso DEIXOU DE SER VERDADE quando a entrada passou a resolver a empresa
+                (`rotas-sessao.js`, 02/09) — e um diagnóstico errado é pior que nenhum: mandava
+                procurar defeito no produto quando bastava sair e entrar. A explicação certa, com
+                o que fazer, subiu para `motivoSemCriar`; aqui fica só o eco curto do servidor. */}
             {avisoDaLista ? (
-              <Faixa tom="aviso" titulo="Sua conta não está vinculada a nenhuma empresa do RAGNABOT">
-                O servidor respondeu «{avisoDaLista}». Hoje só o super usuário do NOC recebe escopo
-                nestas rotas — o campo da empresa ainda não viaja no token de sessão.
+              <Faixa tom="aviso" titulo="A lista está vazia porque esta sessão não tem empresa">
+                O servidor respondeu «{avisoDaLista}». Saia e entre de novo — veja o aviso no topo
+                desta tela.
               </Faixa>
             ) : null}
 
@@ -5139,12 +5230,23 @@ export default function FluxosRagnabot() {
               </div>
             ) : null}
 
+            {/* ⭐ 03/09/2026: o texto mandava «crie o primeiro» e não oferecia NADA para clicar —
+                a única porta era a da capa, que o CSS apagava em janela estreita. Agora a porta
+                está aqui também, que é onde a pessoa está olhando no primeiro uso. */}
             {!carregando && !fluxos.length && !erroLista ? (
-              <div style={cartao}>
+              <div style={{ ...cartao, textAlign: 'center' }}>
                 <Vazio>
                   Nenhum fluxo por aqui ainda. Crie o primeiro: ele já nasce com o nó de início
                   desenhado e um rascunho pronto para editar.
                 </Vazio>
+                <div style={{ marginTop: 14, display: 'flex', justifyContent: 'center' }}>
+                  {botaoNovoFluxo('Criar o primeiro fluxo')}
+                </div>
+                {criarBloqueado ? (
+                  <div style={{ marginTop: 8, fontSize: '0.78rem', color: T.mut }}>
+                    {motivoSemCriar?.titulo || 'Criar fluxo está indisponível agora — veja o aviso no topo da tela.'}
+                  </div>
+                ) : null}
               </div>
             ) : null}
 

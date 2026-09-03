@@ -226,13 +226,47 @@ a:hover { text-decoration: underline; }
 .capa.capa--compacta .capa__apoio { opacity: 0; height: 0; margin: 0; overflow: hidden; }
 .capa.capa--compacta .capa__titulo { font-size: 0.9375rem; letter-spacing: -0.2px; text-shadow: none; color: var(--text-primary); }
 
+/* ⛔ AQUI HAVIA `.capa__acoes { display: none; }` — E ELE ERA UM DEFEITO GRAVE (03/09/2026).
+   A capa é a ÚNICA barra de título das telas, e `acoes` é onde mora a AÇÃO PRINCIPAL de cada uma:
+   «Novo fluxo», «Nova conexão», «Nova empresa», «Novo agendamento», «Nova resposta rápida»…
+   Escondê-la abaixo de 900 px não "simplificava o celular": APAGAVA a única porta de entrada da
+   tela, sem uma palavra de explicação. Foi assim que o dono abriu Fluxos e relatou, com razão,
+   que «ainda não existe o botão de criar o fluxo» — ele existia, e o CSS o tinha apagado.
+
+   A cura é deixar a capa CRESCER em vez de cortar: abaixo de 900 px ela deixa de ter altura fixa
+   (`height: auto` + `min-height`) e as ações saem do posicionamento absoluto para o fluxo normal,
+   logo abaixo do título, com quebra de linha. Altura automática SEMPRE cabe no conteúdo — não há
+   largura de tela em que um botão volte a sumir. É de propósito que a regra mexe na altura e não
+   no botão: o botão nunca foi o problema.
+
+   ⚠️ As duas linhas de `@media` que vinham depois desta cravavam `height` de novo (112 px e 96 px)
+   e, por virem DEPOIS, venceriam esta regra e voltariam a cortar. Viraram `min-height`. */
 @media (max-width: 900px) {
-  .capa { margin-bottom: var(--space-md); }
-  .capa__acoes { display: none; }
-  .capa__txt { padding-right: var(--space-md); }
+  .capa {
+    margin-bottom: var(--space-md);
+    height: auto;
+    flex-basis: auto;
+    min-height: 112px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: var(--space-md) 0;
+  }
+  .capa__txt { height: auto; padding: 0 var(--space-md); }
+  .capa__acoes {
+    position: static;
+    transform: none;
+    padding: 0 var(--space-md);
+    margin-top: var(--space-sm);
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+  /* Compacta ao rolar: continua encolhendo o que é enfeite (foto, olho, apoio), mas a altura
+     segue automática — senão os 56 px cortariam de novo exatamente o botão que esta regra salvou. */
+  .capa.capa--compacta { height: auto; flex-basis: auto; min-height: 56px; }
 }
-@media (max-width: 768px) { .capa { height: 112px; } .capa__titulo { font-size: 1.375rem; } }
-@media (max-width: 480px) { .capa { height: 96px; } .capa__titulo { font-size: 1.1875rem; } .capa__apoio { display: none; } }
+@media (max-width: 768px) { .capa { min-height: 112px; } .capa__titulo { font-size: 1.375rem; } }
+@media (max-width: 480px) { .capa { min-height: 96px; } .capa__titulo { font-size: 1.1875rem; } .capa__apoio { display: none; } }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════
    A CASCA — menu lateral, cabeçalho e rodapé (contrato S1, 02/09/2026 · doc 34 §F10.2)

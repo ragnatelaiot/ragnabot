@@ -2,6 +2,90 @@
 > LOG CANÔNICO local da construção (regra do dono, 27/08). Espelho versionado no repo:
 > `ragnatelaiot/ragnabot` → docs/ACTIONLOG.md. Sem segredos, por lei.
 
+## 2026-09-03 — S-BOTAO: «não existe o botão de criar o fluxo» — era CSS, e foi consertado na raiz (v1.11.01)
+
+**Relato do dono, no painel, ao vivo:** *«ainda não existe o botão de criar o fluxo»*. Bloqueio em
+produção do objetivo central da construção.
+
+### O diagnóstico — todos os suspeitos foram MEDIDOS, e todos estavam inocentes
+Sessão emitida DENTRO do pod publicado (o segredo não sai de lá) e as rotas chamadas **exatamente
+como a tela as chama**, pela porta pública (`Host: bot.ragnatela.com.br`, ingress `/painel/…`):
+
+| Suspeito | Medição | Veredito |
+|---|---|---|
+| `podeAgora.administrarFluxos` falso | `/painel/api/ragnabot-fluxo/saude` = `{"schema":{"pronto":true},"podeAgora":{"administrarFluxos":true,"publicar":true,"modoDeTeste":true,"lerTelemetria":true}}` | inocente |
+| `schemaPronto()` falso (cliente Prisma velho) | `schema.pronto = true`, os 4 componentes resolvidos | inocente |
+| Sessão antiga sem o cookie novo | com cookie válido, `/sessao/eu` = 200 e as rotas de fluxo respondem | inocente |
+| Permissão / papel | `POST /fluxos` devolveu **201** | inocente |
+| A página caindo no ramo de indisponibilidade | nenhum 503; `erroSaude` nulo | inocente |
+
+### ⭐ A causa real — UMA LINHA de CSS, e ela apagava OITO telas
+```css
+@media (max-width: 900px) { .capa__acoes { display: none; } }
+```
+`CapaSecao` é a barra de título de **toda** tela do painel, e `acoes` é onde mora a ação principal
+de cada uma. Abaixo de 900 px de largura — celular, tablet, ou um navegador que simplesmente não
+está maximizado — essa linha apagava a **única** porta de entrada de **Fluxos, Conexões, Empresas,
+Agendamentos, Respostas rápidas, Caixas de entrada, Atendimentos e Testador**. Sem erro, sem log,
+sem 404: o botão existia no pacote (`grep "Novo fluxo"` = 1) e o navegador o desenhava com
+`display: none`. Era invisível para toda medição de rede, que é exatamente por que custou um dia.
+
+**Agravante, e é o que o contrato mandava consertar:** o estado vazio da tela dizia «Crie o
+primeiro» e **não oferecia nada para clicar** — a única porta era a da capa, justamente a apagada.
+
+### A cura — a capa CRESCE em vez de cortar
+Abaixo de 900 px a capa perdeu a altura fixa (`height: auto` + `min-height`) e as ações saíram do
+posicionamento absoluto para o fluxo normal, abaixo do título, com quebra de linha. **Altura
+automática sempre cabe no conteúdo** — não existe mais largura de tela em que um botão suma.
+⚠️ As duas `@media` seguintes (768 px e 480 px) cravavam `height` de novo e, por virem DEPOIS na
+cascata, teriam vencido a cura e reintroduzido o corte em silêncio. Viraram `min-height`.
+
+### Botão apagado agora FALA — quatro motivos, quatro frases
+`motivoSemCriar` (uma origem só): sessão vencida → **«saia e entre de novo»**; sessão aberta sem
+empresa → **«saia e entre uma vez»** (a empresa é resolvida na entrada e vive dentro do cookie
+assinado); migração faltando → **«não é a sua permissão, avise a Ragnatela»**; papel de atendente →
+**«criar e publicar é de quem administra a empresa»**. E só desabilito o botão com a **palavra do
+servidor** (`/saude`): para tudo o mais ele continua clicável e o aviso aparece por cima — quem
+decide permissão é a API, e adivinhar na tela criaria um segundo dono da regra.
+
+⚠️ **Um diagnóstico ERRADO foi retirado:** o aviso de conta sem empresa afirmava que «o campo da
+empresa ainda não viaja no token de sessão». Isso deixou de ser verdade na v1.11.00. Diagnóstico
+errado é pior que nenhum — mandava procurar defeito no produto quando bastava sair e entrar.
+
+### O teste que impede a volta — e a prova de que ele morde
+`app/web/tests/capa-acoes.smoke.mjs` (6 medições, no `npm test`) lê o **CSS construído**, não o
+arquivo-fonte: o que chega ao navegador é o artefato. **Conferido que ele FALHA de verdade** ao
+reintroduzir `display:none` (`✗ … 5 de 6`, `exit=1`) e volta a passar ao restaurar. Teste que só
+sabe passar não prova nada.
+
+### A imagem, conferida DENTRO do artefato antes de subir
+`ragnabot-motor:1.11.01`, `--build-arg RAGNABOT_PREFIXO_WEB=/painel/`. Dentro da imagem: `VERSAO` =
+`1.11.01`; o índice pede `/painel/assets/index-38qHvnXL.js`; o CSS tem `.capa__acoes` **sem**
+`display:none` e a capa com `height:auto`. Levada por SFTP aos containerds de `rgtk8s001` e
+`rgtk8s002` — **mesma impressão digital nos três pontos**
+(`9a282c01403f211c98752721e99b95251da21a2b64e2fd1b26e328c717d8a70a`); o nó do XSE fica de fora por
+afinidade. Rollout **2/2, zero reinícios, zero linha de erro**. `ragnabot-web` e `ragnabot-worker`
+**não foram tocados**. ⛔ Executor de fluxo, agendamento e carteiro de webhook continuam **`0`** —
+conferido no log dos dois pods novos.
+
+### ⛔ ZERO migração
+`git status` não trouxe nenhum arquivo sob `app/prisma/`. Nada de `prisma db push`.
+
+### Provado por observação, pela porta pública, DEPOIS do rollout
+`/painel/fluxos` = **200** servindo o pacote novo · o CSS servido não esconde as ações · criado um
+fluxo de verdade (**201**, com o nó de início, como a tela cria) · **apareceu na lista** (`total:1`)
+· o **testador abriu** para ele e apontou o problema certo (`ARESTA_AUSENTE` — «o nó "no_inicio" não
+tem para onde ir») · **arquivado em seguida** (200) · lista de volta a `total:0`. **Nenhum fluxo de
+mentira ficou para trás.**
+
+### Nota honesta
+Não consigo ver a tela do dono, então não sei a largura da janela dele — o que sei é que abaixo de
+900 px o botão **não existia**, e que agora existe em qualquer largura, com uma segunda porta no
+estado vazio. Se, mesmo assim, ele não aparecer, a tela agora **diz o motivo**, e o motivo vira o
+próximo passo em vez de virar adivinhação.
+
+---
+
 ## 2026-09-03 — S-DEPLOY-5: o painel passou a ser UM SÓ (v1.11.00)
 
 Publicação do contrato S-CASCA. **Nada mudou para quem conversa com a gente hoje**: executor de

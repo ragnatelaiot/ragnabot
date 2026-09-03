@@ -19,6 +19,65 @@
 
 ---
 
+## v1.11.01 — O botão de criar fluxo voltou a existir em qualquer tela (03/09/2026)
+
+A frase que resume: **uma linha de CSS apagava a ação principal de oito telas em qualquer janela
+estreita. O botão nunca esteve quebrado — estava escondido. E agora, quando de fato não dá para
+criar, a tela diz o motivo e o que fazer, em vez de ficar muda.**
+
+### O que aconteceu
+
+O dono abriu «Fluxos de conversa» e relatou: *«ainda não existe o botão de criar o fluxo»*. Ele
+tinha razão no que via, e o problema não era nenhum dos suspeitos: a sessão estava válida, o motor
+respondia que administrar fluxos estava liberado, e criar um fluxo pela API publicada funcionava de
+ponta a ponta. O que apagava o botão era isto, na folha de estilo:
+
+```css
+@media (max-width: 900px) { .capa__acoes { display: none; } }
+```
+
+A capa de seção é a barra de título de **toda** tela do painel, e é nela que mora a ação principal
+de cada uma. Abaixo de 900 px de largura — celular, tablet, ou simplesmente um navegador que não
+está maximizado — essa linha apagava a única porta de entrada de **oito telas**: Fluxos, Conexões,
+Empresas, Agendamentos, Respostas rápidas, Caixas de entrada, Atendimentos e Testador.
+
+### O que mudou
+
+**A capa cresce em vez de cortar.** Em telas estreitas ela deixou de ter altura fixa: o título fica
+em cima, os botões logo abaixo, com quebra de linha. Altura automática sempre cabe no conteúdo — não
+existe mais largura de tela em que um botão desapareça.
+
+**Botão apagado agora fala.** Quando criar um fluxo realmente não é possível, a tela mostra o motivo
+e o que fazer, no lugar do botão — e cada motivo tem a sua frase:
+
+| Situação | O que a tela passa a dizer |
+|---|---|
+| A sessão venceu | «Sua sessão terminou — saia e entre de novo.» |
+| Faltou a migração do motor no banco | «Não é problema da sua conta nem da sua permissão. Avise a Ragnatela.» |
+| A sessão foi aberta sem empresa vinculada | «Saia e entre uma vez: a empresa é resolvida na entrada e fica dentro da sessão.» |
+| Você entrou como atendente | «Criar e publicar é de quem administra a empresa.» |
+
+**O estado vazio oferece o botão que o próprio texto manda apertar.** A tela sem nenhum fluxo dizia
+«crie o primeiro» e não oferecia nada para clicar — a única porta era a da capa, justamente a que o
+CSS apagava. Agora o botão está ali também, que é onde a pessoa está olhando no primeiro uso.
+
+**Um diagnóstico errado foi corrigido.** O aviso de conta sem empresa afirmava que «o campo da
+empresa ainda não viaja no token de sessão». Isso deixou de ser verdade na v1.11.00, quando a
+entrada passou a resolver a empresa. Diagnóstico errado é pior que nenhum: mandava procurar defeito
+no produto quando bastava sair e entrar.
+
+### O que ficou medido
+
+Teste novo (`web/tests/capa-acoes.smoke.mjs`, 6 medições) que lê o **CSS construído** — não o
+arquivo-fonte — e reprova se alguém mandar esconder as ações da capa outra vez. Foi conferido que
+ele falha de verdade quando o defeito é reintroduzido; um teste que só passa não prova nada.
+
+E o caminho inteiro foi percorrido em produção pela porta pública: criar um fluxo, vê-lo na lista,
+abrir o modo de teste e arquivá-lo depois. O ambiente ficou como estava — nenhum fluxo de mentira
+foi deixado para trás.
+
+---
+
 ## v1.11.00 — Um painel só (03/09/2026)
 
 A frase que resume: **acabou o vaivém entre dois sistemas. O Ragnabot passou a ter um menu só, e as
