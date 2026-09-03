@@ -790,6 +790,96 @@ const CAMINHOS_LIMITES = [
   '../services/ragnabot-fluxo-nos.service.js',
 ];
 
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// GET /catalogo — QUAIS CONECTORES EXISTEM, dito pelo motor
+//
+// ⚠️ POR QUE ESTA ROTA EXISTE. O editor precisa saber, para cada tipo de nó, quais saídas desenhar.
+// Até 03/09/2026 ela NÃO existia, e a tela desenhava os conectores por um espelho local — uma cópia
+// escrita à mão do que o motor faz. Espelho envelhece: `agente_ia` e `pagamento_pix` entraram no
+// motor e NÃO estavam no espelho, e qualquer saída que o editor não desenha vira aresta
+// INDESENHÁVEL — o motor resolve a saída, não acha destino, grava `ARESTA_AUSENTE` e a conversa do
+// cliente morre calada. Foi exatamente assim que `sem_janela` mordeu antes.
+//
+// ⚠️ TUDO SAI DE `saidasDe()`, e não de uma segunda lista escrita aqui. `saidasDe()` já junta as
+// saídas declaradas, as de exceção (quando o nó estaciona) e as de falha; esta rota SUBTRAI as duas
+// últimas para devolvê-las separadas, que é como a tela as pinta (cheia, tracejada, vermelha). Se
+// alguém acrescentar uma saída ao motor amanhã, ela aparece aqui sozinha — não há o que atualizar.
+//
+// ⚠️ O QUE ESTA ROTA NÃO SABE: as saídas que dependem da CONFIGURAÇÃO (um item de lista, um botão,
+// uma faixa do randomizador). Elas são calculadas com config VAZIA e por isso saem vazias — quem as
+// monta é a tela, a partir do documento em edição. O campo `saidasDependemDaConfig` diz em quais
+// tipos isso acontece, para a tela não achar que o servidor esqueceu.
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// Tipos que TERMINAM a conversa (ou a entregam a gente) e por isso não têm saída nenhuma — não
+// confundir com «as saídas dependem da configuração». Sem esta lista, `time`, `atendente` e
+// `encerrar` seriam anunciados como dinâmicos e o editor ficaria esperando conectores que nunca vêm.
+const TIPOS_TERMINAIS = new Set(['time', 'atendente', 'encerrar']);
+
+router.get('/catalogo', async (_req, res) => {
+  try {
+    const mod = await exigirModulo(
+      res, CAMINHOS_EXECUTORES,
+      'listar os tipos de nó e as saídas de cada um',
+      ['saidasDe'],
+    );
+    if (!mod) return;
+
+    const saidasDe = mod.saidasDe || mod.default?.saidasDe;
+    const executores = mod.EXECUTORES || mod.default?.EXECUTORES || mod.default || {};
+    const listaDeTipos = mod.TIPOS || Object.keys(executores);
+    const excecaoPadrao = mod.SAIDAS_DE_EXCECAO || ['sem_resposta', 'opcao_invalida', 'erro'];
+    const noEstaciona = mod.noEstaciona || ((no) => !!executores[no?.tipo]?.estaciona);
+
+    const tipos = {};
+    const comProblema = [];
+    for (const tipo of listaDeTipos) {
+      const executor = executores[tipo] || {};
+      const noVazio = { id: `_catalogo_${tipo}`, tipo, config: {} };
+      let todas = [];
+      try {
+        todas = saidasDe(noVazio) || [];
+      } catch (e) {
+        // Um executor que estoura com config vazia não pode derrubar o catálogo inteiro: sem
+        // catálogo a tela volta ao espelho e o problema fica invisível. Fica dito, tipo a tipo.
+        comProblema.push({ tipo, motivo: e.message });
+      }
+      const deFalha = executor.saidasDeFalha || [];
+      let estaciona = false;
+      try { estaciona = !!noEstaciona(noVazio); } catch { estaciona = !!executor.estaciona; }
+      const deExcecao = estaciona ? (executor.saidasDeExcecao || excecaoPadrao) : [];
+
+      // As FIXAS são o que sobra: assim elas nunca divergem de `saidasDe()`.
+      const saidasFixas = todas.filter((s) => !deFalha.includes(s) && !deExcecao.includes(s));
+      // Config vazia e nenhuma saída fixa, num tipo que não é terminal por desenho: as saídas
+      // dele nascem da configuração. A tela precisa saber para montá-las a partir do documento.
+      const dependemDaConfig = typeof executor.saidas === 'function'
+        && saidasFixas.length === 0
+        && !TIPOS_TERMINAIS.has(tipo);
+
+      tipos[tipo] = {
+        tipo,
+        estaciona,
+        saidasFixas,
+        saidasDeExcecao: deExcecao,
+        saidasDeFalha: deFalha,
+        saidasDependemDaConfig: dependemDaConfig,
+      };
+    }
+
+    let limites = null;
+    const lim = await resolverModulo(CAMINHOS_LIMITES, ['PERFIL_LIMITES_PADRAO']);
+    if (lim) limites = (lim.mod.PERFIL_LIMITES_PADRAO || lim.mod.default?.PERFIL_LIMITES_PADRAO) || null;
+
+    res.json({
+      total: Object.keys(tipos).length,
+      tipos,
+      limites,
+      // Honestidade: se algum tipo não respondeu, o nome dele vem junto em vez de sumir.
+      ...(comProblema.length ? { tiposComProblema: comProblema } : {}),
+    });
+  } catch (e) { erro(res, e, 500); }
+});
+
 router.get('/fluxos/:id/rascunho', async (req, res) => {
   try {
     if (!exigirSchema(res)) return;

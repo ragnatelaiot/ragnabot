@@ -225,6 +225,12 @@ const CATALOGO_ESPELHO = {
   subfluxo:  { rotulo: 'Sub-fluxo',            sigla: 'SF', familia: 'controle', estaciona: false, saidas: (c) => (c?.modo === 'chamar' ? ['padrao'] : []), falha: [] },
   chamado:   { rotulo: 'Abrir chamado',        sigla: 'CH', familia: 'chamado',  estaciona: false, saidas: () => ['padrao', 'erro'],        falha: [] },
   encerrar:  { rotulo: 'Encerrar',             sigla: 'FI', familia: 'limite',   estaciona: false, saidas: () => [],                        falha: [] },
+  // ⭐ 03/09/2026 — A PROVA DE QUE ESPELHO ENVELHECE. Estes dois estão no motor (`TIPOS` traz 21)
+  // e NÃO estavam nesta cópia: um nó destes num documento aparecia rotulado com o nome cru do tipo
+  // e SEM conector nenhum — ou seja, aresta indesenhável, que é como `sem_janela` mordeu antes.
+  // Ficam aqui como rede de segurança; a verdade vem de `GET /catalogo`.
+  agente_ia:     { rotulo: 'Agente de IA',      sigla: 'IA', familia: 'externo',  estaciona: false, saidas: () => ['respondeu', 'nao_sabe', 'erro'], falha: [] },
+  pagamento_pix: { rotulo: 'Cobrança Pix',      sigla: 'PX', familia: 'externo',  estaciona: false, saidas: () => ['padrao', 'erro'],        falha: [] },
 };
 
 const ORDEM_DA_PALETA = [
@@ -292,7 +298,9 @@ function metaDoTipo(tipo, catalogo) {
   const doServidor = catalogo?.tipos?.[tipo];
   const espelho = CATALOGO_ESPELHO[tipo];
   return {
-    rotulo: espelho?.rotulo || tipo,
+    // O rótulo do SERVIDOR ganha do nome cru do tipo quando o espelho não conhece o tipo: um bloco
+    // escrito «agente_ia» na tela é o sintoma de que a cópia local envelheceu.
+    rotulo: espelho?.rotulo || doServidor?.rotulo || tipo,
     sigla: espelho?.sigla || '??',
     familia: espelho?.familia || 'controle',
     estaciona: doServidor ? !!doServidor.estaciona : !!espelho?.estaciona,
@@ -1299,6 +1307,7 @@ function caminhoDaAresta(de, para) {
 function BlocoDeNo({
   no, pos, saidas, selecionado, temErro, temAviso, metrica, catalogo, somenteLeitura,
   ligacaoEmCurso, saidasLigadas, aoSelecionar, aoArrastarInicio, aoTocarPino, aoTocarEntrada,
+  aoArrastarLigacao,
 }) {
   const meta = metaDoTipo(no.tipo, catalogo);
   const cor = COR_DA_FAMILIA[meta.familia] || T.borda2;
@@ -1309,6 +1318,11 @@ function BlocoDeNo({
     <div
       className="rgfx-bloco"
       role="group"
+      /* ⭐ 03/09/2026 — A IDENTIDADE DO NÓ NO PRÓPRIO DOM. É por ela que o arraste do conector
+         descobre em QUE nó o dedo soltou: `document.elementFromPoint()` devolve o elemento
+         debaixo do ponteiro, e `closest('[data-no-id]')` sobe dali até o bloco. Sem esta marca não
+         existe alvo de largada, e o gesto que todo editor de fluxo tem ficaria só no clique. */
+      data-no-id={no.id}
       aria-label={`${meta.rotulo}: ${no.titulo || no.id}`}
       tabIndex={0}
       onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); aoSelecionar(no.id); } }}
@@ -1399,9 +1413,18 @@ function BlocoDeNo({
               key={s}
               type="button"
               className="rgfx-pino"
-              disabled={somenteLeitura}
+              /* ⛔ NADA DE `disabled` AQUI. Botão desligado é um NADA silencioso: quem não pode
+                 editar tocava o conector, não acontecia coisa nenhuma e a tela continuava dizendo
+                 «toque no conector e depois no nó de destino». Agora o toque sempre chega, e é
+                 `tocarPino` quem diz o motivo quando não dá. */
+              aria-disabled={somenteLeitura || undefined}
               title={tituloDoPino}
-              onClick={() => aoTocarPino(no.id, s)}
+              /* Quando ESTE nó é o alvo de uma ligação em curso, o conector também fecha a
+                 ligação: o nó inteiro vira alvo, e não só o cabeçalho e o corpo. Antes, tocar o
+                 conector do nó de destino re-armava a ligação a partir dele — o operador achava
+                 que tinha errado a mira. */
+              onPointerDown={(ev) => { if (!alvoDeLigacao) aoArrastarLigacao(ev, no.id, s); }}
+              onClick={() => (alvoDeLigacao ? aoTocarEntrada(no.id) : aoTocarPino(no.id, s))}
               style={{ background: armado ? T.infoDim : undefined, height: ALT_PINO }}
             >
               <span style={{
@@ -1544,10 +1567,19 @@ function Tela({
   documento, saidasPorNo, catalogo, selecionadoId, ligacaoEmCurso, escala, deslocamento,
   mostrarExcecoes, problemasPorNo, metricasPorNo, trilhaDestacada, somenteLeitura, arestaSelecionada,
   aoSelecionar, aoMoverNo, aoTocarPino, aoTocarEntrada, aoCancelarLigacao, aoSelecionarAresta,
-  aoApagarAresta, aoMudarVista, aoMedirViewport,
+  aoApagarAresta, aoMudarVista, aoMedirViewport, aoArmarLigacao, aoLargarLigacao, aoVerTudo,
 }) {
   const refViewport = useRef(null);
   const [arrasto, setArrasto] = useState(null);      // arraste transitório de bloco
+  // ⭐ 03/09/2026 — O SEGUNDO CAMINHO PARA LIGAR: arrastar do conector até o nó.
+  // Medido em navegador de verdade antes de escrever isto: puxar do conector até o outro bloco
+  // NÃO fazia absolutamente nada — nem ligava, nem armava, nem avisava. E é o primeiro gesto que
+  // qualquer pessoa tenta, porque é o de todo editor de fluxo. Dois caminhos para a mesma coisa,
+  // aqui, é a diferença entre usar e desistir.
+  const [arrastoLig, setArrastoLig] = useState(null);
+  // O navegador ainda dispara `click` no conector DEPOIS de um arraste que começou nele. Sem esta
+  // trava, terminar um arraste deixava uma ligação nova armada por engano, a partir da origem.
+  const refCliqueDoPinoSuprimido = useRef(false);
   const [pan, setPan] = useState(null);              // arraste transitório do fundo
   const ponteiros = useRef(new Map());               // pinça: dois ponteiros guardados
   const pincaAnterior = useRef(null);
@@ -1652,6 +1684,58 @@ function Tela({
       window.removeEventListener('pointercancel', soltar);
     };
   }, [arrasto, escala, aoMoverNo]);
+
+  /**
+   * Começa a puxar um fio a partir de um conector. NÃO arma nada aqui: enquanto o dedo não andar,
+   * isto ainda pode virar um toque simples, e armar agora faria o `click` seguinte DESARMAR
+   * (`tocarPino` alterna). A ligação só é armada quando o ponteiro anda de verdade.
+   */
+  const iniciarLigacaoArrastando = useCallback((ev, noId, saida) => {
+    if (somenteLeitura) return;          // o `click` ainda chega e explica o motivo
+    ev.stopPropagation();
+    try { ev.currentTarget.setPointerCapture(ev.pointerId); } catch { /* navegador sem captura */ }
+    setArrastoLig({ de: noId, saida, ponteiro: ev.pointerId, clientX: ev.clientX, clientY: ev.clientY, mexeu: false, ponto: null });
+  }, [somenteLeitura]);
+
+  useEffect(() => {
+    if (!arrastoLig) return undefined;
+    const mover = (ev) => {
+      if (ev.pointerId !== arrastoLig.ponteiro) return;
+      const dx = ev.clientX - arrastoLig.clientX;
+      const dy = ev.clientY - arrastoLig.clientY;
+      if (!arrastoLig.mexeu && Math.abs(dx) + Math.abs(dy) < 4) return;
+      const ponto = paraMundo(ev.clientX, ev.clientY);
+      if (!arrastoLig.mexeu && aoArmarLigacao) aoArmarLigacao(arrastoLig.de, arrastoLig.saida);
+      setArrastoLig((a) => (a ? { ...a, mexeu: true, ponto } : a));
+    };
+    const soltar = (ev) => {
+      if (ev.pointerId !== arrastoLig.ponteiro) return;
+      const arrastou = arrastoLig.mexeu;
+      setArrastoLig(null);
+      if (!arrastou) return;             // foi toque, não arraste: quem arma é o `click`
+      refCliqueDoPinoSuprimido.current = true;
+      // Quem está debaixo do ponto onde soltou? `elementFromPoint` enxerga o que está pintado ali
+      // (a captura de ponteiro muda o alvo do EVENTO, não o teste de acerto), e `data-no-id` sobe
+      // do span/botão até o bloco.
+      const sob = typeof document !== 'undefined' ? document.elementFromPoint(ev.clientX, ev.clientY) : null;
+      const bloco = sob && sob.closest ? sob.closest('[data-no-id]') : null;
+      if (aoLargarLigacao) aoLargarLigacao(arrastoLig.de, arrastoLig.saida, bloco ? bloco.getAttribute('data-no-id') : null);
+    };
+    window.addEventListener('pointermove', mover);
+    window.addEventListener('pointerup', soltar);
+    window.addEventListener('pointercancel', soltar);
+    return () => {
+      window.removeEventListener('pointermove', mover);
+      window.removeEventListener('pointerup', soltar);
+      window.removeEventListener('pointercancel', soltar);
+    };
+  }, [arrastoLig, paraMundo, aoArmarLigacao, aoLargarLigacao]);
+
+  /** O `click` do conector, com a trava do arraste. Ver `refCliqueDoPinoSuprimido`. */
+  const tocarPinoComTrava = useCallback((noId, saida) => {
+    if (refCliqueDoPinoSuprimido.current) { refCliqueDoPinoSuprimido.current = false; return; }
+    aoTocarPino(noId, saida);
+  }, [aoTocarPino]);
 
   const aoPonteiroBaixo = (ev) => {
     if (ev.target !== ev.currentTarget && !ev.target.dataset?.fundo) return;
@@ -1788,6 +1872,23 @@ function Tela({
               </g>
             );
           })}
+
+          {/* O FIO QUE SEGUE O DEDO. Sem ele o arraste é invisível e a pessoa não sabe se pegou o
+              conector — e um gesto sem retorno visual é indistinguível de um gesto que não existe. */}
+          {arrastoLig && arrastoLig.mexeu && arrastoLig.ponto ? (() => {
+            const origem = porId.get(arrastoLig.de);
+            if (!origem) return null;
+            const lista = saidasPorNo.get(arrastoLig.de) || [];
+            const visiveis = mostrarExcecoes ? lista : lista.filter((x) => especieDaSaida(x) === 'normal');
+            const i = Math.max(0, visiveis.indexOf(arrastoLig.saida));
+            const de = ancoraDeSaida(posicaoDe(origem), i);
+            return (
+              <g>
+                <path d={caminhoDaAresta(de, arrastoLig.ponto)} fill="none" stroke={T.primaria} strokeWidth={2.5} strokeDasharray="7 5" />
+                <circle cx={arrastoLig.ponto.x} cy={arrastoLig.ponto.y} r={5} fill="none" stroke={T.primaria} strokeWidth={2} />
+              </g>
+            );
+          })() : null}
         </svg>
 
         {nos.map((n) => {
@@ -1811,24 +1912,42 @@ function Tela({
               ligacaoEmCurso={ligacaoEmCurso}
               aoSelecionar={aoSelecionar}
               aoArrastarInicio={iniciarArraste}
-              aoTocarPino={aoTocarPino}
+              aoTocarPino={tocarPinoComTrava}
               aoTocarEntrada={aoTocarEntrada}
+              aoArrastarLigacao={iniciarLigacaoArrastando}
             />
           );
         })}
       </div>
 
       {ligacaoEmCurso ? (
+        // ⚠️ A FAIXA NÃO PODE ROUBAR O TOQUE DO NÓ QUE ELA ESTÁ MANDANDO TOCAR. Medido em Chromium
+        // a 390 px: depois de «Ver tudo» o nó de destino caía embaixo desta faixa e o toque morria
+        // nela — a tela pedindo uma coisa e impedindo essa mesma coisa. `pointerEvents:'none'` no
+        // invólucro devolve o toque ao que está por baixo; só os botões recebem ponteiro. E ela
+        // desceu para o rodapé do quadro, onde estorva menos o desenho.
         <div style={{
-          position: 'absolute', left: 10, top: 10, zIndex: 7, padding: '8px 12px', borderRadius: 8,
+          position: 'absolute', left: 10, bottom: 10, zIndex: 7, padding: '8px 12px', borderRadius: 8,
           background: T.alto, border: `1px solid ${T.info}`, color: T.ink, fontSize: '0.8rem',
           display: 'flex', alignItems: 'center', gap: 10, maxWidth: 'calc(100% - 20px)',
+          pointerEvents: 'none',
         }}>
           <span>
             Ligando a saída <strong>{rotularSaida(ligacaoEmCurso.saida)}</strong> de{' '}
-            <strong>{ligacaoEmCurso.de}</strong>. Toque no nó de destino.
+            <strong>{ligacaoEmCurso.de}</strong>. Toque em qualquer parte do nó de destino — ou
+            arraste do conector até ele.
           </span>
-          <button className="btn btn-secondary" style={{ minHeight: 32 }} onClick={() => aoCancelarLigacao()}>
+          {/* ⭐ 03/09/2026 — A SAÍDA PARA QUANDO O ALVO NÃO ESTÁ NA TELA. Medido em Chromium a
+              390 px de largura: o nó de destino ficava INTEIRO fora da janela (o mundo é maior que
+              o quadro), e não existe toque possível num nó que não está desenhado. Este botão
+              reenquadra o fluxo inteiro sem cancelar a ligação — quem move é o operador, não a
+              tela sozinha no meio do gesto. */}
+          {aoVerTudo ? (
+            <button className="btn btn-secondary" style={{ minHeight: 32, pointerEvents: 'auto' }} onClick={() => aoVerTudo()} title="Reenquadra o fluxo inteiro sem cancelar a ligação">
+              Ver tudo
+            </button>
+          ) : null}
+          <button className="btn btn-secondary" style={{ minHeight: 32, pointerEvents: 'auto' }} onClick={() => aoCancelarLigacao()}>
             Cancelar
           </button>
         </div>
@@ -4217,10 +4336,51 @@ function Editor({
 
   // ── ações do canvas ───────────────────────────────────────────────────────────────────────────
   const tocarPino = useCallback((noId, saida) => {
+    // ⛔ TOCAR O CONECTOR NÃO SELECIONA MAIS O NÓ — e esta linha a menos é a correção do defeito
+    // que travou o dono. `setSelecionadoId(noId)` abria o PAINEL DE INSPEÇÃO (380 px à direita, e
+    // uma gaveta que toma 70 % da altura abaixo de 900 px). Medido em navegador de verdade: em
+    // janela de 1100 px ou menos, o nó de destino ficava EMBAIXO do painel que o próprio toque
+    // acabara de abrir — `elementFromPoint` no lugar do nó devolvia `DIV.rgfx-lateral`. A ligação
+    // armava, a faixa dizia «toque no nó de destino», e não havia nó nenhum para tocar.
+    // Quem quiser inspecionar o nó continua tocando o cabeçalho ou o corpo dele.
+    if (somenteLeitura) {
+      setRecado({
+        tom: 'erro',
+        texto: r.semRascunho
+          ? 'Não dá para ligar: este fluxo não tem rascunho no servidor, e nada desenhado aqui seria gravado.'
+          : 'Sua conta não pode administrar fluxos neste servidor.',
+      });
+      return;
+    }
     setArestaSelecionada(null);
     setLigacaoEmCurso((atual) => (atual && atual.de === noId && atual.saida === saida ? null : { de: noId, saida }));
-    setSelecionadoId(noId);
+  }, [somenteLeitura, r.semRascunho]);
+
+  /** Arma a ligação sem alternar — é o que o ARRASTE usa ao sair do lugar. */
+  const armarLigacao = useCallback((de, saida) => {
+    setArestaSelecionada(null);
+    setLigacaoEmCurso({ de, saida });
   }, []);
+
+  /**
+   * Fim do arraste. Soltar EM CIMA de um nó fecha a ligação; soltar no vazio NÃO joga o gesto fora
+   * — deixa a ligação armada e diz o que fazer, porque perder o trabalho por errar a mira é o tipo
+   * de coisa que faz a pessoa desistir da tela.
+   */
+  const largarLigacao = useCallback((de, saida, paraId) => {
+    if (!paraId) {
+      setLigacaoEmCurso({ de, saida });
+      setRecado({ tom: 'aviso', texto: 'Soltei no vazio: a ligação continua armada. Toque no nó de destino para fechar, ou Esc para cancelar.' });
+      return;
+    }
+    const resultado = r.ligar(de, saida, paraId);
+    if (!resultado.ok) {
+      setLigacaoEmCurso({ de, saida });
+      setRecado({ tom: 'erro', texto: resultado.motivo });
+      return;
+    }
+    setLigacaoEmCurso(null);
+  }, [r]);
 
   // ⚠️ A ligação é feita AQUI, e não dentro de um atualizador de `setLigacaoEmCurso`. O React pode
   // rodar o atualizador mais de uma vez (modo estrito), e a segunda passada acrescentaria a MESMA
@@ -4586,9 +4746,11 @@ function Editor({
 
         {!catalogoVeioDoServidor ? (
           <Faixa tom="aviso" titulo="Os conectores estão sendo desenhados por um espelho local">
-            A rota GET /catalogo ainda não existe neste servidor, então a lista de saídas de cada nó
-            vem de uma cópia mantida nesta tela. Ela cobre os 16 tipos, mas quem manda é
-            `saidasDe()` do motor — confira no modo de teste antes de publicar.
+            Não consegui ler <code>GET /catalogo</code> neste servidor (rota fora do ar, sessão sem
+            permissão ou motor de nós indisponível), então a lista de saídas de cada nó vem de uma
+            cópia mantida nesta tela. A cópia não conhece tipo de nó novo — quem manda é
+            `saidasDe()` do motor. Recarregue a página; se a faixa insistir, confira no modo de
+            teste antes de publicar.
           </Faixa>
         ) : null}
 
@@ -4606,8 +4768,8 @@ function Editor({
         </button>
         <button className="btn btn-secondary" style={{ minHeight: 40 }} onClick={() => setVista((v) => ({ ...v, escala: Math.min(ESCALA_MAXIMA, v.escala * 1.2) }))} aria-label="Aproximar"><ZoomIn size={15} /></button>
         <button className="btn btn-secondary" style={{ minHeight: 40 }} onClick={() => setVista((v) => ({ ...v, escala: Math.max(ESCALA_MINIMA, v.escala / 1.2) }))} aria-label="Afastar"><ZoomOut size={15} /></button>
-        <button className="btn btn-secondary" style={{ minHeight: 40 }} onClick={() => ajustarATela()}><Maximize2 size={15} /> <span className="rgfx-esconde-no-celular">Ajustar à tela</span></button>
-        <button className="btn btn-secondary" style={{ minHeight: 40 }} onClick={() => centralizarNoInicio()}><Crosshair size={15} /> <span className="rgfx-esconde-no-celular">Início</span></button>
+        <button className="btn btn-secondary" style={{ minHeight: 40 }} aria-label="Ajustar à tela" title="Enquadra o fluxo inteiro" onClick={() => ajustarATela()}><Maximize2 size={15} /> <span className="rgfx-esconde-no-celular">Ajustar à tela</span></button>
+        <button className="btn btn-secondary" style={{ minHeight: 40 }} aria-label="Ir para o início" title="Leva a vista até o nó de início" onClick={() => centralizarNoInicio()}><Crosshair size={15} /> <span className="rgfx-esconde-no-celular">Início</span></button>
         {/* No computador o mini-mapa vive no canto do quadro. No celular ele SAI de lá (tomava 22%
             da área e engolia o segundo toque da ligação) e passa a morar nesta gaveta. */}
         <button className="btn btn-secondary rgfx-so-no-celular" style={{ minHeight: 40 }} onClick={() => setMapaAberto(true)} aria-label="Abrir o mapa do fluxo">
@@ -4641,6 +4803,7 @@ function Editor({
         ].map(({ id, rotulo, Icone }) => (
           <button
             key={id} className="btn btn-secondary" style={{ minHeight: 40, borderColor: abaLateral === id ? T.primaria : undefined }}
+            aria-label={rotulo} title={rotulo}
             onClick={() => setAbaLateral(abaLateral === id ? null : id)}
           >
             <Icone size={15} /> <span className="rgfx-esconde-no-celular">{rotulo}</span>
@@ -4681,6 +4844,9 @@ function Editor({
           aoApagarAresta={(de, saida) => { r.desligar(de, saida); setArestaSelecionada(null); }}
           aoMudarVista={mudarVista}
           aoMedirViewport={aoMedirViewport}
+          aoArmarLigacao={armarLigacao}
+          aoLargarLigacao={largarLigacao}
+          aoVerTudo={() => refAjustar.current()}
         />
 
         {abaLateral === 'teste' ? (
@@ -4729,7 +4895,11 @@ function Editor({
             aoFechar={() => setAbaLateral(null)}
           />
         ) : null}
-        {!abaLateral && noSelecionado ? (
+        {/* ⚠️ ENQUANTO SE LIGA, O QUADRO É DA LIGAÇÃO. O painel de inspeção ocupa 380 px à direita
+            (e a tela inteira de baixo, no celular) — exatamente onde costuma estar o nó de destino.
+            Medido: em 1024 e 1100 px de largura, o toque no nó de destino caía no painel. Ele volta
+            assim que a ligação fecha ou é cancelada; nada do que estava aberto se perde. */}
+        {!abaLateral && noSelecionado && !ligacaoEmCurso ? (
           <PainelDeInspecao
             no={noSelecionado}
             catalogo={catalogo}
@@ -4825,9 +4995,11 @@ function Editor({
       ) : null}
 
       <div style={{ marginTop: 10, fontSize: '0.74rem', color: T.mut, lineHeight: 1.5 }}>
-        Ligar é de dois toques: toque no conector de saída e depois no nó de destino. Toque no vazio
-        (ou Esc) para cancelar. Arrastar o fundo desloca; roda com Ctrl, ou dois dedos, dá zoom.
-        Toque numa linha para selecioná-la — o botão de apagar aparece com ela selecionada.
+        Ligar tem dois caminhos, e os dois valem: <strong>arraste</strong> do conector de saída até
+        o nó de destino, ou <strong>toque</strong> no conector e depois em qualquer parte do nó de
+        destino. Toque no vazio (ou Esc) para cancelar. Arrastar o fundo desloca; roda com Ctrl, ou
+        dois dedos, dá zoom. Toque numa linha para selecioná-la — o botão de apagar aparece com ela
+        selecionada.
       </div>
     </div>
   );

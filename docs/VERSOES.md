@@ -19,6 +19,98 @@
 
 ---
 
+## v1.12.01 — Dá para ligar as caixas do fluxo (03/09/2026)
+
+A frase que resume: **tocar o conector abria, por cima do nó de destino, o painel que mandava tocar
+nele. Agora o conector só liga — e ligar passou a ter dois caminhos, o arraste e o toque.**
+
+### O que o dono viu
+
+Ele abriu um fluxo com duas caixas, «Início» e «Botões», e disse: *«não estou conseguindo criar e
+ligar as caixas do fluxo»*. A tela mostrava o diagnóstico certo — `ARESTA_AUSENTE`, «a saída "segue"
+do nó "no_inicio" não leva a lugar nenhum» — e a instrução certa: «toque no conector e depois no nó
+de destino». Ele fazia exatamente isso, e não acontecia nada.
+
+### A causa, medida em navegador de verdade
+
+Tocar o conector fazia duas coisas: armava a ligação **e selecionava o nó**. Selecionar o nó abre o
+**painel de inspeção** — 380 px à direita no computador, e uma gaveta que toma 70 % da altura em
+janela estreita. Esse painel cobre justamente a área onde costuma estar o nó de destino.
+
+Medido em Chromium, com o mesmo documento do dono, perguntando **quem está por baixo do dedo no
+lugar do nó de destino**:
+
+| Largura da janela | Antes | Depois |
+|---|---|---|
+| 1440 px · 1280 px | o nó (`no_botoes`) — ligava | o nó — liga |
+| **1100 px · 1024 px** | **`DIV.rgfx-lateral`** — o painel. **Não ligava** | o nó — liga |
+| 820 px (toque) | o nó — ligava | o nó — liga |
+| **390 px (celular)** | **o nó estava fora do quadro.** Não ligava | alcançável pelo botão «Ver tudo» — liga |
+
+Ou seja: em qualquer janela de computador **não maximizada** — que é como o dono usa, e foi a mesma
+condição do defeito da v1.11.01 — a tela pedia para tocar num nó que ela mesma acabara de esconder.
+
+E havia um segundo buraco: **arrastar do conector até o nó não fazia absolutamente nada**. Nem
+ligava, nem armava, nem avisava. É o primeiro gesto que qualquer pessoa tenta, porque é o de todo
+editor de fluxo.
+
+### O que mudou
+
+**Tocar o conector não seleciona mais o nó.** Uma linha a menos, e o painel deixou de aparecer no
+meio do gesto. Para inspecionar o nó, toque o cabeçalho ou o corpo dele, como antes. E, enquanto uma
+ligação está armada, o painel de inspeção não é desenhado: naquele momento o quadro é da ligação.
+
+**Arrastar passou a ligar.** Puxe do conector de saída até o nó de destino: um fio pontilhado segue
+o dedo e a ligação fecha ao soltar em cima do nó. Soltar no vazio **não joga o gesto fora** — a
+ligação continua armada e a tela diz o que fazer.
+
+**O nó inteiro é alvo.** Com uma ligação armada, tocar em qualquer parte do nó de destino fecha —
+inclusive nos conectores dele, que antes re-armavam a ligação e faziam parecer erro de mira.
+
+**«Ver tudo» na faixa da ligação.** Em tela estreita o nó de destino pode estar inteiramente fora do
+quadro, e não existe toque num nó que não está desenhado. O botão reenquadra o fluxo **sem cancelar
+a ligação** — quem move a vista é o operador, não a tela sozinha no meio do gesto.
+
+**A faixa deixou de roubar o toque.** Ela desceu para o rodapé do quadro e ficou transparente ao
+ponteiro (só os botões recebem toque): a tela não pode impedir o toque que ela própria está pedindo.
+
+**Nada fica mudo.** Sem permissão para administrar fluxos, ou em fluxo sem rascunho no servidor, o
+conector deixou de ser um botão desligado que não faz nada: o toque chega e a tela **diz o motivo**.
+Ligar duas vezes a mesma saída continua recusado, com a frase que explica por quê.
+
+### `GET /catalogo` — os conectores passaram a vir do motor
+
+A tela desenhava os conectores por uma **cópia local** dos tipos de nó, e dizia isso numa faixa
+amarela, porque a rota que devia informá-los não existia. A cópia já tinha envelhecido: o motor tem
+**21 tipos** e ela conhecia 19 — faltavam o agente de IA e a cobrança por Pix. Saída que o editor não
+desenha é **aresta indesenhável**: o motor resolve a saída, não acha destino, grava `ARESTA_AUSENTE`
+e a conversa do cliente morre calada. Foi exatamente assim que `sem_janela` mordeu antes.
+
+A rota agora existe e **tudo nela sai de `saidasDe()`** — a mesma função que o motor usa para andar
+no fluxo. Ela não mantém uma segunda lista: separa em «fixas», «de exceção» e «de falha» subtraindo,
+de modo que divergir é impossível. A faixa amarela some porque o problema acabou, não porque alguém
+apagou o aviso — e ela continua lá, com texto novo, para o dia em que a rota não responder.
+
+### O que ficou provado
+
+- **`web/tests/ligacao.smoke.mjs`** — 15 medições da INTERAÇÃO (não da pintura): o toque arma, o
+  painel **não** abre, o nó de destino fecha a ligação, a aresta é **gravada** no servidor e volta ao
+  reabrir; o arraste liga; soltar no vazio explica; sem permissão a tela fala. **Conferido que ele
+  falha** ao reintroduzir o defeito (a linha que selecionava o nó) — teste que só sabe passar não
+  prova nada.
+- **`web/tests/ligacao-navegador.mjs`** — 30 medições em **Chromium de verdade**, em seis larguras,
+  sobre o pacote CONSTRUÍDO. É a única que enxerga geometria, e é a que pegou o defeito: com a
+  correção desfeita, ela acusa 1100, 1024 e 390 px.
+- **`tests/ragnabot-fluxo-catalogo.test.mjs`** — 9 medições da rota nova contra os executores de
+  produção, incluindo a que garante que ela nunca divergirá de `saidasDe()`.
+
+### O que continua desligado
+
+Executor de fluxo, disparo do agendamento e carteiro de webhook de saída: **nada disparou** por
+causa desta entrega. Nenhuma migração de banco — nenhum arquivo sob `app/prisma/`.
+
+---
+
 ## v1.12.00 — Uma entrada só, e a caixa escolhida pelo nome (03/09/2026)
 
 A frase que resume: **quem já está logado na plataforma de atendimento entra no painel sem digitar

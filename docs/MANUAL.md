@@ -16,6 +16,7 @@
 1. [Conexões e automações](#1-conexões-e-automações)
 1-A. [Caixas de entrada — o cadastro que o robô consulta](#1-a-caixas-de-entrada--o-cadastro-que-o-robô-consulta)
 1-B. [A caixa de atendimento — quem vê qual conversa](#1-b-a-caixa-de-atendimento--quem-vê-qual-conversa)
+1-B-2. [⭐ A mesa de trabalho — abrir, aceitar, responder e transferir](#1-b-2--a-mesa-de-trabalho--abrir-aceitar-responder-e-transferir-v11300)
 1-C. [Retrocarga — trazer para a caixa as conversas que já existiam](#1-c-retrocarga--trazer-para-a-caixa-as-conversas-que-já-existiam)
 1-D. [Agendamento de mensagens — marcar para sair na hora certa](#1-d-agendamento-de-mensagens--marcar-uma-mensagem-para-sair-na-hora-certa)
 2. [Relógios de atendimento](#2-relógios-de-atendimento)
@@ -302,6 +303,114 @@ e o servidor de verdade, incluindo a recusa por API nos dois sentidos.
 
 ---
 
+## 1-B-2. ⭐ A mesa de trabalho — abrir, aceitar, responder e transferir (v1.13.00)
+
+**O que faz.** É o que transforma a lista da seção anterior no lugar onde o atendente **trabalha**.
+Cada cartão da fila ganhou três ações — **👁 Espiar/Abrir · ✔ Aceitar · ⇄ Transferir** — e clicar no
+cartão abre o atendimento inteiro.
+
+### Abrir a conversa
+
+O histórico aparece na ordem em que aconteceu, e **cada mensagem diz por extenso quem falou**:
+*Cliente*, *Atendente* (com o nome), *Robô* ou *Nota interna*. Há separador de dia («Hoje»,
+«Ontem»), e **fotos, áudios e vídeos abrem na própria tela**; documento vira link para baixar.
+
+**O horário é sempre o de quem atende (UTC−3)**, e não o do relógio do navegador — duas pessoas
+olhando a mesma conversa leem a mesma hora.
+
+**A mídia é entregue pelo painel.** O endereço do arquivo na plataforma **nunca chega ao navegador**:
+quem o busca é o nosso servidor, com a mesma conferência de permissão da conversa, e é ele que
+entrega o arquivo.
+
+**O conteúdo não é copiado.** As mensagens são lidas ao vivo na plataforma a cada abertura; nada
+disso entra nas nossas tabelas.
+
+### ✔ Aceitar — a conversa passa a ser sua
+
+Conversa na fila (sem atendente) mostra **«Aceitar»**. Um clique e ela é sua **aqui e na
+plataforma**.
+
+**⭐ Dois atendentes clicando ao mesmo tempo: exatamente um leva.** A decisão é tomada no banco, numa
+única sentença que só grava se a conversa ainda não tiver dono — não é um `if` na tela, porque no
+horário de pico duas pessoas olham a mesma fila e clicam juntas. Quem perde **recebe o nome de quem
+levou**: *«Esta conversa já foi aceita por Ana»*. Medido com 2 e com 20 cliques simultâneos.
+
+Se a plataforma estiver fora do ar na hora, **a aceitação não é desfeita** — ela vale aqui, você já
+pode responder, e a resposta avisa que a tela da plataforma pode demorar a mostrar o mesmo. Desfazer
+entregaria a conversa ao segundo clicador enquanto a plataforma já mostra o primeiro.
+
+### 👁 Espiar — ver sem assumir
+
+Abre a conversa **em leitura**. Vale para a **fila dos setores de que você participa**; conversa que
+já está com um colega **continua invisível** (a regra da seção 1-B não muda).
+
+**Toda espiada fica na auditoria** — quem espiou, qual conversa, quando. Ver conversa de cliente é
+ato que se registra. Abrir a **sua própria** conversa não gera registro: isso é o trabalho, já
+registrado no aceite.
+
+O administrador abre qualquer conversa da empresa dele — e a espiada dele fica registrada igual.
+
+### ⛔ Escrever só se a conversa for sua
+
+Sem atribuição, **o campo de escrita não existe**: no lugar dele aparece a explicação e o botão que
+resolve.
+
+**A recusa é do servidor, não da tela.** Mandar a mensagem direto pela API, com a sua sessão, numa
+conversa que não é sua, **é recusado**. Esconder o campo no navegador não impediria nada.
+
+**O administrador também precisa aceitar para escrever.** É decisão, não esquecimento: mensagem sem
+dono é responsabilidade que se perde. O que ele tem a mais é **«Assumir para mim»** — toma a conversa
+de quem estiver com ela num clique, e **o clique fica registrado como transferência**, com o nome
+dele.
+
+Há também a **nota interna** (caixa de seleção acima do campo): fica na conversa para a equipe, e o
+cliente não recebe.
+
+### ⇄ Transferir — para outro atendente e/ou outro setor
+
+Escolha a **pessoa**, o **setor**, ou os dois. Escreva o **motivo** (vira relatório) e uma
+**observação para quem receber** (vira nota interna dentro da conversa). Pode-se **avisar o cliente**.
+
+| O que você escolhe | O que acontece |
+|---|---|
+| Só o **setor** | a conversa **volta para a fila** daquele setor — quem é membro dele já a vê em «Aguardando» |
+| Um **atendente** | ela passa a ser dele, e é ele quem a enxerga |
+| Os **dois** | setor novo e dono novo, numa operação só |
+
+**Muda quem vê na mesma hora.** Quem recebeu já responde; quem mandou deixa de ver. Não há espera:
+a visibilidade é uma condição de consulta, então mudou a linha, mudou a resposta.
+
+Quem pode transferir: o **dono** da conversa, quem **administra**, e o atendente que a vê **livre na
+fila do setor dele** (é o trabalho de triagem, e não tira nada de ninguém).
+
+Fica tudo registrado em `RagnabotAtendTransferencia`: de quem, para quem, quando, por quê, e quem
+mandou.
+
+### ⭐ O histórico da conversa transferida — a decisão, escrita
+
+A **conversa vai inteira** para o setor novo: quem recebe lê tudo o que já foi dito **dentro dela**.
+O que **não vai junto** é o histórico das **outras** conversas daquele cliente no setor de origem.
+
+É deliberado. Se o histórico seguisse a transferência, uma transferência abriria o histórico inteiro
+de outro setor — o contrário de *«os históricos devem ficar a cada setor e não global»* (seção 1-B).
+A ponte entre os dois lados é a **nota interna da transferência**, que quem recebe lê dentro da
+própria conversa.
+
+### O que ainda não tem
+
+- **Respostas rápidas pelo atalho `/`** dentro da conversa (o recurso existe, com tela própria —
+  ver 5-B; ligá-lo ao campo de escrita é trabalho separado).
+- **Atualização automática**: o histórico recarrega quando você age; mensagem nova aparece ao
+  responder ou ao reabrir.
+- **Mandar anexo** pela nossa tela (recebemos mídia; enviar arquivo ainda é pela tela do fornecedor).
+
+*Prova:* `app/tests/ragnabot-mesa-atender.test.mjs` — 54 medições contra PostgreSQL e a API de
+verdade (a corrida com vencedor único, a recusa de escrita pela API, a espiada auditada, a
+transferência que muda quem vê na hora, o histórico que não atravessa a fronteira de setor). E
+`app/web/tests/caixa.smoke.mjs` — 33 medições da tela.
+
+---
+
 ## 1-C. Retrocarga — trazer para a caixa as conversas que já existiam
 
 **O problema que ela resolve.** A caixa se enche pelo aviso da plataforma (webhook). Conversa que
@@ -551,6 +660,41 @@ pergunta sem resposta. A mesma lista foi aplicada ao campo **«Conexão»** do a
 ⚠️ **A lista é conveniência; quem recusa continua sendo o servidor.** O motor confere a caixa antes
 de gravar, venha o pedido da tela ou de quem chame a API direto. Escolher pelo nome faz errar menos;
 não é o que impede o erro.
+
+### Como ligar duas caixas (v1.12.01)
+
+Cada bloco mostra, no rodapé, um **conector por saída** — «segue», «sim», «não», «sem resposta»,
+«fora da janela de 24 h». Saída sem destino aparece escrita **«— pendente»**, e é ela que o contador
+de «erros de desenho» cobra.
+
+Ligar tem **dois caminhos, e os dois valem**:
+
+1. **Arrastar** — pressione o conector e puxe até o nó de destino. Um fio pontilhado segue o
+   ponteiro; solte em cima do nó e a ligação fecha. Soltar no vazio **não perde o gesto**: a ligação
+   continua armada e a tela diz o que fazer.
+2. **Dois toques** — toque o conector (uma faixa aparece no rodapé do quadro dizendo qual saída, de
+   qual nó) e depois toque **em qualquer parte** do nó de destino: cabeçalho, corpo ou os conectores
+   dele. `Esc`, ou um toque no vazio, cancela.
+
+⚠️ **O nó de destino precisa estar visível.** Em tela estreita ele pode estar fora do quadro — não
+existe toque num nó que não está desenhado. Por isso a faixa da ligação traz o botão **«Ver tudo»**,
+que reenquadra o fluxo inteiro **sem cancelar** a ligação em curso.
+
+**Uma saída leva a um destino só.** O banco recusa duas ligações na mesma saída, e a tela recusa
+antes, dizendo qual ligação apagar primeiro. Para apagar, toque na linha (ela fica destacada) e use
+o botão redondo que aparece no meio dela.
+
+**Quando não dá, a tela diz por quê.** Se a sua conta não administra fluxos, ou se o fluxo não tem
+rascunho no servidor, tocar o conector mostra o motivo — não fica em silêncio.
+
+> **Detalhe de bastidor que vale saber.** Quais conectores existem em cada tipo de bloco é decisão do
+> **motor**, não da tela: desde a v1.12.01 o editor pergunta isso ao servidor (`GET /catalogo`) e
+> desenha o que `saidasDe()` declarar. Se ele não conseguir perguntar, aparece uma **faixa amarela**
+> avisando que está desenhando por uma cópia local — e cópia local não conhece bloco novo. Vendo essa
+> faixa, recarregue a página; se insistir, confira no **Testador** antes de publicar.
+
+
+---
 
 ## 5-A. A portaria de entrada (o primeiro "oi")
 
