@@ -457,6 +457,45 @@ async function principal() {
     conferir('e o atendente que aceitou já pode escrever (a arbitragem é nossa, não da plataforma)',
       (await chamar('POST', '/conversas/3004/mensagens', { texto: 'oi' }, ana)).status === 200);
 
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+    secao('9. QUEM FALOU — a leitura da mensagem crua da plataforma (função pura)');
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+    // O dono pediu para ver «quem falou» em cada linha. Quem decide isso é UMA função, e ela é a
+    // mais fácil de errar do arquivo: a plataforma manda números (`message_type`) e um autor que
+    // pode ser atendente, contato — ou não existir, que é o caso do robô.
+    const { mensagemParaTela } = await import('../src/services/ragnabot-chatwoot.porta.js');
+    const casos = [
+      [{ id: 1, message_type: 0, content: 'oi', sender: { id: 9, name: 'Cliente', type: 'contact' } }, 'cliente'],
+      [{ id: 2, message_type: 1, content: 'olá', sender: { id: 11, name: 'Ana', type: 'user' } }, 'atendente'],
+      // ⭐ saída SEM autor = robô. É o que o motor manda pela API do admin.
+      [{ id: 3, message_type: 1, content: 'menu' }, 'robo'],
+      [{ id: 4, message_type: 1, content: 'nota', private: true, sender: { id: 11, name: 'Ana', type: 'user' } }, 'nota'],
+      [{ id: 5, message_type: 2, content: 'conversa resolvida' }, 'sistema'],
+      // ⚠️ o caso que a precedência errada tinha matado: saída registrada em nome do CONTATO.
+      [{ id: 6, message_type: 1, content: 'eu mesmo mandei', sender: { id: 9, name: 'Cliente', type: 'contact' } }, 'cliente'],
+    ];
+    const erradas = casos.filter(([cru, esperado]) => mensagemParaTela(cru).lado !== esperado)
+      .map(([cru, esperado]) => `#${cru.id}: esperava ${esperado}, veio ${mensagemParaTela(cru).lado}`);
+    conferir('⭐ cliente · atendente · robô · nota · sistema — os 6 casos', erradas.length === 0,
+      erradas.length ? erradas.join(' · ') : casos.map(([c, e]) => `#${c.id}=${e}`).join(' '));
+
+    // O carimbo vem em epoch de SEGUNDOS. Errar isso joga a conversa inteira para 1970 — e já foi
+    // defeito real neste arquivo, por isso a medição fica aqui e não na cabeça de ninguém.
+    const comData = mensagemParaTela({ id: 7, message_type: 0, content: 'x', created_at: 1788000000 });
+    conferir('a hora é lida como epoch em SEGUNDOS, não milissegundos (senão a conversa vai para 1970)',
+      comData.quando instanceof Date && comData.quando.getUTCFullYear() > 2020,
+      comData.quando?.toISOString());
+
+    const comAnexo = mensagemParaTela({
+      id: 8, message_type: 0, content: null,
+      attachments: [{ file_type: 'image', data_url: 'https://plataforma.interna/rails/active_storage/blobs/abc/foto.jpg', file_size: 12345 }],
+    });
+    conferir('⛔ o anexo que sai para a tela NÃO carrega o endereço da plataforma',
+      !JSON.stringify(comAnexo).includes('active_storage')
+      && !JSON.stringify(comAnexo).includes('plataforma.interna')
+      && comAnexo.anexos[0].nome === 'foto.jpg' && comAnexo.anexos[0].tipo === 'image',
+      JSON.stringify(comAnexo.anexos));
+
   } finally {
     if (servidor) await new Promise((f) => servidor.close(f));
     if (prisma) await prisma.$disconnect().catch(() => {});
