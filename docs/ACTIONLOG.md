@@ -2,6 +2,100 @@
 > LOG CANÔNICO local da construção (regra do dono, 27/08). Espelho versionado no repo:
 > `ragnatelaiot/ragnabot` → docs/ACTIONLOG.md. Sem segredos, por lei.
 
+## 2026-09-03 — S-LIGAR: dá para ligar as caixas do fluxo (v1.12.01, no ar)
+
+**Relato do dono, ao vivo:** *«não estou conseguindo criar e ligar as caixas do fluxo»* — com o
+editor aberto, dois nós («Início» e «Botões»), o painel do nó dizendo `ARESTA_AUSENTE` e a
+instrução «toque no conector e depois no nó de destino». Ele fazia exatamente isso. Bloqueio de USO
+em produção.
+
+### A causa: a tela escondia o nó que ela mandava tocar
+`tocarPino()` armava a ligação **e** chamava `setSelecionadoId(no)`. Selecionar abre o **painel de
+inspeção** — 380 px à direita, e uma gaveta de 70 % da altura abaixo de 900 px. Esse painel cobre
+exatamente onde costuma estar o nó de destino.
+
+Medido em **Chromium de verdade**, com o mesmo documento do dono (confere até nos contadores: 3
+erros de desenho e 5 avisos), perguntando *quem está sob o dedo no lugar do nó de destino*:
+
+| Largura | Antes | Depois |
+|---|---|---|
+| 1440 · 1280 px | o nó (`no_botoes`) — ligava | o nó — liga |
+| **1100 · 1024 px** | **`DIV.rgfx-lateral`** (o painel). **Não ligava** | o nó — liga |
+| 820 px (toque) | o nó — ligava | o nó — liga |
+| **390 px** | o nó estava **fora do quadro**. Não ligava | alcançável por «Ver tudo» — liga |
+
+Em qualquer janela **não maximizada** — que é como o dono usa, e foi a mesma condição do defeito da
+v1.11.01 — a tela pedia para tocar num nó que ela mesma acabara de esconder.
+
+⚠️ **jsdom não pegaria isto**: não faz layout, não há caixa, não há sobreposição. Foi preciso um
+navegador de verdade. Segundo buraco medido: **arrastar do conector até o nó não fazia NADA** — nem
+ligava, nem armava, nem avisava. É o primeiro gesto que qualquer pessoa tenta.
+
+### O que mudou
+Uma linha a menos (`setSelecionadoId`) e o painel não é desenhado enquanto há ligação armada ·
+**arraste** do conector até o nó, com fio elástico e largada por `elementFromPoint` + `data-no-id` ·
+**o nó inteiro virou alvo** (inclusive os conectores dele) · botão **«Ver tudo»** na faixa, para o
+caso de o destino estar fora do quadro · a faixa desceu para o rodapé e ficou `pointerEvents:none`
+(a tela não pode impedir o toque que ela própria pede) · o conector deixou de ser `disabled`: sem
+permissão ou sem rascunho, **a tela diz o motivo** em vez de ficar muda · nomes acessíveis nos
+botões de ícone que perdiam o rótulo em tela estreita.
+
+### `GET /catalogo` — os conectores passaram a vir do motor
+A rota **não existia** e a tela desenhava por um **espelho local**, dizendo isso numa faixa amarela.
+O espelho já tinha envelhecido: o motor tem **21 tipos** e ele conhecia **19** (faltavam `agente_ia`
+e `pagamento_pix`). Saída que o editor não desenha é **aresta indesenhável** — foi assim que
+`sem_janela` matou conversa calada. Agora **tudo sai de `saidasDe()`**, por SUBTRAÇÃO (fixas =
+todas − exceção − falha), de modo que divergir é impossível. A faixa some porque o problema acabou;
+o texto dela foi reescrito para o caso que sobrou (a rota não responder).
+
+### Provado
+`app/web/tests/ligacao.smoke.mjs` (15 medições de INTERAÇÃO em jsdom, no `npm test`) ·
+`app/web/tests/ligacao-navegador.mjs` (**30 medições em Chromium**, 6 larguras, sobre o pacote
+CONSTRUÍDO — fora do `npm test`, porque exige navegador no disco) ·
+`app/tests/ragnabot-fluxo-catalogo.test.mjs` (9 medições da rota contra os executores de produção).
+**Os dois primeiros foram conferidos MORDENDO**: com a correção desfeita, o de jsdom acusa o painel
+e o de navegador acusa 1100, 1024 e 390 px.
+
+### A imagem, fixada ao que já rodava
+`ragnabot-motor:1.12.01`, `--build-arg RAGNABOT_PREFIXO_WEB=/painel/`. ⚠️ **Três contratos paralelos
+estavam com trabalho em voo na mesma árvore** (mesa de atendimento, canal nativo, tempo real). Para
+não publicar código de terceiro pela metade, o contexto de build foi **fixado ao backend da imagem
+em produção**: conferido depois, o **único** arquivo de `src/` diferente do que já rodava é
+`ragnabot-fluxo.routes.js` (a rota do catálogo). Dentro do artefato: `VERSAO` = `1.12.01`, o índice
+pede `/painel/assets/index-OTFjWEhO.js`, zero `/assets/` cru na raiz, zero `/painel/app/`.
+Levada por SFTP aos containerds de `rgtk8s001` e `rgtk8s002` — **mesma impressão digital nos três
+pontos** (`sha256:9045a7128b44…`). Rollout **2/2, zero reinícios, zero linha de erro**;
+`ragnabot-web` e `ragnabot-worker` **não foram tocados**.
+
+### Provado DEPOIS do rollout, pela porta pública do cluster
+O índice servido pede `index-OTFjWEhO.js` · esse pacote responde **200** (492 837 bytes) e contém
+«Ver tudo», «Soltei no vazio» e `data-no-id`, e **não** contém mais «cobre os 16 tipos» ·
+`/motor-api/saude` diz **`1.12.01`** com `interface.prefixo = /painel/` · `/api/ragnabot-fluxo/catalogo`
+responde **401** (existe e pede sessão), nunca 404. ⛔ Executor de fluxo, agendamento e carteiro de
+webhook seguem **desligados**, medidos no processo. **Zero migração** — nada sob `app/prisma/`.
+
+### Backup, no líder MEDIDO NA HORA
+Líder re-medido **dentro do mesmo comando que dispara** (`SELECT NOT pg_is_in_recovery()` = `t` em
+`rgtpgtgsql001`, `f` no outro), com aborto se não fosse. Objeto
+`backup-postgres/ragnabot-completo_2026-09-03T15-50-40-273Z.sql.gz`, **94 867 bytes**, Object Lock
+**GOVERNANCE** até 13/09. Conferido por `head_object` **+** `get_object` **da chave exata** — nunca
+pela listagem. Dentro do dump: **151 tabelas** e as **3 chaves compostas** do motor.
+
+### ⚠️ O que NÃO foi provado, e a honestidade que falta
+Não abri o navegador do dono. O que medi foi um Chromium meu contra o **pacote construído**, com um
+dublê do motor. O gesto dele, na sessão dele, com a empresa dela — só ele fecha essa prova.
+**E ele precisa recarregar a página** (Ctrl+Shift+R): o pacote mudou de nome, mas uma aba aberta há
+horas continua rodando o antigo.
+
+⚠️ **Colisão de agentes, registrada porque custou tempo:** o `FluxosRagnabot.jsx` foi
+**sobrescrito no meio do trabalho** por um contrato paralelo (voltou ao estado sem o conserto) e
+depois restaurado. E `VERSAO` foi levada a `1.13.00` no disco por outro contrato **antes** desta
+publicação — a versão **no ar** é `1.12.01`, medida no processo. Por isso `VERSAO` **não** entrou
+neste commit, e os arquivos compartilhados (`VERSOES.md`) foram reconstruídos a partir do HEAD mais
+a minha única seção.
+
+---
+
 ## 2026-09-03 — S-CLAREZA: uma entrada só, e a caixa escolhida pelo nome (v1.12.00, no ar)
 
 **Relato do dono, ao vivo:** *«não entendi nada, por que tem outra autenticação para acessar esse
