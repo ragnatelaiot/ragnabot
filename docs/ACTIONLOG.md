@@ -2,6 +2,115 @@
 > LOG CANÔNICO local da construção (regra do dono, 27/08). Espelho versionado no repo:
 > `ragnatelaiot/ragnabot` → docs/ACTIONLOG.md. Sem segredos, por lei.
 
+## 2026-09-02 — S-DEPLOY-4: conexões e configurações entraram no ar (v1.10.00)
+
+Publicação do lote S6 + S7. **Nada mudou para quem conversa com a gente hoje**: o executor de fluxo
+continua em `0`, o disparo do agendamento em `0`, o carteiro do webhook de saída **desligado** e a
+plataforma segue com **zero webhooks** — os quatro medidos **no processo**, não no ConfigMap.
+
+### As duas migrações, no líder MEDIDO NA HORA
+`prisma/sql/conexoes/01-rb_conexoes_provedor_api.sql` (4 tabelas + 10 colunas) e
+`prisma/sql/configuracoes/01-rb_configuracoes.sql` (1 tabela). **Zero `DROP` executável** nos dois
+(`grep -v '^--' | grep -ci drop` = 0). Nenhum `prisma db push`.
+
+Líder no momento da escrita: **`pg133` / `172.17.20.133` / `rgtpstgsql002`**. O roteiro **re-mede o
+líder no mesmo comando que escreve** e aborta se não for. Arquivos conferidos por impressão digital
+dos dois lados (`59c9d4aa…` / `6771ded8…`, 12 221 e 6 759 bytes). Aplicados com
+`psql -v ON_ERROR_STOP=1 --single-transaction` e `SET ROLE ragnabot_app`.
+
+Medido depois: **46 → 51 tabelas**, **185 → 206 índices**, as 5 tabelas novas **todas com dono
+`ragnabot_app`**, as 10 colunas novas presentes, a retrocarga do provedor certa (WhatsApp,
+Instagram e Facebook → `meta_direto`; site → `nativo`), as **3 chaves estrangeiras compostas** do
+motor de pé com as colunas certas, e a réplica `pg132` com tudo e **lag 0**.
+
+### ⭐ A trança de escopo, provada COMPORTAMENTALMENTE no banco de produção
+Não bastou ver a restrição no catálogo. Em transação com **ROLLBACK deliberado**:
+
+1. linha da casa (`tenantId` nulo + escopo `casa`) → aceita;
+2. linha de empresa coerente → aceita;
+3. **`tenantId` da empresa A com `chaveEscopo` de outra** → recusada por
+   `RagnabotConfiguracao_escopo_coerente`. **É este o vazamento que a restrição existe para
+   impedir**: a empresa B leria e escreveria o ajuste guardado como sendo de A;
+4. empresa com escopo `casa` → recusada; 5. casa com escopo de empresa → recusada;
+6. mesma chave no mesmo escopo duas vezes → recusada pelo único `(chaveEscopo, chave)`;
+7. empresa inexistente → recusada pela chave estrangeira;
+8. **cascata**: apagar a empresa levou a configuração dela junto e **deixou a linha da casa** — que
+   é o comportamento certo, porque o whitelabel não morre com nenhum cliente.
+
+Depois do `ROLLBACK`: 0 linhas de configuração, 0 credenciais, 0 webhooks, e a empresa de volta.
+
+### A variável do operador
+`RAGNABOT_TENANT_OPERADOR` foi declarada no ConfigMap `ragnabot-motor-config` com o uuid do
+inquilino da Ragnatela, **confirmado antes de gravar** por leitura do `RagnabotTenant` no líder
+(um único inquilino, slug `ragnatela`, conta 1 na plataforma). Conferida **no processo** depois do
+rollout, e não só no ConfigMap. Sem ela, ninguém de navegador abre Whitelabel/Empresas/Planos — a
+falha é **fechada**, de propósito.
+
+### A imagem
+`ragnabot-motor:1.10.00`, construída com `--build-arg RAGNABOT_PREFIXO_WEB=/painel/` e **conferida
+dentro da própria imagem antes de subir**: o índice pede `/painel/assets/index-DbCeiY9v.js` (antes
+`index-DAnUhTht.js`) e a `VERSAO` diz `1.10.00`. Levada por SFTP aos containerds de `rgtk8s001` e
+`rgtk8s002` — **mesma impressão digital nos três pontos** (`294c09fc…` no tar,
+`sha256:7d7bbe1c…` no manifesto dos dois nós). Rollout **2/2, zero reinícios, zero linhas de erro**.
+`ragnabot-web` e `ragnabot-worker` **não foram tocados**.
+
+### ⭐ A recusa, MEDIDA EM PRODUÇÃO (não no teste)
+Três sessões de navegador emitidas **dentro do processo publicado**, pelo mesmo emissor que o login
+usa — o token **não saiu do pod** — e **encerradas nas duas réplicas** ao fim, pela rota real
+`/sessao/sair`:
+
+| Quem | `/whitelabel` · `/empresas` · `/planos` | `/quem-sou` · `/paineis` |
+|---|---|---|
+| **Operadora** (Ragnatela, `administrator`) | **200** | 200 · `operadorVia: "empresa-operadora"` |
+| Outra empresa, `administrator` | **403** `NAO_E_OPERADOR_DO_SAAS` · motivo `nao-e-a-empresa-operadora` | 200, com o **tenantId dela** |
+| Outra empresa, atendente | **403**, idem | 200, com o **tenantId dela** |
+
+Reuso depois do encerramento, nas duas réplicas: **401 `SESSAO_INVALIDA`, motivo `revogada`**.
+
+⚠️ **Registro honesto:** numa primeira rodada (com o nome do cookie errado, tudo 401) três sessões
+de medição foram emitidas e a tentativa de revogá-las **não teve efeito** — `revogarSessao()`
+importado num processo auxiliar mexe na memória DAQUELE processo, não na do servidor. Os tokens
+nunca foram escritos em disco, log ou saída, e morreram com o processo; permanecem nominalmente
+válidos até vencerem (≤ 8 h) para quem os tivesse, e ninguém os tem. A rodada seguinte passou a
+encerrar pela rota real, uma vez **por réplica** (a lista de revogadas é de memória — limite já
+documentado em `base/auth.js`).
+
+### Provado por observação
+- **De fora, pelo vhost real** (`--resolve` a partir do proxy; pelo NOC o teste mente por hairpin):
+  `/painel/conexoes` **200**, `/painel/configuracoes` **200**, e caixa, fluxos, agendamentos e
+  testador **200**; arquivo inexistente **404**; o índice servindo o **pacote novo**.
+- **As rotas novas saíram de 404 para 401** (`/api/ragnabot-conexao/…` e `/api/ragnabot-config/…`)
+  — existem e exigem sessão. **Não respondem 503**, ou seja, o cliente Prisma do processo enxerga
+  as tabelas novas.
+- **As 4 conexões na tela nova**, com canal, provedor, estado e capacidade; e a cota do plano:
+  **4 de 30 ativas (13,3%)**, discriminada por canal e por provedor (`meta_direto` 3, `nativo` 1) —
+  o mesmo número que a retrocarga da migração deixou no banco.
+- **`/saude` íntegro:** `status: "no ar"`, versão `1.10.00`, `interface.prefixo: "/painel/"`,
+  `executorFluxo.ligado:false`, `agendamento.ligado:false`,
+  `webhookSaida {ligado:false, motivo:"desligado por decisão do chefe (lote)"}`.
+- **Chatwoot intacto:** raiz **200**, `/app/login` **200**. `/motor-api/` segue **403** para quem
+  não é o NOC. Vizinhança do proxy compartilhado intacta (chat001 200 · site 200 · painel 200 ·
+  sisac 302) e `nginx -t` bom. **Nada foi tocado no nginx.**
+- **Suítes:** as 6 novas somam **184 medições, 0 reprovações**; **24 das 31 suítes `.mjs` verdes**
+  (as 7 vermelhas são todas por falta de `DATABASE_URL` neste ambiente — não regressão).
+  Interface: **160 medições, 0 reprovações**.
+
+### Backup, no líder medido na hora e conferido por LEITURA DO OBJETO
+`ragnabot-backup.py` rodado no primário (`rgtpstgsql002`, re-medido antes). Objeto
+`backup-postgres/ragnabot-completo_2026-09-03T02-11-50-175Z.sql.gz`, **88 975 bytes**, Object Lock
+**GOVERNANCE** até 13/09. Confirmado por `head_object` + `get_object` **da chave exata** — nunca
+pela listagem, que no iDrive e2 já devolveu 7 e depois 0 para o mesmo prefixo. Dentro do dump:
+as 5 tabelas novas, a restrição `RagnabotConfiguracao_escopo_coerente`, as colunas novas e as 3
+chaves compostas do motor.
+
+### 🔴 Armadilha nova, medida e registrada
+**`sudo -n` dentro de `$( )` falha nestes nós.** O carimbo do sudo é por **PPID**, e a subshell da
+substituição de comando tem PPID diferente — o cache não vale e o sudo responde «interactive
+authentication is required». O roteiro de migração **abortou dizendo que o líder não era o líder**,
+quando o problema era o sudo lendo a resposta de erro no lugar do `t`. A guarda funcionou pelo
+motivo errado, que é exatamente o tipo de verde/vermelho falso que engana na próxima. Corrigido:
+a saída vai para arquivo e é lida depois, com o `sudo` no nível de cima.
+
 ## 2026-09-02 — S-DEPLOY-3: o agendamento de mensagens entrou no ar (v1.09.00)
 
 Publicação do agendamento (contrato S4). **Nada mudou para quem conversa com a gente hoje**: o
