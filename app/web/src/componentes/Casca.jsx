@@ -20,22 +20,38 @@
 // 3. QUEM VÊ O QUÊ VEM DE `lib/navegacao.js`, e a regra está escrita lá: esconder item de menu NÃO
 //    é isolamento. Quem tranca é o servidor. Aqui só se evita tropeço.
 //
-// ⛔ O QUE ESTA CASCA NÃO FAZ, e não pode passar a fazer sem decisão do chefe: ela NÃO embute o
-//    painel do fornecedor nem injeta script nele (doc 34 §F10.5 e o incidente de 31/08, em que o
-//    remendo por JavaScript quebrou o painel duas vezes). A casca é nossa e serve as NOSSAS telas.
+// ── ⭐⭐ 02/09/2026 (contrato S-CASCA): O PAINEL PASSOU A SER UM SÓ ──────────────────────────────
+// Este bloco dizia, até hoje: «ela NÃO embute o painel do fornecedor nem injeta script nele». A
+// PRIMEIRA metade caiu — por decisão do chefe, com a medição na mão (ver `PainelDoFornecedor.jsx`):
+// as telas que ainda são do fornecedor abrem DENTRO desta casca, e o menu à esquerda é um só.
+//
+// ⛔ A SEGUNDA METADE NÃO CAIU, E NÃO CAI: **nunca injetar script no painel do fornecedor.** O
+//    remendo por JavaScript quebrou o painel DUAS VEZES em 31/08/2026. A casca ENVOLVE; ela não
+//    remenda. Nada é escrito dentro do quadro, nenhum arquivo dele é reescrito, nenhuma função
+//    dele é substituída — e nenhuma proteção dele foi desligada para o quadro caber.
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { Building2, FlaskConical, Inbox, LogOut, Menu, MessagesSquare, Workflow, X, Zap, Settings } from 'lucide-react';
+import {
+  BarChart3, Building2, CalendarClock, FlaskConical, Inbox, LogOut, Menu, MessageCircle,
+  MessagesSquare, Plug, Settings, Users, Workflow, X, Zap,
+} from 'lucide-react';
 
 import { atorAtual, empresaAtual, sair, versaoDoMotor } from '../lib/api.js';
-import { ehItemAtivo, itemPorCaminho, itensVisiveis } from '../lib/navegacao.js';
+import { ehEmbutido, ehItemAtivo, itemPorCaminho, itensVisiveis } from '../lib/navegacao.js';
 
 /** O catálogo guarda o NOME do ícone (é JavaScript puro e não pode conter JSX); a tradução para o
  *  componente mora aqui. Ícone desconhecido cai no de fluxo em vez de derrubar a tela. */
 // ⭐ 02/09/2026 (contrato S7): `Settings` entrou com a tela de Configurações. Ícone sem tela é
 // item de menu que abre o nada — a regra de `lib/navegacao.js`, repetida aqui.
-const ICONES = { Workflow, Zap, Building2, FlaskConical, Inbox, MessagesSquare, Settings };
+// ⭐ 02/09/2026 (contrato S-CASCA): entraram `MessageCircle` (Conversas), `Users` (Contatos) e
+// `BarChart3` (Relatórios), as três telas do fornecedor que passaram a abrir dentro da casca. E
+// entraram também `Plug` e `CalendarClock`, que o catálogo já pedia e este mapa não tinha — sem
+// eles, «Conexões» e «Agendamentos» desenhavam o ícone de fluxo, o do vizinho errado.
+const ICONES = {
+  Workflow, Zap, Building2, FlaskConical, Inbox, MessagesSquare, Settings,
+  MessageCircle, Users, BarChart3, Plug, CalendarClock,
+};
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 // MENU LATERAL
@@ -65,31 +81,47 @@ export function MenuLateral({ papel, operadorDoSaas = false, aberto = false, aoF
         <nav className="casca__nav">
           {itens.map((item) => {
             const Icone = ICONES[item.icone] || Workflow;
+            // ⭐ 02/09/2026 (contrato S-CASCA). O item embutido é marcado, e a marca é HONESTA: a
+            // tela é do painel de atendimento, aberta aqui dentro. Sem ela, o dia em que uma delas
+            // se comportar diferente das nossas (atalho de teclado, botão de voltar) a pessoa vai
+            // achar que o Ragnabot quebrou. Dizer de quem é a tela custa um ponto na lateral.
+            const doFornecedor = ehEmbutido(item);
             return (
               <NavLink
                 key={item.id}
                 to={item.caminho}
                 data-item={item.id}
-                title={item.apoio}
+                data-embutido={doFornecedor ? '1' : undefined}
+                title={doFornecedor ? `${item.apoio} · tela do painel de atendimento` : item.apoio}
                 onClick={aoFechar}
                 className={({ isActive }) => (isActive ? 'casca__item casca__item--ativo' : 'casca__item')}
               >
                 <Icone size={17} aria-hidden="true" />
                 <span>{item.rotulo}</span>
+                {doFornecedor && (
+                  <span className="casca__marca-embutido" title="Tela do painel de atendimento, aberta dentro do Ragnabot">
+                    {/* Texto para quem usa leitor de tela; o ponto verde é só para o olho. */}
+                    <span className="casca__so-leitor">tela do painel de atendimento</span>
+                  </span>
+                )}
               </NavLink>
             );
           })}
         </nav>
 
-        {/* Dito em voz alta, e não escondido: o menu do chat atual tem mais itens, e a pessoa vai
-            reparar na falta. Melhor ela ler o motivo aqui do que concluir que o produto perdeu
-            funcionalidade. Cada tela nova apaga uma linha desta lista. */}
+        {/* ⭐ REESCRITO EM 02/09/2026 (contrato S-CASCA). Este parágrafo dizia quais telas ainda
+            NÃO existiam aqui e por isso obrigavam a pessoa a sair para o painel de atendimento.
+            Não obrigam mais: com a casca única, elas abrem AQUI DENTRO, com este mesmo menu ao
+            lado. O que continua valendo — e é o que ele diz agora — é DE QUEM é cada tela, porque
+            é isso que explica a diferença de comportamento quando ela aparece.
+            ⚠️ Ao substituir uma tela do fornecedor pela nossa, o ponto some sozinho (é o campo
+            `embutido` do catálogo) e esta frase continua verdadeira sem ninguém mexer nela. */}
         <p className="casca__rodape-menu">
-          Configurações ainda não tem tela própria aqui — segue no painel de atendimento. Conexões
-          entrou pela metade (contratos S-CAIXAS e S6, 02/09/2026): «Caixas de entrada» CONFERE e
-          sincroniza o cadastro, «Conexões» OPERA a conexão (provedor, estado, reinício,
-          transferência e cota); criar e remover conexão, que pede segundo fator e credencial de
-          canal, continua em Empresas e no painel.
+          Os itens marcados com <span className="casca__marca-embutido casca__marca-embutido--exemplo" aria-hidden="true" /> ainda
+          são telas do painel de atendimento — abrem aqui dentro, com este menu do lado, e não
+          pedem senha de novo. Vamos substituindo uma a uma; quando isso acontece, o ponto some e
+          nada mais muda para você. Criar e remover conexão, que pede segundo fator e credencial de
+          canal, continua em Empresas e no painel de atendimento.
         </p>
       </aside>
     </>

@@ -50,6 +50,12 @@ import {
   sessaoConfigurada, emitirSessao, verificarSessao, revogarSessao,
   lerCookie, cookieDeSessao, cookieDeSaida, usuarioDaSessao, DURACAO_SESSAO_MS,
 } from './base/auth.js';
+// ⭐ 02/09/2026 (contrato S-CASCA): a sessão única. Módulo separado de propósito — é regra de
+// formato de credencial de TERCEIRO, medida no pacote dele, e merece um lugar com nome próprio
+// em vez de virar mais um punhado de linhas no meio deste arquivo.
+import {
+  cookieDaPlataforma, cookieDeSaidaDaPlataforma, credencialDoPedido,
+} from './base/plataforma-sessao.js';
 
 const router = Router();
 
@@ -131,7 +137,11 @@ async function chamarEntrada(corpo, ip) {
           + 'configure RAGNABOT_PLATAFORMA_INTERNA.'),
       503, { status: r.status, caminho: alvo.caminho });
   }
-  return { status: r.status, dados: r.data };
+  // ⭐ 02/09/2026 (contrato S-CASCA): os CABEÇALHOS passaram a sair daqui junto com o corpo. É
+  // deles que sai a credencial da plataforma (`access-token`, `client`, `uid`, …) que o navegador
+  // precisa para o painel do fornecedor abrir DENTRO da nossa casca já logado. Ver
+  // `base/plataforma-sessao.js` — inclusive a medição que prova que é assim que ele guarda sessão.
+  return { status: r.status, dados: r.data, cabecalhos: r.headers || {} };
 }
 
 /**
@@ -188,7 +198,10 @@ async function entrarNaPlataforma(email, senha, codigo, ip) {
     throw new ErroDeEntrada('PLATAFORMA_INACESSIVEL',
       'A plataforma respondeu à entrada sem dizer quem entrou.', 502);
   }
-  return u;
+  // ⭐ 02/09/2026 (contrato S-CASCA). Devolve o par, e não só o usuário: `r` aqui é a ÚLTIMA
+  // resposta da plataforma — a do segundo fator, quando houve —, que é justamente a que carrega a
+  // credencial boa. Devolver a primeira daria um `access-token` que a etapa de MFA já invalidou.
+  return { usuario: u, cabecalhos: r.cabecalhos || {} };
 }
 
 /**
@@ -298,6 +311,39 @@ async function registrar(req, dados) {
   }
 }
 
+/**
+ * Pede à plataforma que invalide o token do navegador (`DELETE /auth/sign_out`).
+ *
+ * ⭐ 02/09/2026 (contrato S-CASCA). NÃO é esperada por quem chama: a saída já aconteceu quando esta
+ * função começa. Falhar aqui não pode devolver erro para quem só quis sair — por isso o `catch`
+ * engole tudo e registra. Vai pelo caminho INTERNO do cluster, o mesmo da entrada, porque o
+ * público passa pelo guarda do "não sou robô", que um servidor não resolve.
+ */
+function encerrarNaPlataforma(credencial) {
+  const alvo = alvoDaPlataforma();
+  const cliente = axios.create({
+    baseURL: alvo.baseURL,
+    timeout: TEMPO_LIMITE_MS,
+    httpsAgent: alvo.hostname ? new https.Agent({ servername: alvo.hostname, keepAlive: false }) : undefined,
+    headers: {
+      ...(alvo.hostname ? { Host: alvo.hostname } : {}),
+      Accept: 'application/json',
+      'User-Agent': NOSSO_AGENTE,
+      ...credencial, // access-token, client, uid, expiry, token-type — os nomes são dele
+    },
+    maxRedirects: 0,
+    validateStatus: () => true,
+  });
+  cliente.delete('/auth/sign_out')
+    .then((r) => {
+      // 404/401 aqui é normal e NÃO é defeito: quer dizer que o token já não valia. Registrar como
+      // erro faria o log gritar em toda saída de quem ficou o dia inteiro com a aba aberta.
+      if (r.status >= 200 && r.status < 300) return;
+      logger.info(`[sessao] a plataforma respondeu ${r.status} à saída — o token provavelmente já não valia.`);
+    })
+    .catch((e) => logger.warn(`[sessao] não consegui encerrar a sessão na plataforma: ${e.message}`));
+}
+
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 // 3. As três rotas
 // ────────────────────────────────────────────────────────────────────────────────────────────────
@@ -337,7 +383,7 @@ router.post('/entrar', async (req, res) => {
   }
 
   try {
-    const u = await entrarNaPlataforma(email, senha, codigo, ip);
+    const { usuario: u, cabecalhos: cabecalhosDaPlataforma } = await entrarNaPlataforma(email, senha, codigo, ip);
     const { conta, papel } = escolherConta(u, contaId);
 
     const empresa = await empresaDaConta(conta.id);
@@ -356,7 +402,24 @@ router.post('/entrar', async (req, res) => {
     });
 
     esquecerFalhas(chave);
-    res.set('Set-Cookie', cookieDeSessao(token));
+
+    // ⭐ 02/09/2026 (contrato S-CASCA) — A SESSÃO ÚNICA, em duas linhas.
+    //
+    // DOIS cookies saem daqui, com papéis diferentes e nenhum enfraquecendo o outro:
+    //   · `rb_sessao`          — NOSSO. Assinado, `HttpOnly`, `SameSite=Strict`, ≤ 8 h. Continua
+    //                            exatamente como estava; nada nele mudou.
+    //   · `cw_d_session_info`  — DA PLATAFORMA, no formato que a interface DELA lê. É o que faz o
+    //                            painel do fornecedor abrir já logado dentro da nossa casca, em vez
+    //                            de pedir a senha uma segunda vez para o mesmo produto.
+    //
+    // ⚠️ O segundo pode FALTAR sem que isso seja erro de entrada: a nossa parte do produto funciona
+    // sem ele (só as telas embutidas é que pedirão login). Por isso ele é adicionado quando existe,
+    // e a ausência vira aviso no registro — nunca uma recusa de entrada. Ver `base/plataforma-sessao.js`.
+    const biscoitos = [cookieDeSessao(token)];
+    const cookiePlataforma = cookieDaPlataforma(cabecalhosDaPlataforma, { prazoPadraoMs: DURACAO_SESSAO_MS });
+    if (cookiePlataforma) biscoitos.push(cookiePlataforma);
+    else logger.warn('[sessao] a plataforma não devolveu credencial de navegador — as telas embutidas vão pedir entrada.');
+    res.set('Set-Cookie', biscoitos);
     // `no-store` para a resposta da entrada: ela descreve quem entrou; cache de proxy aqui é
     // como a identidade de um operador aparece na tela de outro.
     res.set('Cache-Control', 'no-store');
@@ -427,8 +490,20 @@ router.post('/sair', async (req, res) => {
       entityId: r.sessao.jid,
     });
   }
-  res.set('Set-Cookie', cookieDeSaida());
+  // ⭐ 02/09/2026 (contrato S-CASCA). Sair passou a sair dos DOIS lados.
+  //
+  // Sem isto, «Sair» apagaria o nosso cookie e deixaria a sessão da plataforma viva no navegador
+  // até vencer sozinha — a pessoa seguinte na mesma máquina abriria uma tela embutida e cairia
+  // dentro da conta de quem saiu. Sessão única tem de ser única também na saída.
+  //
+  // ⚠️ MELHOR ESFORÇO, e nesta ordem de propósito: primeiro APAGAMOS o cookie (o que sempre
+  // funciona e é o que protege a próxima pessoa), e só depois pedimos à plataforma que invalide o
+  // token. Se ela estiver fora do ar, a saída acontece do mesmo jeito. Uma saída que pode falhar
+  // porque um terceiro caiu é uma saída que a pessoa vai desistir de tentar.
+  const credencial = credencialDoPedido(req);
+  res.set('Set-Cookie', [cookieDeSaida(), cookieDeSaidaDaPlataforma()]);
   res.set('Cache-Control', 'no-store');
+  if (credencial) encerrarNaPlataforma(credencial);
   return res.json({ autenticado: false });
 });
 

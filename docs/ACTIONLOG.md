@@ -2,6 +2,103 @@
 > LOG CANÔNICO local da construção (regra do dono, 27/08). Espelho versionado no repo:
 > `ragnatelaiot/ragnabot` → docs/ACTIONLOG.md. Sem segredos, por lei.
 
+## 2026-09-03 — S-DEPLOY-5: o painel passou a ser UM SÓ (v1.11.00)
+
+Publicação do contrato S-CASCA. **Nada mudou para quem conversa com a gente hoje**: executor de
+fluxo `0`, disparo do agendamento `0`, carteiro do webhook de saída **desligado** e a plataforma
+com **zero webhooks** — os quatro medidos **no processo** (`/saude`) e no banco, não no ConfigMap.
+
+### ⭐ ZERO migração — a primeira publicação do produto sem tocar no banco
+`git status` não trouxe **nenhum** arquivo sob `app/prisma/` (nem `schema.prisma`, nem `sql/`).
+Nada de `prisma db push`. Confirmado antes de qualquer outra coisa.
+
+### A imagem, conferida DENTRO do artefato antes de subir
+`ragnabot-motor:1.11.00`, construída com `--build-arg RAGNABOT_PREFIXO_WEB=/painel/`. Conferido
+dentro da própria imagem: `VERSAO` = `1.11.00`; o índice pede `/painel/assets/index-BKTCtR-c.js`
+(antes `index-DbCeiY9v.js`); `src/base/plataforma-sessao.js` presente.
+
+⭐ **A armadilha do contrato anterior, medida NO PACOTE e não confiada ao código-fonte:** o
+endereço da tela do fornecedor **não pode** receber o nosso prefixo — `/painel/app/accounts/…`
+devolveria **200** com a NOSSA tela de «não encontrei» dentro do quadro (certo na rede, errado no
+olho). Medido no pacote construído: `/painel/app/` aparece **0 vez**; os três alvos saem crus —
+`/app/accounts/:conta/dashboard`, `/…/contacts`, `/…/reports/overview`.
+
+Levada por SFTP aos containerds de `rgtk8s001` e `rgtk8s002`: **mesma impressão digital nos três
+pontos** (`03a15b3d…` no tar dos dois lados, `sha256:6bec26e8…` no manifesto dos dois nós).
+Rollout **2/2, zero reinícios, zero linhas de erro** nos dois pods. `ragnabot-web` e
+`ragnabot-worker` **não foram tocados** (seguem no digest `18f280a6…`).
+
+### ⭐ A proteção que faltava — e a armadilha do `add_header` do nginx
+Medido em 02/09: o `/painel/` respondia **sem** `X-Frame-Options`. A raiz do mesmo host (painel do
+fornecedor) já respondia `SAMEORIGIN`; só a **nossa** metade estava descoberta — qualquer site de
+terceiro podia embutir a nossa casca numa moldura invisível e colher o clique de quem estivesse
+logado.
+
+Acrescentado `add_header X-Frame-Options SAMEORIGIN always;` ao `location ^~ /painel/`.
+**`SAMEORIGIN` e não `DENY`**, porque a própria casca agora embute telas do mesmo host — `DENY`
+quebraria o painel único.
+
+🔴 **ARMADILHA MEDIDA E DESVIADA:** no nginx, `add_header` do nível `server` só é herdado por um
+`location` que **não declare nenhum** `add_header` próprio. Pôr ali só o `X-Frame-Options` faria o
+`/painel/` **perder em silêncio** o `Strict-Transport-Security` e o `Permissions-Policy` das linhas
+41-42 do vhost. Trocar uma proteção por outra não é acrescentar proteção. Os **três** foram
+declarados juntos, e os três foram medidos depois do reload.
+
+Processo: respaldo **cópia real** (não symlink) em `/root/nginx-backups/bot-ragnatela.bak-xfo-…`,
+**fora** de `sites-enabled`; nenhum arquivo novo em `sites-enabled`; `nginx -t` antes de gravar,
+com restauração automática se reprovasse; `nginx -t` **de novo** imediatamente antes do
+`systemctl reload` (nunca `restart`). 116 `server_name` no proxy, nada quebrou. Fonte versionada
+atualizada em `app/deploy/nginx/bot-painel.conf`.
+
+### Provado por observação (de fora, pelo vhost real, com `--resolve`)
+- **As 13 rotas da casca respondem 200 a um F5**: `/painel/` · caixa · conversas · contatos ·
+  fluxos · testador · conexões · caixas · agendamentos · respostas-rápidas · relatórios ·
+  configurações · empresas. Arquivo inexistente **404**. O pacote **antigo** dá 404 (a casca
+  realmente trocou de artefato).
+- **Cabeçalhos de `/painel/` depois do reload:** `x-frame-options: SAMEORIGIN` **+**
+  `strict-transport-security` **+** `permissions-policy` — os três, no índice, numa rota interna e
+  num arquivo do pacote.
+- **Painel do fornecedor INTACTO acessado direto:** `/` 200 com o `SAMEORIGIN` dele, `/app/login`
+  200, `/app/accounts/1/dashboard` 200. **Nada foi tocado nele.**
+- **`/motor-api/` segue 403** para quem não é o NOC.
+- **Vizinhança do proxy compartilhado intacta:** chat001 200 · site 200 · painel 200 · sisac 302.
+- **`/saude` íntegro:** `status: "no ar"`, versão `1.11.00`, `interface.prefixo: "/painel/"`,
+  `executorFluxo.ligado:false`, `agendamento.ligado:false`,
+  `webhookSaida {ligado:false, motivo:"desligado por decisão do chefe (lote)"}`, banco `no ar`.
+- **Zero webhooks na plataforma** (`SELECT count(*) FROM webhooks` no banco `chatwoot` = **0**) e
+  fila do nosso webhook de saída vazia.
+- **Suítes:** `ragnabot-sessao-plataforma` **17/17**; interface **223 medições, 0 reprovações** em
+  11 suítes; backend **25 de 32 suítes verdes**, e as 7 restantes são todas por falta de
+  `DATABASE_URL` ou por serem E2E que só rodam com variável explícita — **não regressão**, o mesmo
+  conjunto do lote anterior.
+
+### ⚠️ O que NÃO foi provado — sem navegador não dá
+Registro honesto: **não abri navegador**, e três coisas só se provam nele.
+1. Que o quadro realmente **desenha** a tela do fornecedor dentro da casca. A rede diz 200 e o
+   `X-Frame-Options` dos dois lados é `SAMEORIGIN` (permite, mesma origem) — mas quem barra moldura
+   é o navegador, em silêncio.
+2. Que o cookie da plataforma **autentica** o quadro (entrar uma vez e o painel dele abrir logado).
+   O teste prova o **formato** contra o que a interface dele lê, medido no pacote dele; provar que
+   autentica exige entrar de verdade.
+3. Que a **saída** derruba os dois lados na prática.
+Além disso, a barra lateral do fornecedor aparece **dentro** do quadro — o menu duplo é conhecido e
+é decisão do dono; escondê-la exigiria CSS dentro do painel dele, o que a lei da casa proíbe.
+
+### Correção de um falso alarme meu, para não enganar a próxima pessoa
+Ao conferir o índice construído, um `grep` por `src="…"` acusou `/interface/configuracao.js` sem o
+prefixo. **Era texto dentro de um comentário HTML**, não uma tag — aquele script foi removido em
+30/08 (contrato S4-AUTH) e o comentário existe justamente para impedir que alguém o reponha. O
+índice tem exatamente **dois** recursos, os dois com o prefixo. Anotado porque um `grep` que lê
+comentário como código é o tipo de verde/vermelho falso que engana na próxima leitura.
+
+### Backup, no líder medido na hora e conferido por LEITURA DO OBJETO
+Líder no instante do disparo: **`rgtpstgsql002`** (re-medido dentro do mesmo comando, com aborto se
+não fosse). Objeto `backup-postgres/ragnabot-completo_2026-09-03T02-41-36-187Z.sql.gz`,
+**88 987 bytes**, Object Lock **GOVERNANCE** até 13/09. Confirmado por `head_object` **+**
+`get_object` **da chave exata** — nunca pela listagem, que no iDrive e2 já devolveu 7 e depois 0
+para o mesmo prefixo. Dentro do dump: **151 tabelas**, as **3 chaves compostas** do motor, a trança
+`RagnabotConfiguracao_escopo_coerente` e o banco da plataforma junto.
+
 ## 2026-09-02 — S-DEPLOY-4: conexões e configurações entraram no ar (v1.10.00)
 
 Publicação do lote S6 + S7. **Nada mudou para quem conversa com a gente hoje**: o executor de fluxo

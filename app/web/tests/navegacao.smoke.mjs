@@ -136,6 +136,79 @@ medir('o destino padrão é uma tela que existe no catálogo', () => {
 });
 
 // ────────────────────────────────────────────────────────────────────────────────────────────────
+// 1.b O PAINEL ÚNICO — as telas que ainda são do fornecedor (contrato S-CASCA, 02/09/2026)
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+console.log('\n1b) AS TELAS EMBUTIDAS');
+
+medir('há telas do fornecedor no catálogo, e elas se declaram como tal', () => {
+  const embutidas = nav.MENU.filter(nav.ehEmbutido);
+  assert.ok(embutidas.length >= 2, `só ${embutidas.length} tela(s) embutida(s)`);
+  for (const i of embutidas) {
+    assert.match(i.embutido.alvo, /^\/app\//u, `${i.id}: o alvo não parece caminho do fornecedor`);
+  }
+  // E o contrário: tela NOSSA não pode ter `embutido` por engano — seria a nossa tela num quadro.
+  for (const id of ['fluxos', 'caixa', 'configuracoes', 'empresas']) {
+    assert.equal(nav.ehEmbutido(nav.MENU.find((i) => i.id === id)), false, `${id} virou embutida`);
+  }
+});
+
+medir('o endereço do quadro usa a conta DA SESSÃO — e recusa inventar uma', () => {
+  const conversas = nav.MENU.find((i) => i.id === 'conversas');
+  assert.equal(nav.enderecoEmbutido(conversas, 7), '/app/accounts/7/dashboard');
+  // ⚠️ A regra que importa: chutar `1` abriria a conta de OUTRA empresa para quem por acaso
+  // tivesse acesso a ela, e daria «acesso negado» para todo o resto, sem dizer por quê.
+  for (const ruim of [null, undefined, 0, -3, '', 'abc', {}, 1.5]) {
+    assert.equal(nav.enderecoEmbutido(conversas, ruim), null, `conta ${JSON.stringify(ruim)} virou endereço`);
+  }
+  assert.equal(nav.enderecoEmbutido(nav.MENU.find((i) => i.id === 'fluxos'), 7), null,
+    'tela nossa não tem endereço embutido');
+});
+
+medir('⛔ o endereço do quadro NÃO leva o nosso prefixo (armadilha silenciosa)', () => {
+  // A interface está publicada em `/painel/`; o painel do fornecedor mora na RAIZ do mesmo host.
+  // Um endereço com o prefixo devolveria 200 e mostraria a NOSSA tela de «não encontrei» dentro do
+  // quadro: certo na rede, errado no olho, e nada apontando para a causa.
+  for (const i of nav.MENU.filter(nav.ehEmbutido)) {
+    const url = nav.enderecoEmbutido(i, 3);
+    assert.ok(url.startsWith('/app/'), `${i.id}: ${url}`);
+    assert.ok(!url.includes('/painel/'), `${i.id}: o prefixo da nossa interface vazou para o quadro`);
+  }
+});
+
+medir('a ORDEM do menu é a que o dono pediu (espelha o sistema que a empresa usa hoje)', () => {
+  const ids = nav.itensVisiveis('admin', { operadorDoSaas: true }).map((i) => i.id);
+  const posicao = (id) => ids.indexOf(id);
+  assert.equal(posicao('caixa'), 0, 'Atendimentos não é o primeiro item');
+  // Atendimentos · Fluxos · Conexões · Agendamentos · Respostas rápidas · Configurações
+  const pedida = ['caixa', 'fluxos', 'conexoes', 'agendamentos', 'respostas-rapidas', 'configuracoes'];
+  for (let k = 1; k < pedida.length; k += 1) {
+    assert.ok(posicao(pedida[k - 1]) < posicao(pedida[k]),
+      `«${pedida[k - 1]}» devia vir antes de «${pedida[k]}»`);
+  }
+});
+
+medir('⛔ A REGRA DO SaaS: o menu é o MESMO para toda empresa, menos os três painéis do operador', () => {
+  // Ordem do dono, repetida no contrato S-CASCA: «cada empresa adicional tem a mesma estrutura; as
+  // únicas configurações que não aparecem são Whitelabel, Empresas e Planos».
+  const cliente = nav.itensVisiveis('admin', { operadorDoSaas: false }).map((i) => i.id);
+  const operadora = nav.itensVisiveis('admin', { operadorDoSaas: true }).map((i) => i.id);
+  const soDaOperadora = operadora.filter((id) => !cliente.includes(id));
+  assert.deepEqual(soDaOperadora, ['empresas'],
+    `a operadora tem itens de menu além de Empresas: ${soDaOperadora.join(', ')}`);
+  // ⚠️ Whitelabel e Planos não são itens de MENU — são ABAS dentro de Configurações, e quem as
+  // esconde é o servidor (`GET /api/ragnabot-config/quem-sou` devolve só os painéis permitidos, e
+  // `base/operador-saas.js` recusa a API com 403 NAO_E_OPERADOR_DO_SAAS). Medido de verdade em
+  // `app/tests/ragnabot-configuracao-visibilidade.test.mjs`, que sobe o servidor. Aqui só se prova
+  // que o MENU não inventou item nenhum para elas.
+  for (const proibido of ['whitelabel', 'planos', 'marca']) {
+    assert.ok(!cliente.includes(proibido), `o item ${proibido} apareceu para a empresa cliente`);
+  }
+  // E o resto da estrutura é IGUAL, item por item — que é a metade da ordem que costuma ser esquecida.
+  assert.deepEqual(operadora.filter((id) => id !== 'empresas'), cliente,
+    'a empresa cliente perdeu (ou ganhou) algum item que a operadora tem');
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
 // 2. A CASCA RENDERIZADA
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 console.log('\n2) A CASCA DESENHADA (renderização do lado do servidor)');
@@ -215,14 +288,49 @@ medir('o rodapé assina o produto (doc 34 §F5.2)', () => {
   assert.match(comoAdmin, /RAGNABOT/);
 });
 
-medir('o menu DIZ o que ainda não tem tela, em vez de fingir que não existe', () => {
-  // ⭐ 02/09/2026, contrato S2: «Atendimentos» saiu desta frase porque a tela passou a existir.
-  // ⭐ 02/09/2026, contrato S6: «Conexões» também ganhou tela (a de OPERAÇÃO). A frase tem de dizer
-  // exatamente a metade que falta — dizer «não existe» com a tela no ar manda o operador procurar
-  // no lugar errado, e dizer «existe tudo» o faz abrir chamado quando não achar o botão de criar.
-  assert.match(comoAtendente, /Configurações ainda não tem tela/);
-  assert.match(comoAtendente, /Conexões entrou pela metade/);
-  assert.match(comoAtendente, /criar e remover conexão/);
+// ⭐ REESCRITA EM 02/09/2026 (contrato S-CASCA). Esta medição exigia a frase «Configurações ainda
+// não tem tela», que era verdade até o contrato S7 e virou MENTIRA quando a tela nasceu — e ficou
+// verde do mesmo jeito, porque o teste media a frase, não o fato. Agora ela mede o que continua
+// sendo verdade e é o que o rodapé precisa explicar: DE QUEM é cada tela.
+medir('o menu DIZ quais telas ainda são do fornecedor, em vez de fingir que são nossas', () => {
+  assert.match(comoAtendente, /ainda\s+são telas do painel de atendimento/u);
+  assert.match(comoAtendente, /não pedem senha de novo/);
+  // A metade que continua faltando de verdade, dita com todas as letras.
+  // (`i` porque a frase abre período no rodapé — «Criar…» com maiúscula. Casar a caixa exata só
+  //  criaria um teste que quebra quando alguém move a frase de lugar, sem nada ter piorado.)
+  assert.match(comoAtendente, /criar e remover conexão/iu);
+  // ⛔ E a frase obsoleta não pode voltar: Configurações TEM tela desde o contrato S7.
+  assert.doesNotMatch(comoAtendente, /Configurações ainda não tem tela/,
+    'o rodapé voltou a dizer que Configurações não tem tela — e ela existe');
+});
+
+medir('as telas do fornecedor vêm MARCADAS no menu desenhado (e as nossas, não)', () => {
+  // ⭐ Contrato S-CASCA. A marca é honestidade: no dia em que uma delas se comportar diferente das
+  // nossas (atalho de teclado, botão de voltar), a pessoa precisa saber de quem é a tela — senão
+  // conclui que o Ragnabot quebrou.
+  assert.match(comoAtendente, /data-item="conversas"[^>]*data-embutido="1"|data-embutido="1"[^>]*data-item="conversas"/);
+  assert.match(comoAtendente, /data-item="contatos"/);
+  const trechoFluxos = comoAtendente.slice(comoAtendente.indexOf('data-item="fluxos"'));
+  assert.ok(!trechoFluxos.slice(0, 200).includes('data-embutido'),
+    'a NOSSA tela de fluxos foi marcada como do fornecedor');
+  // E o texto para leitor de tela existe: a marca não pode ser só uma cor.
+  assert.match(comoAtendente, /tela do painel de atendimento/);
+});
+
+medir('Relatórios é do administrador — o atendente não o vê desenhado', () => {
+  assert.doesNotMatch(comoAtendente, /data-item="relatorios"/);
+  assert.match(comoAdmin, /data-item="relatorios"/);
+});
+
+medir('o menu do administrador de empresa CLIENTE traz tudo, menos Empresas', () => {
+  // ⛔ A regra do dono, desenhada: «cada empresa adicional tem a mesma estrutura; as únicas
+  // configurações que não aparecem são Whitelabel, Empresas e Planos». Aqui se mede a estrutura
+  // inteira presente — não só a ausência do item comercial, que já era medida acima.
+  for (const id of ['caixa', 'conversas', 'contatos', 'fluxos', 'testador', 'conexoes',
+    'caixas', 'agendamentos', 'respostas-rapidas', 'relatorios', 'configuracoes']) {
+    assert.match(comoAdmin, new RegExp(`data-item="${id}"`), `a empresa cliente perdeu ${id}`);
+  }
+  assert.doesNotMatch(comoAdmin, /data-item="empresas"/);
 });
 
 medir('a casca não trouxe nada do NOC pendurado', () => {

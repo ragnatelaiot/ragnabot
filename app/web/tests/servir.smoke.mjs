@@ -195,7 +195,14 @@ await medir('URL antiga de fluxo devolve a página (F5 não dá 404)', '/ragnabo
 // Quem cumpre isso é o SERVIDOR — o roteador do navegador só entra em cena depois que o índice
 // carrega. Sem o desvio-para-a-página, um F5 em `/fluxos` daria 404 e o construtor de fluxo ficaria
 // inalcançável de novo, que é exatamente a dor que este contrato existe para consertar.
-for (const rota of ['/fluxos', '/respostas-rapidas', '/empresas']) {
+// ⭐ 02/09/2026 (contrato S-CASCA): `/conversas`, `/contatos` e `/relatorios` entraram na lista.
+// São as telas que ainda são do FORNECEDOR e passaram a abrir dentro da nossa casca — o quadro é
+// que aponta para o painel dele; a ROTA continua sendo nossa, e um F5 nela tem de devolver a
+// página, como em qualquer outra. Sem esta medição, o F5 numa tela embutida cairia em 404 e o
+// diagnóstico começaria olhando para o fornecedor, que não tem nada com isso.
+for (const rota of ['/fluxos', '/respostas-rapidas', '/empresas',
+  '/caixa', '/testador', '/conexoes', '/caixas', '/agendamentos', '/configuracoes',
+  '/conversas', '/contatos', '/relatorios']) {
   await medir(`F5 em ${rota} devolve a página (não 404)`, rota, ({ status, corpo, cache }) => {
     assert.equal(status, 200);
     assert.match(corpo, /<div id="raiz">/);

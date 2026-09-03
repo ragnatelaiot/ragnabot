@@ -132,6 +132,23 @@ export function empresaAtual() {
   return sessao?.empresa || null;
 }
 
+/**
+ * A CONTA na plataforma de atendimento (`cwAccountId`) desta sessão — `null` quando não se sabe.
+ *
+ * ⭐ 02/09/2026 (contrato S-CASCA). Existe por causa das telas EMBUTIDAS: o endereço do painel do
+ * fornecedor é `/app/accounts/<conta>/…`, e esse número tem de vir da SESSÃO, nunca de um valor
+ * escrito à mão. Chutar `1` abriria a conta de outra empresa para quem por acaso tivesse acesso a
+ * ela — e um «acesso negado» para todo o resto, sem dizer por quê.
+ *
+ * ⚠️ Como tudo que sai daqui: serve para MOSTRAR e para montar endereço. Quem decide escopo é o
+ * servidor — o do fornecedor, no caso das telas dele.
+ */
+export function contaAtual() {
+  const id = sessao?.conta?.id;
+  const n = Number(id);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
 /** Versão do motor, se ele a tiver informado. `null` é dito em voz alta na tela, em vez de virar
  *  "1.00.00" por otimismo. */
 export function versaoDoMotor() {

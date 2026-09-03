@@ -62,8 +62,11 @@ import CaixasDeEntrada from './paginas/CaixasDeEntrada.jsx';
 import Conexoes from './paginas/Conexoes.jsx';
 import Configuracoes from './paginas/Configuracoes.jsx';
 import CaixaDeAtendimento from './paginas/CaixaDeAtendimento.jsx';
+// ⭐ 02/09/2026 (contrato S-CASCA): a tela genérica que abre, dentro da casca, o que ainda é do
+// fornecedor. Uma só para todas — o que muda entre elas é o item do catálogo, não o componente.
+import PainelDoFornecedor from './paginas/PainelDoFornecedor.jsx';
 import { ContextoDaSessao, PortaoDeSessao } from './paginas/Entrada.jsx';
-import { CAMINHO_PADRAO, itensVisiveis } from './lib/navegacao.js';
+import { CAMINHO_PADRAO, MENU, ehEmbutido, itensVisiveis } from './lib/navegacao.js';
 import { BASENAME, caminhoDoApp } from './lib/prefixo.js';
 import { EVENTO_SESSAO_MUDOU, atorAtual, empresaAtual, versaoDoMotor } from './lib/api.js';
 
@@ -189,6 +192,16 @@ function Miolo() {
             E as abas do OPERADOR do SaaS (marca, empresas, planos) só aparecem porque
             `GET /api/ragnabot-config/quem-sou` disse que esta conta é a operadora. */}
         <Route path="/configuracoes" element={<Configuracoes />} />
+        {/* ⭐ Contrato S-CASCA (02/09/2026) — AS TELAS QUE AINDA SÃO DO FORNECEDOR.
+            As rotas nascem do CATÁLOGO, e não uma a uma escritas à mão. É de propósito: quando
+            substituirmos uma delas pela nossa, basta tirar o `embutido` do item em
+            `lib/navegacao.js` e escrever a rota nova aqui — e não há como sobrar uma rota órfã
+            apontando para um item que já não existe.
+            ⚠️ SEM `SoAdministrador`: quem tranca o painel do fornecedor é o próprio fornecedor,
+            do lado dele. Um `if` aqui daria a impressão de trancar o que não trancamos. */}
+        {MENU.filter(ehEmbutido).map((item) => (
+          <Route key={item.id} path={item.caminho} element={<PainelDoFornecedor item={item} />} />
+        ))}
         {/* URL do tempo em que a tela morava no NOC. `servir.smoke.mjs` mede que ela devolve a
             página em vez de 404; sem esta linha ela passaria a cair no «não encontrei», que é
             quebrar a promessa por dentro depois de cumpri-la por fora. */}

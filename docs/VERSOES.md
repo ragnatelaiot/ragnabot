@@ -19,6 +19,89 @@
 
 ---
 
+## v1.11.00 — Um painel só (03/09/2026)
+
+A frase que resume: **acabou o vaivém entre dois sistemas. O Ragnabot passou a ter um menu só, e as
+telas que ainda são do fornecedor abrem dentro dele — sem pedir senha de novo.**
+
+Até ontem o mesmo endereço servia **duas interfaces diferentes**: o painel de conversas em
+`bot.ragnatela.com.br/` e o nosso em `/painel/`. Quem atendia trocava de aba o dia inteiro e entrava
+duas vezes no mesmo produto. Esta versão junta as duas numa casca só.
+
+### O que o cliente ganha
+
+**Um menu, na ordem do dia a dia.** Atendimentos · Conversas · Contatos · Fluxos · Testador ·
+Conexões · Caixas de entrada · Agendamentos · Respostas rápidas · Relatórios · Configurações — na
+ordem que espelha o sistema que a empresa usa hoje, e não a ordem em que fomos construindo.
+
+**As telas que ainda são do fornecedor abrem AQUI dentro.** Conversas, Contatos e Relatórios
+continuam sendo as telas do painel de atendimento, mas agora aparecem dentro da nossa casca, com o
+mesmo menu à esquerda. Cada uma tem um **ponto ao lado do nome no menu** dizendo, honestamente, de
+quem é aquela tela — porque no dia em que uma delas se comportar diferente das nossas, a pessoa
+precisa saber por quê, em vez de concluir que o Ragnabot quebrou.
+
+**Entrar uma vez, valer para os dois lados.** A entrada no Ragnabot passou a entregar ao navegador
+também a credencial da plataforma de atendimento — a mesma que ela entregaria se a pessoa tivesse
+digitado a senha na tela dela. Resultado: as telas embutidas abrem **já logadas**. E **sair sai dos
+dois lados**: o botão «Sair» apaga as duas sessões e ainda pede à plataforma que invalide o token.
+Sem isso, a pessoa seguinte na mesma máquina abriria uma tela embutida dentro da conta de quem saiu.
+
+### ⚠️ Quem já estava logado precisa sair e entrar uma vez
+
+A credencial da plataforma só é entregue **na entrada**. Quem estiver com a aba aberta desde ontem
+tem a nossa sessão, mas não a dela — as telas embutidas vão pedir login dentro do quadro. **Sair e
+entrar uma vez resolve**, e é preciso fazer isso só uma vez.
+
+### ⭐ A regra do SaaS, medida e não prometida
+
+**Toda empresa tem o mesmo menu.** O que a conta que vende o serviço tem a mais é exatamente um
+item: **Empresas**. Whitelabel e Planos não são itens de menu — são abas dentro de Configurações, e
+quem as esconde é o servidor. Isso deixou de ser promessa de comentário e virou medição: o teste
+compara os dois menus item por item e reprova se sobrar ou faltar qualquer coisa além de «Empresas».
+
+### ⛔ O que NÃO foi feito, de propósito
+
+- **Nada foi injetado no painel do fornecedor.** Nenhum script, nenhum estilo, nenhuma função dele
+  substituída. O remendo por JavaScript já quebrou o painel duas vezes em 31/08. A casca **envolve**;
+  ela não remenda. Por isso a barra lateral dele continua aparecendo dentro do quadro — esconder
+  exigiria mexer no que é dele, e isso é proibido. O menu duplo é decisão do dono.
+- **Nenhuma proteção do fornecedor foi afrouxada.** Ele responde `X-Frame-Options: SAMEORIGIN` e
+  isso **permite** o quadro, porque a nossa casca mora no mesmo endereço (`bot.ragnatela.com.br`).
+  Foi medido antes de escrever a primeira linha, não suposto.
+- **A casca ganhou a proteção que faltava:** `/painel/` passou a responder
+  `X-Frame-Options: SAMEORIGIN`. Antes, qualquer site de terceiro podia embutir o **nosso** painel
+  numa moldura invisível e colher clique de quem estava logado.
+
+### ⛔ Se um dia a casca mudar de endereço, tudo isto quebra junto
+
+Mover a interface para um subdomínio próprio (`painel.ragnatela.com.br`) faz o `SAMEORIGIN` do
+fornecedor **barrar** o quadro, e **todas** as telas embutidas somem de uma vez — em branco, sem
+mensagem, porque o navegador barra em silêncio. É decisão de infraestrutura, e está escrita em três
+lugares do código de propósito.
+
+### ⛔ O que sobe DESLIGADO (e continua desligado)
+
+- **Executor de fluxo** (`RAGNABOT_EXECUTOR_FLUXO=0`) — nenhuma conversa é conduzida por robô.
+- **Disparo do agendamento** (`RAGNABOT_AGENDAMENTO=0`) — agendas são cadastradas, ninguém as envia.
+- **Carteiro do webhook de saída** — a fila existe e é gravada; **nada sai** até alguém ligar.
+- **Nenhum webhook cadastrado** na plataforma de atendimento.
+
+### O que mudou por baixo
+
+- **Zero mudança no banco.** Nenhuma tabela, nenhuma coluna, nenhuma migração — é a primeira versão
+  do produto que entra no ar sem tocar no schema.
+- **`src/base/plataforma-sessao.js`**, peça nova e isolada: sabe ler a credencial da resposta da
+  plataforma e devolvê-la ao navegador no formato que a interface dela lê. Guarda **só as cinco
+  chaves** que ela usa, e não a resposta inteira — cookie legível por JavaScript é o pior lugar do
+  mundo para carregar cabeçalho que ninguém pediu.
+- **`web/src/paginas/PainelDoFornecedor.jsx`**, uma tela genérica para todas as embutidas: o que
+  muda entre elas é o item do catálogo, não o componente. Quando substituirmos uma pela nossa, some
+  um campo do catálogo e o menu continua igual.
+- **As rotas embutidas nascem do catálogo**, e não escritas uma a uma — não há como sobrar rota órfã
+  apontando para um item que deixou de existir.
+
+---
+
 ## v1.10.00 — Onde o cliente fala, e como o atendimento se comporta (02/09/2026)
 
 A frase que resume: **duas telas que faltavam para o Ragnabot deixar de ser «o que a gente

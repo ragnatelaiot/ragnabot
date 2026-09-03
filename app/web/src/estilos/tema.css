@@ -405,3 +405,123 @@ a:hover { text-decoration: underline; }
 /* Quem pede menos movimento não ganha a animação da gaveta — a regra global de `prefers-reduced-
    motion` já zera a transição; esta linha existe para deixar claro que a gaveta continua ABRINDO,
    só que instantaneamente. Menu que não abre é pior que menu que abre sem animação. */
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+   TELAS DO FORNECEDOR ABERTAS DENTRO DA CASCA (contrato S-CASCA, 02/09/2026)
+
+   O que estas regras vestem é o `PainelDoFornecedor.jsx`: uma barrinha nossa em cima e, embaixo, o
+   quadro com a tela do painel de atendimento. NADA aqui entra dentro do quadro — o conteúdo dele é
+   dele, e a lei do contrato proíbe tocar. A casca envolve; ela não remenda.
+
+   ⚠️ AS DUAS ARMADILHAS DESTE BLOCO, medidas contra as regras da casca logo acima:
+
+   1. O QUADRO PRECISA DE ALTURA EXPLÍCITA. `<iframe>` sem altura desenha os ~150 px do padrão do
+      navegador — a tela do fornecedor abriria numa fatia, e o sintoma («o painel abriu cortado»)
+      não aponta para folha de estilo. A conta é `100vh` menos o cabeçalho da casca, o respiro da
+      página, a nossa barrinha e o rodapé; é uma ESTIMATIVA, e por isso vem com `min-height` — se a
+      conta errar em alguma largura, a tela fica menor do que podia, nunca ilegível.
+
+   2. `overflow` fica em `visible`, como no resto da coluna. É a armadilha nº 2 já documentada na
+      seção da casca: um container de rolagem aqui soltaria a `CapaSecao` das outras telas da
+      janela. O quadro rola por dentro, sozinho — não precisamos de rolagem nossa nenhuma.
+   ════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+.embutido {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  height: calc(100vh - 11.5rem);
+  min-height: 420px;
+}
+
+.embutido__barra {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.embutido__origem {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-right: auto;
+}
+
+.embutido__aviso {
+  margin: 0;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border-secondary);
+  border-left: 3px solid var(--primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+}
+
+/* `min-height: 0` porque este é um filho de flex: sem ele o `flex: 1` não consegue ENCOLHER e o
+   quadro empurra a página para baixo em telas baixas. É a mesma defesa do `minmax(0, 1fr)` da
+   grade da casca, dita para o outro eixo. */
+.embutido__moldura {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  /* `hidden` aqui é SEGURO e necessário: recorta os cantos do quadro. Não cria rolagem, porque o
+     filho tem exatamente 100% — e este elemento não é ancestral de nenhuma `CapaSecao`. */
+  overflow: hidden;
+}
+
+.embutido__quadro {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+/* A espera fica POR CIMA do quadro, e some no `onLoad`. Sem ela, o quadro branco durante o
+   carregamento parece tela quebrada — e a primeira impressão de tela quebrada não se desfaz. */
+.embutido__espera {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  pointer-events: none;   /* não pode roubar o clique de quem já vê a tela desenhada por baixo */
+}
+
+/* O ponto que marca, no menu, a tela que ainda é do fornecedor. Some sozinho no dia em que a tela
+   virar nossa (é o campo `embutido` do catálogo que o acende). */
+.casca__marca-embutido {
+  width: 6px;
+  height: 6px;
+  margin-left: auto;
+  border-radius: var(--radius-full);
+  background: var(--text-muted);
+  flex: none;
+}
+.casca__item--ativo .casca__marca-embutido { background: var(--primary); }
+
+/* O mesmo ponto usado como EXEMPLO dentro do parágrafo do rodapé do menu. `inline-block` porque ali
+   ele está no meio de uma frase, não numa linha de menu. */
+.casca__marca-embutido--exemplo {
+  display: inline-block;
+  margin: 0 2px;
+  vertical-align: middle;
+}
+
+/* Texto só para leitor de tela. O ponto verde é informação, e informação que só existe em cor é
+   informação que uma parte das pessoas não recebe. */
+.casca__so-leitor {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

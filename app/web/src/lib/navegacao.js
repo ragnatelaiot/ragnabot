@@ -25,6 +25,22 @@
 // menu só DEPOIS disso, que é a regra deste arquivo.)
 // (Atendimentos saiu desta lista em 02/09/2026: a tela passou a existir — ver o item `caixa`.)
 //
+// ── ⭐⭐ 02/09/2026 (contrato S-CASCA) — O PAINEL PASSOU A SER UM SÓ ─────────────────────────────
+// Até hoje havia DUAS interfaces no mesmo endereço: a do fornecedor em `bot.ragnatela.com.br/` e a
+// nossa em `/painel/`. Degrau, não destino (doc 34, Fase 10). Agora o catálogo aceita itens
+// EMBUTIDOS: a tela é do fornecedor, mas abre DENTRO da nossa casca, com o mesmo menu à esquerda.
+// Conforme trocarmos tela por tela, o item perde o `embutido` e passa a apontar para a nossa — e o
+// menu não muda, nem a URL, nem o que a pessoa aprendeu.
+//
+// ⚠️ A MEDIÇÃO QUE AUTORIZA ISSO (02/09/2026, feita antes de escrever uma linha): o painel do
+// fornecedor responde `X-Frame-Options: SAMEORIGIN` e NENHUM `Content-Security-Policy`. Ou seja:
+// ele aceita ser embutido POR PÁGINA DA MESMA ORIGEM — e a nossa casca é da mesma origem, porque
+// mora em `bot.ragnatela.com.br/painel/`. Nada foi desligado nele para isso caber.
+// ⛔ CONSEQUÊNCIA QUE VALE UM AVISO: se um dia a casca mudar para um subdomínio próprio
+// (`painel.ragnatela.com.br`), o `SAMEORIGIN` passa a BARRAR o quadro e todas as telas embutidas
+// somem de uma vez. Isso é decisão de infraestrutura, não de código — e o código não tem como
+// contornar sem afrouxar a proteção do fornecedor, o que o contrato proíbe.
+//
 // ⭐ 02/09/2026 (contrato S3.1): entrou `testador`. Ele é a prova de que a promessa acima vale nos
 // dois sentidos — o MOTOR do testador já existia desde 28/08 (`POST /fluxos/:id/testar`), e o item
 // só nasceu no menu quando a tela passou a existir. Item de menu vem DEPOIS da tela, nunca antes.
@@ -42,6 +58,14 @@ export const PAPEIS = Object.freeze(['admin', 'user']);
  * O catálogo. A ORDEM é a ordem do menu, e ela espelha o chat atual: primeiro o que o atendente
  * usa todo dia, depois o que o administrador configura de vez em quando.
  *
+ * ⭐ ORDEM REVISTA EM 02/09/2026 (contrato S-CASCA), por ordem do dono, para espelhar o sistema que
+ * a empresa usa hoje: Atendimentos · Fluxos · Conexões · Agendamentos · Respostas rápidas ·
+ * Configurações. As telas que não estavam nessa lista foram encaixadas ao lado da vizinha de mesmo
+ * assunto (Conversas e Contatos junto de Atendimentos; Testador junto de Fluxos; Caixas de entrada
+ * junto de Conexões; Relatórios antes de Configurações). ⚠️ Ao mexer nesta ordem, conferir os
+ * comentários «fica ao lado de…» dos itens — comentário que descreve uma vizinhança que deixou de
+ * existir é pior que comentário nenhum, porque manda a próxima pessoa procurar no lugar errado.
+ *
  * campos:
  *   id       chave estável (usada no teste e na marcação `data-item` do menu)
  *   rotulo   o que aparece — em português, sempre
@@ -49,6 +73,10 @@ export const PAPEIS = Object.freeze(['admin', 'user']);
  *   papeis   quem VÊ o item. `null` = todo mundo que estiver logado
  *   icone    nome do ícone do `lucide-react`, resolvido no componente (aqui não há JSX)
  *   apoio    a linha de explicação do menu recolhido/título acessível
+ *   embutido ⭐ (S-CASCA) quando presente, a tela é DO FORNECEDOR e abre num quadro dentro da nossa
+ *            casca. `{ alvo }` é o caminho DELE, na RAIZ do host — nunca sob o nosso prefixo.
+ *            Ausente = a tela é nossa. É o único campo que distingue as duas coisas, e é o que
+ *            some quando substituirmos a tela: um campo a menos, e o menu segue igual.
  */
 export const MENU = Object.freeze([
   {
@@ -67,20 +95,40 @@ export const MENU = Object.freeze([
     apoio: 'A sua fila: abertas, resolvidos e grupos',
   },
   {
+    // ⭐ 02/09/2026 (contrato S-CASCA). PRIMEIRA tela EMBUTIDA, e logo depois de «Atendimentos»
+    // porque é a dupla natural: lá se OLHA a fila, aqui se RESPONDE o cliente. A nossa caixa é de
+    // leitura; responder ainda é do painel do fornecedor, e fingir o contrário mandaria o atendente
+    // procurar um botão que não existe.
+    //
+    // ⚠️ `:conta` é resolvido em `enderecoEmbutido()` com o número da conta DA SESSÃO — nunca com
+    // um número escrito à mão. O painel do fornecedor tranca por conta do lado dele; o que se evita
+    // aqui é a tela abrir num «você não tem acesso a esta conta» que ninguém liga ao menu.
+    id: 'conversas',
+    rotulo: 'Conversas',
+    caminho: '/conversas',
+    papeis: null,
+    icone: 'MessageCircle',
+    apoio: 'Responder o cliente — o painel de atendimento, dentro desta tela',
+    embutido: { alvo: '/app/accounts/:conta/dashboard' },
+  },
+  {
+    // ⭐ 02/09/2026 (contrato S-CASCA). Tela do fornecedor, embutida. Quando existir a nossa, esta
+    // linha perde o `embutido` e ganha o caminho da nossa — o menu não muda de lugar nem de nome.
+    id: 'contatos',
+    rotulo: 'Contatos',
+    caminho: '/contatos',
+    papeis: null,
+    icone: 'Users',
+    apoio: 'A agenda de quem já falou com a empresa',
+    embutido: { alvo: '/app/accounts/:conta/contacts' },
+  },
+  {
     id: 'fluxos',
     rotulo: 'Fluxos',
     caminho: '/fluxos',
     papeis: null,
     icone: 'Workflow',
     apoio: 'Desenhar e publicar o atendimento automático',
-  },
-  {
-    id: 'respostas-rapidas',
-    rotulo: 'Respostas rápidas',
-    caminho: '/respostas-rapidas',
-    papeis: null,
-    icone: 'Zap',
-    apoio: 'Os atalhos de texto que a equipe repete o dia inteiro',
   },
   {
     id: 'testador',
@@ -91,16 +139,20 @@ export const MENU = Object.freeze([
     apoio: 'Conversar com o fluxo antes de qualquer cliente conversar com ele',
   },
   {
-    // ⭐ 02/09/2026 (contrato S4). Fica logo abaixo das respostas rápidas porque é do mesmo tipo de
-    // trabalho — preparar o que a equipe vai dizer —, e `papeis: null` porque quem agenda uma
-    // mensagem é o atendente ou o supervisor, não só o administrador. E, como sempre neste arquivo:
-    // isto NÃO é a trava. O servidor é que decide o que cada um vê (`escopoDe`, no serviço).
-    id: 'agendamentos',
-    rotulo: 'Agendamentos',
-    caminho: '/agendamentos',
-    papeis: null,
-    icone: 'CalendarClock',
-    apoio: 'Mensagens marcadas para sair na hora certa, uma vez ou repetindo',
+    // ⭐ 02/09/2026 (contrato S6, doc 34 §F9.2.3). Fica COLADO em «Caixas de entrada» porque é o
+    // mesmo assunto visto de outro ângulo: aqui se OPERA a conexão (provedor, estado, reinício,
+    // transferência, cota), ali se CONFERE o cadastro contra a plataforma.
+    // (A ordem das duas inverteu-se em 02/09/2026, contrato S-CASCA — ver a nota de ORDEM no topo
+    // da lista. O que importa é que continuem vizinhas: quem procura uma vai achar a outra.)
+    // `papeis: ['admin']` porque
+    // é operação de conexão — e, como sempre neste arquivo, ISTO NÃO É A TRAVA: quem recusa é o
+    // servidor (`ragnabot-conexao.routes.js`, `exigirAdmin` em tudo que muda o mundo).
+    id: 'conexoes',
+    rotulo: 'Conexões',
+    caminho: '/conexoes',
+    papeis: ['admin'],
+    icone: 'Plug',
+    apoio: 'Por onde o cliente fala: canal, quem opera, como está e quanto do plano já foi usado',
   },
   {
     id: 'caixas',
@@ -114,17 +166,41 @@ export const MENU = Object.freeze([
     apoio: 'Conferir as conexões que o robô conhece, e acertá-las com a plataforma',
   },
   {
-    // ⭐ 02/09/2026 (contrato S6, doc 34 §F9.2.3). Fica logo ABAIXO de «Caixas de entrada» porque é
-    // o mesmo assunto visto de outro ângulo: lá se CONFERE o cadastro contra a plataforma, aqui se
-    // OPERA a conexão (provedor, estado, reinício, transferência, cota). `papeis: ['admin']` porque
-    // é operação de conexão — e, como sempre neste arquivo, ISTO NÃO É A TRAVA: quem recusa é o
-    // servidor (`ragnabot-conexao.routes.js`, `exigirAdmin` em tudo que muda o mundo).
-    id: 'conexoes',
-    rotulo: 'Conexões',
-    caminho: '/conexoes',
+    // ⭐ 02/09/2026 (contrato S4). Fica colado em «Respostas rápidas» porque é do mesmo tipo de
+    // trabalho — preparar o que a equipe vai dizer. (Passou a vir ANTES dela em 02/09/2026, contrato
+    // S-CASCA, para a ordem espelhar o sistema que a empresa usa hoje — ver a nota no topo da lista.)
+    // `papeis: null` porque quem agenda uma
+    // mensagem é o atendente ou o supervisor, não só o administrador. E, como sempre neste arquivo:
+    // isto NÃO é a trava. O servidor é que decide o que cada um vê (`escopoDe`, no serviço).
+    id: 'agendamentos',
+    rotulo: 'Agendamentos',
+    caminho: '/agendamentos',
+    papeis: null,
+    icone: 'CalendarClock',
+    apoio: 'Mensagens marcadas para sair na hora certa, uma vez ou repetindo',
+  },
+  {
+    id: 'respostas-rapidas',
+    rotulo: 'Respostas rápidas',
+    caminho: '/respostas-rapidas',
+    papeis: null,
+    icone: 'Zap',
+    apoio: 'Os atalhos de texto que a equipe repete o dia inteiro',
+  },
+  {
+    // ⭐ 02/09/2026 (contrato S-CASCA). Tela do fornecedor, embutida.
+    //
+    // `papeis: ['admin']` porque é a MESMA regra que o fornecedor já aplica no menu dele — relatório
+    // é de quem administra a conta. E vale, como sempre neste arquivo, a regra do topo: ISTO NÃO É
+    // A TRAVA. Quem recusa é o painel dele, do lado dele; um atendente que digitar a URL do
+    // relatório na mão vai bater na recusa DELE, não na ausência deste item.
+    id: 'relatorios',
+    rotulo: 'Relatórios',
+    caminho: '/relatorios',
     papeis: ['admin'],
-    icone: 'Plug',
-    apoio: 'Por onde o cliente fala: canal, quem opera, como está e quanto do plano já foi usado',
+    icone: 'BarChart3',
+    apoio: 'Números do atendimento: volume, tempo de resposta e resolução',
+    embutido: { alvo: '/app/accounts/:conta/reports/overview' },
   },
   {
     // ⭐ 02/09/2026 (contrato S7, doc 34 §F8). Última do menu porque é o que se abre de vez em
@@ -188,6 +264,42 @@ export function itensVisiveis(papel, contexto = {}) {
     if (item.somenteOperadorDoSaas && !operador) return false;
     return true;
   });
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// TELAS EMBUTIDAS — as que ainda são do fornecedor (contrato S-CASCA, 02/09/2026)
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+/** Este item abre uma tela do fornecedor dentro da casca? */
+export function ehEmbutido(item) {
+  return Boolean(item && item.embutido && typeof item.embutido.alvo === 'string');
+}
+
+/**
+ * O endereço que vai no quadro (`<iframe src>`) — o caminho DO FORNECEDOR, resolvido com a conta
+ * desta sessão.
+ *
+ * ⛔ REPARE NO QUE ESTA FUNÇÃO **NÃO** FAZ: ela NÃO chama `caminhoDoApp()`. É a armadilha número um
+ * deste arquivo, e ela é silenciosa. A nossa interface está publicada sob `/painel/`, então todo
+ * caminho nosso nasce com esse prefixo; o painel do fornecedor mora na RAIZ do mesmo host. Passar
+ * o alvo por `caminhoDoApp()` produziria `/painel/app/accounts/1/dashboard` — endereço que existe
+ * (o desvio-para-a-página devolve 200) e mostra a NOSSA tela de «não encontrei» dentro do quadro.
+ * Ou seja: 200 na rede, tela errada no olho, e nada apontando para cá.
+ *
+ * @param {object} item      item do catálogo
+ * @param {number|string|null} contaId  a conta na plataforma (`cwAccountId`), vinda da SESSÃO
+ * @returns {string|null} o caminho absoluto, ou `null` quando não dá para montar
+ */
+export function enderecoEmbutido(item, contaId) {
+  if (!ehEmbutido(item)) return null;
+  const alvo = item.embutido.alvo;
+  if (!alvo.includes(':conta')) return alvo;
+
+  // Sem conta não se inventa uma. Chutar `1` abriria a conta de OUTRA empresa para quem por acaso
+  // tivesse acesso a ela — e daria «acesso negado» para todo o resto, sem dizer por quê.
+  const n = Number(contaId);
+  if (!Number.isInteger(n) || n <= 0) return null;
+  return alvo.replace(':conta', String(n));
 }
 
 /** O item cujo caminho é este — ou `null`. Usado para o título da aba e para a marcação de ativo. */

@@ -5,7 +5,7 @@
 > código). Quando uma versão nova entra em `VERSOES.md`, a função correspondente entra ou muda aqui —
 > os dois arquivos andam juntos.
 >
-> Estado coberto: **v1.10.00**. O que ainda não existe está marcado _(planejado)_ e aponta o item
+> Estado coberto: **v1.11.00**. O que ainda não existe está marcado _(planejado)_ e aponta o item
 > do `docs/32-PLANO-DE-EXECUCAO.md`.
 
 ---
@@ -42,25 +42,53 @@
 
 **O que faz.** Dá o caminho para a tela onde se constrói o atendimento automático.
 
-**Como o operador usa.** Abre no navegador:
+**Como o operador usa.** Abre no navegador, e é **este o único endereço que a equipe precisa saber**:
 
 ```
 https://bot.ragnatela.com.br/painel/
 ```
 
 Pede e-mail e senha — **a mesma conta da plataforma de atendimento**, sem senha nova (§7-A). Depois
-de entrar, cai direto no construtor de fluxos.
+de entrar, cai direto na fila de **Atendimentos**, com o menu completo à esquerda.
 
-⚠️ **Não confundir com o painel de atendimento.** O mesmo domínio serve duas coisas diferentes:
+### ⭐ Desde a v1.11.00 o painel é UM SÓ
+
+Até a v1.10.00 havia **duas interfaces** no mesmo domínio, e a equipe trocava de aba o dia inteiro.
+Agora não: **Conversas, Contatos e Relatórios abrem dentro desta mesma casca**, com este mesmo menu
+ao lado. Elas continuam sendo **telas do painel de atendimento** (do fornecedor) — a diferença é que
+não se sai mais daqui para chegar nelas, e elas **não pedem senha outra vez**.
+
+No menu, essas telas vêm com um **ponto ao lado do nome**. O ponto quer dizer: *«esta tela ainda é do
+painel de atendimento»*. Serve para você saber de quem é a tela quando ela se comportar diferente
+das nossas (um atalho de teclado, o botão de voltar). Conforme substituirmos cada uma pela nossa
+versão, o ponto some sozinho — e nada mais muda: mesmo lugar no menu, mesmo nome, mesmo endereço.
+
+⚠️ **Dentro do quadro aparece também a barra lateral do fornecedor**, e por isso você vê dois menus.
+É de propósito: escondê-la exigiria mexer por dentro do painel dele, o que é **proibido** pela regra
+da casa (o remendo por JavaScript já quebrou aquele painel duas vezes, em 31/08/2026). Preferimos o
+menu duplo a um painel quebrado.
+
+### ⚠️ Quem já estava logado precisa SAIR e ENTRAR uma vez
+
+A credencial da plataforma de atendimento é entregue ao navegador **no momento da entrada**. Quem
+estava com a aba aberta desde antes desta versão tem a nossa sessão, mas não a dela: ao abrir
+Conversas, Contatos ou Relatórios, vai ver a **tela de login do fornecedor dentro do quadro**.
+
+**Sair e entrar de novo resolve**, e só é preciso fazer isso **uma vez**. A própria tela avisa,
+quando isso acontece, em vez de deixar você adivinhar.
+
+⚠️ **O que ainda existe em separado.** O mesmo domínio continua servindo três coisas:
 
 | Endereço | O que é | Para quem |
 |---|---|---|
-| `bot.ragnatela.com.br/` | painel de **conversas** (atender cliente, ver a caixa de entrada) | a equipe de atendimento |
-| `bot.ragnatela.com.br/painel/` | painel do **Ragnabot** (fluxos, testador, respostas rápidas, caixas) | quem configura o robô |
+| `bot.ragnatela.com.br/painel/` | **o Ragnabot** — o painel único, com tudo dentro | toda a equipe |
+| `bot.ragnatela.com.br/` | painel de conversas do fornecedor, **acessado direto** | segue funcionando, intacto, para quem preferir |
 | `bot.ragnatela.com.br/motor-api/` | porta de **serviço** do console de operação (NOC) | ninguém, pelo navegador |
 
-A terceira linha é fechada por endereço de origem no proxy: só o NOC passa. **Publicar o painel não
-abriu essa porta** — são duas entradas, com duas travas diferentes, de propósito.
+A segunda linha **não foi tocada**: o painel do fornecedor continua exatamente como estava, e quem
+tem o hábito de abri-lo direto pode continuar. A terceira é fechada por endereço de origem no proxy:
+só o NOC passa. **Publicar o painel não abriu essa porta** — são entradas diferentes, com travas
+diferentes, de propósito.
 
 **Como funciona por dentro (e a armadilha que isto evita).** O caminho `/painel/` é *declarado na
 construção do pacote*, não configurado no proxy. Motivo: a tela pede os arquivos dela por caminho
@@ -87,19 +115,30 @@ antes de acreditar que uma publicação deu certo.
 botão de sair. Antes disto a interface era **uma página só** — o construtor de fluxo existia e
 ninguém chegava nele, porque não havia caminho.
 
-**Como o operador usa.** Entra com a conta da plataforma e cai direto em **Fluxos**. No menu:
+**Como o operador usa.** Entra com a conta da plataforma e cai direto em **Atendimentos**. No menu:
+
+A ordem abaixo é a ordem do menu, e ela **espelha o sistema que a empresa usa hoje** — não a ordem
+em que fomos construindo. As linhas marcadas com **·** são as telas que ainda são do fornecedor e
+abrem dentro da casca (§0).
 
 | Item | Para quê | Quem vê |
 |---|---|---|
 | **Atendimentos** | a sua fila: abertas, resolvidos e grupos | todos |
+| **Conversas** · | responder o cliente — a tela do painel de atendimento, aqui dentro | todos |
+| **Contatos** · | a agenda de quem já falou com a empresa | todos |
 | **Fluxos** | desenhar e publicar o atendimento automático | todos |
-| **Respostas rápidas** | os atalhos de texto que a equipe repete o dia inteiro | todos |
 | **Testador de fluxo** | conversar com o fluxo antes de qualquer cliente | todos |
-| **Agendamentos** | mensagens marcadas para sair na hora certa, uma vez ou repetindo (**o disparo ainda está desligado** — ver §1-D) | todos |
-| **Caixas de entrada** | conferir as conexões que o robô conhece e acertá-las com a plataforma | administrador |
 | **Conexões** | operar a conexão: quem opera, como está, quanto do plano já foi usado, transferir (§6-A) | administrador |
+| **Caixas de entrada** | conferir as conexões que o robô conhece e acertá-las com a plataforma | administrador |
+| **Agendamentos** | mensagens marcadas para sair na hora certa, uma vez ou repetindo (**o disparo ainda está desligado** — ver §1-D) | todos |
+| **Respostas rápidas** | os atalhos de texto que a equipe repete o dia inteiro | todos |
+| **Relatórios** · | números do atendimento: volume, tempo de resposta e resolução | administrador |
 | **Configurações** | como o atendimento se comporta — dez painéis de ajuste, por empresa (§6-C) | todos leem; **só administrador altera** |
 | **Empresas** | cadastro comercial de quem contrata (é tela de operador do SaaS) | ⛔ **só a conta que opera o SaaS** |
+
+⭐ **A regra do SaaS, em uma linha:** toda empresa tem **o mesmo menu**. A conta que vende o serviço
+tem a mais exatamente **um** item — «Empresas». Whitelabel e Planos não são itens de menu: são abas
+dentro de Configurações, e quem as esconde é o servidor (§6-C).
 
 O menu recolhe no botão do canto (fica só o ícone) e a escolha é lembrada no navegador. Os itens são
 **links de verdade**: abrem em nova aba, o endereço pode ser copiado e o botão "voltar" funciona.
@@ -111,6 +150,22 @@ quem tranca é o servidor, e o teste que vale é a API recusando, não o botão 
 ⚠️ **Onde a interface está pendurada é uma declaração, não um palpite.** O pacote é construído com o
 caminho em que vai morar (desde a v1.07.00, **`/painel/`** — ver §0). Mudar esse caminho exige
 **construir a imagem de novo**; não basta mexer no proxy.
+
+⚠️ **O endereço das telas embutidas NÃO leva o nosso prefixo.** A nossa interface mora em `/painel/`;
+o painel do fornecedor mora na **raiz** do mesmo endereço. Um quadro apontando para
+`/painel/app/accounts/…` responderia **200** e mostraria a **nossa** tela de «não encontrei» lá
+dentro — certo na rede, errado no olho, e sem nada apontando para a causa. Há uma medição só para
+isso, que reprova se o prefixo vazar para o quadro.
+
+⛔ **Mover a casca para um subdomínio próprio quebraria todas as telas embutidas de uma vez.** O
+painel do fornecedor responde `X-Frame-Options: SAMEORIGIN`: ele aceita ser embutido por páginas do
+**mesmo endereço**, e é por isso que isto funciona hoje. Em `painel.ragnatela.com.br` o navegador
+passaria a barrar o quadro **em silêncio** — tela em branco, sem mensagem. É decisão de
+infraestrutura, não de código.
+
+🔒 **A nossa casca também passou a se proteger.** Desde a v1.11.00 o `/painel/` responde
+`X-Frame-Options: SAMEORIGIN`. Antes, um site de terceiro podia embutir o **nosso** painel numa
+moldura invisível e colher o clique de quem estivesse logado.
 
 ---
 
@@ -901,11 +956,43 @@ etapa nunca chega ao navegador: nasce e morre dentro do motor.
 *Atendente* entra, mas com alcance de leitura do que é dele. **Nenhum dos dois** mexe em cobrança
 nem cria/exclui empresa — isso é operação da Ragnatela, feita pelo NOC, e continua trancada.
 
+### ⭐ Desde a v1.11.00: uma entrada, duas sessões
+
+Como as telas de Conversas, Contatos e Relatórios abrem **dentro** da nossa casca (§0), a entrada
+passou a devolver ao navegador **dois** cookies, com papéis diferentes:
+
+| Cookie | De quem | Como é |
+|---|---|---|
+| `rb_sessao` | **nosso** | assinado, `HttpOnly`, `SameSite=Strict`, ≤ 8 h — **nada nele mudou** |
+| `cw_d_session_info` | **da plataforma de atendimento** | no formato que a interface dela lê, com a validade que **ela** definiu |
+
+O segundo é exatamente o que a plataforma gravaria se a pessoa tivesse digitado a senha na tela
+dela: mesmo nome, mesmo formato, mesma validade. **Nada foi afrouxado** — o valor só existe depois
+de ela ter conferido a senha (e o segundo fator, quando há). Nós não emitimos credencial nenhuma:
+repassamos a que ela acabou de emitir, para a mesma pessoa, no mesmo navegador.
+
+⚠️ Esse segundo cookie **não** é `HttpOnly`, e isso é decisão consciente, não esquecimento: é o
+JavaScript da própria plataforma que o lê. Marcá-lo `HttpOnly` faria o quadro abrir deslogado — o
+defeito que essa peça existe para consertar. **O nosso cookie continua `HttpOnly` e não ficou mais
+fraco por causa dele.** E guardamos só as **cinco chaves** que a interface dela usa, não a resposta
+inteira: cookie legível por JavaScript é o pior lugar para carregar cabeçalho que ninguém pediu.
+
+**Se a plataforma não devolver essa credencial, a entrada acontece do mesmo jeito** — só as telas
+embutidas é que pedirão login. Entrar no Ragnabot não pode falhar por causa de uma tela de terceiro.
+
 **Sair.** Encerra a sessão na hora e apaga o cookie. Trocar de pessoa na mesma máquina recarrega a
 tela, para que nenhum rascunho da pessoa anterior sobreviva.
 
+⭐ **Desde a v1.11.00, sair sai dos DOIS lados.** O botão apaga **os dois** cookies e ainda pede à
+plataforma que invalide o token (`DELETE /auth/sign_out`). Sem isso, «Sair» deixaria a sessão dela
+viva no navegador até vencer sozinha — e a próxima pessoa na mesma máquina abriria uma tela embutida
+**dentro da conta de quem saiu**. Nesta ordem, de propósito: primeiro apagamos os cookies (o que
+sempre funciona e é o que protege a próxima pessoa), e só depois avisamos a plataforma. Se ela
+estiver fora do ar, **a saída acontece igual**.
+
 **Limite honesto.** O encerramento imediato vale na réplica que atendeu o pedido; a sessão vence
-sozinha em até 8 horas de qualquer jeito.
+sozinha em até 8 horas de qualquer jeito. E o pedido de invalidação à plataforma é **melhor
+esforço**: ele não é esperado, e uma falha ali não devolve erro para quem só quis sair.
 
 ---
 
