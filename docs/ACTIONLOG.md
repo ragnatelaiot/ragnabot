@@ -150,6 +150,43 @@ depois do «Sair» dela. Com o desvio, quem sair por lá cai no nosso painel; se
 ainda valer, entra, e as telas embutidas pedirão a entrada do fornecedor — que, ao ser feita, volta
 a funcionar sozinha, porque a interface dele regrava a própria credencial.
 
+### 🔴 CORREÇÃO DE UM ERRO MEU, MEDIDO E DESFEITO NA MESMA SESSÃO — imagem `1.12.00-1`
+
+A primeira imagem (`1.12.00`, manifesto `sha256:8987d182…`) foi construída **a partir da árvore de
+trabalho**, e a árvore não era só minha: outros três agentes trabalhavam em paralelo no mesmo
+repositório. O `FluxosRagnabot.jsx` já carregava, naquele instante, um pedaço **inacabado** do
+editor de fluxo de outro contrato (o arraste do conector: `data-no-id`, `elementFromPoint`,
+`aoArrastarLigacao`, `aoLargarLigacao`, e dois tipos de bloco novos no espelho local). Subiu junto
+com o meu lote, sem revisão e sem teste.
+
+**Como foi medido, e não deduzido:** criei uma árvore limpa no meu próprio commit
+(`git worktree add … 694eb74`), construí a interface dali e comparei o artefato com o que estava no
+ar. O pacote do commit é `index-B3M7qVn8.js`; o que estava servido era `index-B99_Uhc9.js` —
+**3 000 bytes a mais**, e os marcadores do outro contrato presentes só no de lá.
+
+**Desfeito:** imagem `ragnabot-motor:1.12.00-1` construída **do worktree do commit**, conferida
+dentro do artefato (`data-no-id`, `aoArrastarLigacao`, `elementFromPoint`, `pagamento_pix` e a rota
+`/catalogo` = **0**; `/adotar`, `/caixas` e `concluirSessao` presentes), levada aos dois nós com a
+mesma impressão digital (tar `5925460d…`, manifesto `sha256:0a9f9912…`) e rolada **2/2, zero
+reinícios, zero linhas de erro**. O painel passou a servir `index-B3M7qVn8.js`; o pacote anterior
+responde **404**. Tudo reprovado em produção depois da troca: a recusa do cookie forjado, o 401 sem
+cookie, as **15 rotas** a um F5, os vizinhos do proxy (chat001 200 · painel 200 · sisac 302) e a
+lista das 4 caixas com sessão real.
+
+⚠️ **Tag nova, e não a mesma reaproveitada.** Reescrever `1.12.00` com conteúdo diferente é
+exatamente o «upgrade silencioso» que a casa fixa imagem por digest para evitar: o nó guarda por
+tag, e duas coisas com o mesmo nome tornam impossível dizer o que está rodando.
+
+**A lição, para o próximo:** com vários agentes no mesmo repositório, **construir da árvore é
+construir o trabalho dos outros junto**. A imagem tem de sair de um `git worktree` no commit que se
+está publicando — e o commit tem de vir antes da imagem, não depois.
+
+**O trabalho dos outros agentes NÃO foi tocado:** continua inteiro na árvore, sem commit
+(`/catalogo` + teste, arraste de ligação, adaptador de canal nativo, mesa de atendimento, e a
+`v1.12.01` que um deles já escreveu em `VERSAO`/`VERSOES.md`/`MANUAL.md`). Só o que era meu foi
+commitado, por caminho explícito e com os arquivos compartilhados **reconstruídos a partir do HEAD
+mais as minhas três edições**, conferido linha a linha.
+
 ### Backup, no líder MEDIDO NA HORA e conferido por LEITURA DO OBJETO
 ⚠️ **O líder tinha trocado**: agora é **`rgtpgtgsql001`** (era `rgtpstgsql002` no lote anterior).
 `SELECT NOT pg_is_in_recovery()` = `t` nele e `f` no outro, e o roteiro **re-mede dentro do mesmo
