@@ -18,9 +18,17 @@
 //      outro agente). Enquanto ela não existir/decidir, o processo sobe com as rotas privadas
 //      RECUSANDO (503) em vez de abrir — falha fechada, nunca aberta.
 //      >>> DECISÃO PENDENTE DO CHEFE: quem autentica na aplicação nova. <<<
-//   2. NÃO liga o worker de backup (`ragnabot-backup.service.js`). O §4 do doc 33 mantém o backup
-//      no NOC de propósito: "backup é vigilância externa; feito por quem é vigiado vale menos".
-//      O serviço foi copiado (é do Ragnabot), mas quem o agenda continua sendo o NOC.
+//   2. NÃO faz backup, e não é aqui que se procura por ele. Desde 01/09/2026 o backup do banco
+//      roda DENTRO dos próprios nós de banco (`/usr/local/bin/ragnabot-backup.py` +
+//      `/etc/cron.d/ragnabot-backup`, diariamente às 03:15 -03; só o nó primário age), dumpando as
+//      DUAS bases (`chatwoot` e `ragnabot`) para o bucket imutável `ragnatela-bot/backup-postgres`.
+//      Antes disso quem agendava era o NOC — e enquanto foi assim, a cópia do Ragnabot dependia da
+//      saúde de uma máquina que não tem nada a ver com ele: NOC fora = Ragnabot atendendo sem
+//      backup, e ninguém descobre até precisar restaurar.
+//      ⚠️ O antigo `ragnabot-backup.service.js` foi APAGADO em 03/09/2026. Ele estava morto (zero
+//      importadores) e dumpava só a base `chatwoot` — código morto que parecia vivo e que já levou
+//      alguém a conferir o backup errado. Quem vigia a idade e o tamanho dessas cópias hoje é o
+//      `backup-age-monitor.service.js`, no NOC.
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 import fs from 'node:fs';
 import os from 'node:os';
