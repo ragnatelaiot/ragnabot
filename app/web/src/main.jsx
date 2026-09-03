@@ -56,6 +56,7 @@ import Casca, { Rodape } from './componentes/Casca.jsx';
 import FluxosRagnabot from './paginas/FluxosRagnabot.jsx';
 import RespostasRapidas from './paginas/RespostasRapidas.jsx';
 import TestadorDeFluxo from './paginas/TestadorDeFluxo.jsx';
+import Agendamentos from './paginas/Agendamentos.jsx';
 import Empresas from './paginas/Empresas.jsx';
 import CaixasDeEntrada from './paginas/CaixasDeEntrada.jsx';
 import CaixaDeAtendimento from './paginas/CaixaDeAtendimento.jsx';
@@ -160,6 +161,10 @@ function Miolo() {
         {/* Duas rotas para a MESMA tela: sem fluxo escolhido ela lista; com fluxo, simula. A URL
             com o id existe para o operador poder mandar «confere este aqui» num link — que é como
             se pede revisão de fluxo na vida real. */}
+        {/* ⭐ Contrato S4 (02/09/2026). SEM `SoAdministrador`, pela mesma razão da caixa: quem
+            agenda mensagem é o atendente ou o supervisor. O isolamento por empresa é do SERVIDOR
+            (`escopoDe` no serviço); um id de outra empresa responde 404, não 403. */}
+        <Route path="/agendamentos" element={<Agendamentos />} />
         <Route path="/testador" element={<TestadorDeFluxo />} />
         <Route path="/testador/:fluxoId" element={<TestadorDeFluxo />} />
         {/* ⭐ Contrato S-CAIXAS (02/09/2026). Mesma trava de tela de Empresas, e pela mesma razão:

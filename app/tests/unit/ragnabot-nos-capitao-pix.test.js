@@ -34,7 +34,18 @@ describe('catálogo', () => {
     for (const antigo of ['inicio', 'texto', 'pergunta', 'lista', 'botoes', 'http', 'chamado', 'email']) {
       expect(TIPOS).toContain(antigo);
     }
-    expect(TIPOS.length).toBe(19);
+    // ⚠️ A LISTA INTEIRA, e não `TIPOS.length`.  Corrigido em 02/09/2026 (contrato S-DEPLOY-3).
+    // Este teste estava VERMELHO desde que o catálogo passou de 19 para 21 nós (o bloco de
+    // e-mail e o de link entraram e ninguém mexeu no número aqui) — e saiu vermelho na versão
+    // 1.08.00, publicada assim.  Suíte com um vermelho crônico é pior que suíte sem teste:
+    // ninguém mais distingue a falha nova da falha de sempre.
+    // Comparar a LISTA em vez do TAMANHO também troca «expected 21 to be 19» — que não diz nada —
+    // por um diff que mostra QUAL tipo entrou ou sumiu.
+    expect([...TIPOS]).toEqual([
+      'inicio', 'texto', 'midia', 'pergunta', 'lista', 'botoes', 'espera', 'condicao', 'http',
+      'variavel', 'etiqueta', 'time', 'atendente', 'randomizador', 'notificar', 'subfluxo',
+      'chamado', 'encerrar', 'email', 'agente_ia', 'pagamento_pix',
+    ]);
   });
 
   it('nenhum dos dois estaciona esperando resposta (não geram sem_resposta/opcao_invalida)', () => {

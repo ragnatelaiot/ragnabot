@@ -385,6 +385,167 @@ export async function carimbar({ cwAccountId, cwConversationId, atributos = {} }
   return { ok: true, carimbados: Object.keys(limpos).length };
 }
 
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// ABRIR CONVERSA COM UM CONTATO — contrato S4 (agendamento), 02/09/2026
+//
+// ⚠️ POR QUE ISTO NÃO EXISTIA, E POR QUE PRECISOU EXISTIR AGORA
+// Até hoje TODO caminho do Ragnabot partia de uma conversa que JÁ existia: o cliente escrevia, o
+// webhook chegava, e o motor respondia dentro dela. O agendamento inverte a direção pela primeira
+// vez — nós é que começamos a conversa —, e não havia como. Sem esta função, um agendamento para um
+// contato que nunca escreveu não teria onde a mensagem pousar.
+//
+// ⚠️ A ORDEM É PROCURAR, DEPOIS CRIAR — E NESSA ORDEM.
+// Criar direto abriria uma conversa NOVA a cada ocorrência de um agendamento semanal: em três meses
+// o contato teria treze conversas abertas do mesmo assunto e a fila do setor viraria lixo. Por isso:
+//   1. o destino já traz `cwConversationId`? reusa (e o trabalhador confere que ela ainda existe);
+//   2. procura o contato por identificador e olha as conversas dele NAQUELA caixa;
+//   3. só então cria contato e/ou conversa.
+//
+// ⚠️ CORRETO POR CONTRATO, NÃO POR OBSERVAÇÃO. Em 02/09/2026 o Ragnabot tem ZERO caixas de WhatsApp
+// e zero contatos — não existe onde exercitar isto. Os endereços abaixo são os da API do Chatwoot
+// 4.x (`/contacts/search`, `/contacts`, `/contacts/:id/conversations`, `/conversations`), e o
+// `source_id` do `contact_inbox` é o campo que o `POST /conversations` exige. O primeiro contato
+// real é o ensaio, e é assim que está escrito no relatório.
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+/** Extrai o `payload` da resposta, seja qual for o envelope que a versão da API usar. */
+function conteudo(r) {
+  if (!r) return null;
+  if (Array.isArray(r)) return r;
+  if (r.payload !== undefined) return r.payload;
+  return r;
+}
+
+/**
+ * A conversa por onde falar com este contato NESTA caixa — reusando o que existir, criando só se
+ * preciso.
+ *
+ * @returns {Promise<{cwConversationId:number, cwContactId:number|null, criada:boolean, status:string|null}|null>}
+ *   `null` quando a conta não é administrada por nós (quem chama trata como «não sei agir aqui»).
+ *
+ * ⚠️ NÃO ENGOLE ERRO. Falha de rede ou recusa da plataforma SOBE — é quem chama que decide se
+ * aquilo é «adiar» ou «dúvida», e um `null` genérico aqui apagaria essa diferença, que é justamente
+ * a que separa «tentar de novo» de «não repetir nunca».
+ */
+export async function garantirConversa({
+  cwAccountId, cwInboxId, contatoChave, contatoNome = null, cwContactId = null, cwTeamId = null,
+} = {}) {
+  const tenantId = await empresaDaConta(cwAccountId);
+  if (!tenantId) return null;
+  if (cwInboxId == null) {
+    const e = new Error('garantirConversa: sem caixa de entrada não há por onde a mensagem sair');
+    e.status = 400;
+    throw e;
+  }
+  const chave = String(contatoChave || '').trim();
+  if (!chave) {
+    const e = new Error('garantirConversa: informe o telefone ou identificador do contato');
+    e.status = 400;
+    throw e;
+  }
+
+  // ── 1. Achar o contato ────────────────────────────────────────────────────────────────────────
+  let contatoId = cwContactId != null ? Number(cwContactId) : null;
+  if (!contatoId) {
+    const busca = await comoAdminDaEmpresa(tenantId, 'get',
+      (conta) => `/api/v1/accounts/${conta}/contacts/search?q=${encodeURIComponent(chave)}`);
+    const achados = conteudo(busca) || [];
+    const lista = Array.isArray(achados) ? achados : [];
+    // Casamento por DÍGITO, não por texto: a plataforma guarda «+55 98 98335-1000» e nós guardamos
+    // «5598983351000». Comparar as strings cruas não acharia nunca — e não achar significa criar um
+    // contato duplicado a cada disparo.
+    const soDigitos = (v) => String(v ?? '').replace(/\D+/gu, '');
+    const alvo = soDigitos(chave);
+    const casou = lista.find((c) => soDigitos(c?.phone_number) === alvo
+      || String(c?.identifier ?? '') === chave
+      || String(c?.email ?? '').toLowerCase() === chave.toLowerCase());
+    if (casou?.id) contatoId = casou.id;
+  }
+
+  // ── 2. A conversa que já existe naquela caixa ────────────────────────────────────────────────
+  if (contatoId) {
+    try {
+      const r = await comoAdminDaEmpresa(tenantId, 'get',
+        (conta) => `/api/v1/accounts/${conta}/contacts/${contatoId}/conversations`);
+      const conversas = conteudo(r) || [];
+      const lista = Array.isArray(conversas) ? conversas : [];
+      const daCaixa = lista.filter((c) => Number(c?.inbox_id) === Number(cwInboxId));
+      // A MAIS RECENTE, e não a primeira: a lista da API não promete ordem, e escolher uma conversa
+      // velha resolvida faria a mensagem cair num histórico que ninguém abre.
+      const escolhida = daCaixa.sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0))[0];
+      if (escolhida?.id) {
+        return { cwConversationId: escolhida.id, cwContactId: contatoId, criada: false, status: escolhida.status ?? null };
+      }
+    } catch (e) {
+      // Não achar as conversas do contato não impede criar uma. Mas tem de APARECER — senão a
+      // duplicação de conversa nasceria em silêncio.
+      logger.warn(`[cw-porta] não li as conversas do contato ${contatoId}: ${e.message.slice(0, 160)}`);
+    }
+  }
+
+  // ── 3. Criar o contato, se ainda não existe ─────────────────────────────────────────────────
+  let sourceId = null;
+  if (!contatoId) {
+    const soDigitos = chave.replace(/\D+/gu, '');
+    const corpo = {
+      inbox_id: Number(cwInboxId),
+      name: contatoNome || chave,
+      // `phone_number` da plataforma exige o «+». Mandar sem ele é recusa 422 com uma mensagem que
+      // não diz isso — foi por essa pedra que o cadastro em massa costuma tropeçar.
+      ...(soDigitos ? { phone_number: `+${soDigitos}` } : { identifier: chave }),
+    };
+    const r = await comoAdminDaEmpresa(tenantId, 'post', (conta) => `/api/v1/accounts/${conta}/contacts`, corpo);
+    const p = conteudo(r) || {};
+    contatoId = p?.contact?.id ?? p?.id ?? null;
+    sourceId = p?.contact_inbox?.source_id ?? p?.contact?.contact_inboxes?.[0]?.source_id ?? null;
+    if (!contatoId) {
+      const e = new Error('a plataforma criou o contato mas não devolveu o id — não sei em quem falar');
+      e.status = 502;
+      throw e;
+    }
+  }
+
+  // ── 4. O `source_id` daquela caixa (o `POST /conversations` exige) ───────────────────────────
+  if (!sourceId) {
+    const r = await comoAdminDaEmpresa(tenantId, 'get', (conta) => `/api/v1/accounts/${conta}/contacts/${contatoId}`);
+    const p = conteudo(r) || {};
+    const caixas = p?.contact_inboxes || p?.contact?.contact_inboxes || [];
+    const daCaixa = (Array.isArray(caixas) ? caixas : []).find((ci) => Number(ci?.inbox?.id ?? ci?.inbox_id) === Number(cwInboxId));
+    sourceId = daCaixa?.source_id ?? null;
+  }
+  if (!sourceId) {
+    // O contato existe mas nunca foi ligado a ESTA caixa. `POST /contact_inboxes` faz o vínculo e
+    // devolve o `source_id` — sem ele a conversa não nasce, e a recusa seria «Invalid source id»,
+    // que não diz nada a quem lê.
+    const r = await comoAdminDaEmpresa(tenantId, 'post',
+      (conta) => `/api/v1/accounts/${conta}/contacts/${contatoId}/contact_inboxes`,
+      { inbox_id: Number(cwInboxId) });
+    sourceId = conteudo(r)?.source_id ?? null;
+  }
+  if (!sourceId) {
+    const e = new Error(`o contato ${contatoId} não tem vínculo com a caixa ${cwInboxId} e a plataforma não o criou`);
+    e.status = 502;
+    throw e;
+  }
+
+  // ── 5. A conversa ───────────────────────────────────────────────────────────────────────────
+  const nova = await comoAdminDaEmpresa(tenantId, 'post', (conta) => `/api/v1/accounts/${conta}/conversations`, {
+    source_id: String(sourceId),
+    inbox_id: Number(cwInboxId),
+    contact_id: Number(contatoId),
+    ...(cwTeamId != null ? { team_id: Number(cwTeamId) } : {}),
+    status: 'open',
+  });
+  const p = conteudo(nova) || {};
+  const id = p?.id ?? p?.payload?.id ?? null;
+  if (!id) {
+    const e = new Error('a plataforma não devolveu o id da conversa criada');
+    e.status = 502;
+    throw e;
+  }
+  return { cwConversationId: id, cwContactId: contatoId, criada: true, status: p?.status ?? 'open' };
+}
+
 /** A caixa de entrada de uma conversa, com o tipo de canal — é o que decide botão × texto numerado.
  *  Devolve `null` quando não dá para saber; quem chama trata «não sei» como «o canal mais pobre». */
 export async function caixaDaConversa({ cwAccountId, cwConversationId } = {}) {
@@ -710,4 +871,8 @@ export default {
   listarConversasRicas, conversaRica, ESTADOS_DA_PLATAFORMA,
   listarAgentes, agentePorReferencia,
   mesclarEtiquetas,
+  // Contrato S4 (agendamento, 02/09/2026): é a PRIMEIRA vez que o Ragnabot começa uma conversa em
+  // vez de responder a uma. Sem esta função, mensagem agendada para quem nunca escreveu não teria
+  // onde pousar.
+  garantirConversa,
 };

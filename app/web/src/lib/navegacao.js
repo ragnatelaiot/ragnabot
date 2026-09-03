@@ -89,6 +89,18 @@ export const MENU = Object.freeze([
     apoio: 'Conversar com o fluxo antes de qualquer cliente conversar com ele',
   },
   {
+    // ⭐ 02/09/2026 (contrato S4). Fica logo abaixo das respostas rápidas porque é do mesmo tipo de
+    // trabalho — preparar o que a equipe vai dizer —, e `papeis: null` porque quem agenda uma
+    // mensagem é o atendente ou o supervisor, não só o administrador. E, como sempre neste arquivo:
+    // isto NÃO é a trava. O servidor é que decide o que cada um vê (`escopoDe`, no serviço).
+    id: 'agendamentos',
+    rotulo: 'Agendamentos',
+    caminho: '/agendamentos',
+    papeis: null,
+    icone: 'CalendarClock',
+    apoio: 'Mensagens marcadas para sair na hora certa, uma vez ou repetindo',
+  },
+  {
     id: 'caixas',
     rotulo: 'Caixas de entrada',
     caminho: '/caixas',

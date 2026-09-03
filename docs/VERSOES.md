@@ -19,6 +19,99 @@
 
 ---
 
+## v1.09.00 — A mensagem que sai na hora certa, sem ninguém acordar para mandar (02/09/2026)
+
+A frase que resume: **até aqui o Ragnabot só sabia responder; agora ele sabe começar uma conversa —
+na hora marcada, e uma vez só.**
+
+Esta versão traz a tela **Agendamentos**: escrever hoje a mensagem que deve sair amanhã às 8h, ou
+toda terça, ou todo dia 5 — para um contato ou para quinhentos.
+
+### O que o cliente ganha
+
+- **Marcar uma mensagem para sair depois.** Data, hora e **por qual conexão** ela sai (obrigatório:
+  *nada sai sem canal*). Texto livre com as mesmas variáveis das respostas rápidas, e **anexo**
+  (imagem, vídeo, áudio, documento) — com anexo, o texto vira a legenda.
+- **Uma vez ou repetindo:** única, diária, semanal (escolhendo os dias) ou mensal, com «a cada N».
+  Com fim por data (`até`) ou por teto de repetições.
+- **Vários destinatários, até 500** por agendamento. O telefone é normalizado enquanto se digita —
+  `(98) 98335-1000` e `5598983351000` são o mesmo contato —, e o repetido entra uma vez só.
+- **Decidir se aquilo vira atendimento.** Marcado, a conversa fica **aberta** e vai para o setor
+  escolhido. Desmarcado, ela é **resolvida** depois do envio — mas **só se fomos nós que a abrimos**:
+  conversa que já estava com um atendente não é fechada por baixo dele.
+- **Pausar, retomar e cancelar.** Retomar volta à grade **para a frente**: agenda que ficou três dias
+  pausada não dispara três «bom dia» de uma vez. Cancelar **não apaga o passado** — o que já saiu
+  fica no histórico.
+
+### O horário é o do cliente, não o do servidor
+
+Cada agendamento guarda o seu **fuso**. «Toda terça às 8h» é 8h no relógio de quem recebe — inclusive
+no dia em que o horário de verão vira. A conta anda em **calendário** (dia + 1, semana + 1), não
+somando 24 horas: a conta ingênua erraria **uma hora exatamente no dia em que o cliente mais
+repara**. E o dia 31 + 1 mês vira 28/02 sem perder a âncora — em março ele volta para o 31.
+
+### O histórico não esconde o que é incômodo
+
+Cada disparo gera **uma linha por destinatário e por ocorrência** — dá para dizer «saiu para o João
+às 08h02 e não saiu para a Maria, porque…». Além de *enviado* e *falhou*, existem três desfechos que
+a maioria dos sistemas engole em silêncio e que aqui **aparecem escritos**:
+
+- **Fora da janela** — passaram-se mais de 24 h desde a última mensagem do contato e a agenda não usa
+  modelo aprovado. **Não saiu**, e não é defeito nosso: é regra da Meta.
+- **Adiado** — não havia por onde sair (conexão desligada, caixa inativa). Fica com motivo e horário
+  da nova tentativa, e é retentado com recuo, até seis vezes.
+- **Em dúvida** — o processo caiu entre reservar e confirmar, ou a rede caiu no meio do envio.
+
+**«Em dúvida» não se repete sozinho, e isso é a funcionalidade.** A mensagem **pode ter saído**;
+reenviar por conta própria transformaria uma dúvida em duas mensagens iguais no WhatsApp de um
+cliente. O item para ali, marcado, e **só uma pessoa** manda repetir — no botão **Reenviar**, que
+aparece apenas em quem precisa de decisão humana. A tentativa antiga **fica no histórico**.
+
+### A mesma mensagem nunca sai duas vezes — e a tranca é do banco
+
+Cada par «destinatário × ocorrência» ganha uma chave única, e o envio começa **reservando** essa
+chave. Quem reserva, manda; quem esbarra numa chave já reservada, **não manda**. Não é um cuidado do
+programa: é o PostgreSQL recusando. Por isso vale com o sistema rodando em várias cópias ao mesmo
+tempo, e sobrevive a reinício no meio do disparo.
+
+É também por isso que **não existe botão «disparar agora»**: ele pularia a reserva, que é exatamente
+o que segura a mensagem dobrada. Quem quiser antecipar, edita o horário.
+
+### ⛔ O disparo sobe DESLIGADO — e é decisão, não pendência
+
+O cadastro funciona por inteiro: a tela abre, as agendas nascem, são editadas, pausadas, canceladas —
+e ficam **pendentes**. O que ainda não acontece é a saída da mensagem.
+
+Todo o resto do Ragnabot **responde** a quem escreveu. Este é o primeiro pedaço que **começa**
+conversa. Ligado sozinho num sistema recém-publicado, com agendas vencidas guardadas, ele dispararia
+de uma vez tudo o que ficou para trás. Ligar é ato deliberado (`RAGNABOT_AGENDAMENTO=1`), e a
+recomendação registrada é **estrear com uma agenda de teste, para um número da casa, com alguém do
+outro lado**.
+
+### Por baixo
+
+- **Três tabelas novas** (a agenda, os destinatários, o resultado por envio) — 46 tabelas na base,
+  aplicadas por SQL versionado, com **zero `DROP`**, no líder do banco medido na hora.
+- **O Ragnabot aprendeu a abrir conversa.** Até esta versão, todo caminho partia de uma conversa que
+  **já existia**. Agora ele procura o contato, reaproveita a conversa daquela conexão e só cria uma
+  nova se não houver — senão, uma agenda semanal deixaria treze conversas abertas do mesmo assunto em
+  três meses.
+- **Provado:** 40 medições da parte pura (recorrência, fusos, virada do dia e do horário de verão,
+  validação) e 37 contra PostgreSQL de verdade, com **duas cópias do sistema disputando a mesma
+  ocorrência**, reinício no meio do disparo e a recusa do banco à chave repetida.
+
+### Dois consertos de casa, achados nesta publicação
+
+- **Dois verificadores do motor mentiam.** Depois de o Ragnabot ganhar banco próprio, eles
+  continuaram apontados para a base antiga do NOC — onde as tabelas ficaram abandonadas e vazias. Um
+  deles **respondia tudo verde** olhando a cópia morta; agora os dois **recusam** dizendo por quê.
+  Verde falso é pior que vermelho: um vermelho manda investigar, um verde falso manda publicar.
+- **Um teste estava vermelho desde que o construtor passou de 19 para 21 blocos** — e saiu vermelho
+  na v1.08.00. Corrigido, e passou a comparar **a lista** em vez do número, para a próxima falha
+  dizer *qual* bloco entrou ou sumiu.
+
+---
+
 ## v1.08.00 — A fila passou a ter dono, e o construtor ganhou cinco peças (02/09/2026)
 
 A frase que resume: **até aqui o Ragnabot sabia atender; agora ele sabe de quem é cada conversa.**

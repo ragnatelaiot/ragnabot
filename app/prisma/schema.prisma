@@ -1888,3 +1888,215 @@ model RagnabotConversa {
   @@index([tenantId, cwTeamId, estado]) // a fila do meu setor
   @@index([tenantId, cwTeamId, contatoChave, abertaEm]) // histórico do contato DENTRO do setor
 }
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// AGENDAMENTO DE MENSAGENS — contrato S4 (F4.1 a F4.7 do doc 34), 02/09/2026.
+//
+// MEDIDO ANTES DE ESCREVER: não existia NADA de agendamento no Ragnabot. Nenhum modelo, nenhum
+// serviço, nenhuma rota. É construção do zero — mas NÃO do zero conceitual: o desenho abaixo é
+// deliberadamente o mesmo já provado em `RagnabotAtendRelogio` (a linha é a verdade, o laço é o
+// despertador) e em `RagnabotFluxoEfeito` (caixa de saída de duas fases, uma chave por envio).
+//
+// ── AS TRÊS TABELAS, E POR QUE SÃO TRÊS ─────────────────────────────────────────────────────────
+//   RagnabotAgendamento          O QUE mandar, QUANDO e COM QUE RECORRÊNCIA.  1 linha por agenda.
+//   RagnabotAgendamentoDestino   PARA QUEM.  N linhas — é o multi-contato (F4.3).
+//   RagnabotAgendamentoEnvio     O QUE ACONTECEU, por destinatário e por ocorrência.  É a caixa de
+//                                saída E o histórico da tela (F4.6/F4.7) na MESMA linha.
+//
+// Uma tabela só não serviria: um agendamento recorrente para 300 contatos gera 300 resultados POR
+// OCORRÊNCIA, e o estado "enviado/falhou/fora da janela" é por destinatário, nunca do agendamento.
+// Guardar isso num JSON dentro do agendamento seria reescrever a mesma linha 300 vezes por disparo
+// — exatamente o defeito D10 que a telemetria do motor já pagou uma vez.
+//
+// ⚠️ POR QUE NÃO REUSEI `RagnabotFluxoEfeito` COMO CAIXA DE SAÍDA (decisão anotada)
+// O consumidor de despertar reusa `RagnabotFluxoEfeito` com um `execucaoId` SINTÉTICO. Aqui isso
+// custaria caro: o conciliador do motor varre efeitos `reservado` e enfileira trabalho `conciliar`
+// apontando para execuções que NÃO EXISTEM — e a tela de agendamento precisaria juntar duas
+// tabelas para dizer "enviado às 08h02". Uma linha própria mantém uma verdade só. O que SE REUSA é
+// a `chaveEfeito` como marca no destino (`rgt_efeito` em content_attributes), para que a
+// conciliação futura encontre a NOSSA chave na mensagem — igual ao motor.
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+model RagnabotAgendamento {
+  id       String @id @default(uuid())
+  tenantId String // chave LÓGICA, como nos vizinhos Ragnabot* (bases separadas)
+
+  titulo    String
+  descricao String?
+
+  // ── POR ONDE SAI (F4.1) ─────────────────────────────────────────────────────────────────────
+  cwAccountId Int
+  cwInboxId   Int // a CONEXÃO. Obrigatória: mensagem agendada sem canal é mensagem que não sai.
+  caixaNome   String? // desnormalizado, para a lista não precisar de JOIN
+  canal       String? // whatsapp | web_widget | instagram | facebook | email | telegram | api
+
+  // O SETOR em que o atendimento nasce quando `abrirTicket` é verdadeiro.
+  cwTeamId  Int?
+  setorNome String?
+
+  // ── O QUE SAI ───────────────────────────────────────────────────────────────────────────────
+  mensagem String // texto livre; aceita as MESMAS variáveis das respostas rápidas
+
+  // ANEXO DE MÍDIA (F4.5). Guardamos a URL, não o arquivo: o Chatwoot só aceita anexo como ARQUIVO
+  // em multipart, e quem baixa a URL e monta o multipart é `enviarAnexo` na porta da plataforma —
+  // que já existe e já é usada pelo nó `midia` do motor.
+  anexoUrl  String?
+  anexoNome String?
+  anexoTipo String? // image | video | audio | document — informativo, o Chatwoot infere pelo arquivo
+
+  // ── FORA DA JANELA DE 24 H (exigência inegociável nº 2) ──────────────────────────────────────
+  // Sem modelo aprovado, mensagem agendada para contato fora da janela NÃO SAI — e o item fica com
+  // `status='sem_janela'` e motivo escrito, nunca com falha muda. Com modelo, sai por ele.
+  usarTemplate       Boolean @default(false)
+  templateNome       String?
+  templateIdioma     String? @default("pt_BR")
+  templateParametros Json? // lista ordenada; vira `processed_params` {1:…, 2:…}
+
+  // ── O TICKET (F4.4) ─────────────────────────────────────────────────────────────────────────
+  // true  → depois de enviar, a conversa fica ABERTA (e vai para `cwTeamId`, se houver): virou
+  //         atendimento e alguém vai responder.
+  // false → a conversa é RESOLVIDA depois do envio — mas SÓ se fomos nós que a abrimos. Fechar uma
+  //         conversa que já estava com um humano é a mesma escrita cega que `estadoAnterior`
+  //         existe para impedir no motor.
+  abrirTicket Boolean @default(true)
+
+  // ── QUANDO (F4.1) E COM QUE RECORRÊNCIA (F4.2) ──────────────────────────────────────────────
+  // `fuso` é do AGENDAMENTO, não do processo: o pod roda em UTC e o cliente marca "toda terça às
+  // 8h" no relógio DELE. Guardar só o instante absoluto faria a hora local escorregar uma hora na
+  // virada de horário de verão de quem tem horário de verão.
+  fuso String @default("America/Fortaleza")
+
+  recorrencia String  @default("unica") // unica | diaria | semanal | mensal
+  intervalo   Int     @default(1) // "a cada N" dias/semanas/meses
+  // Dias da semana da recorrência `semanal`, como CSV de 0(domingo) a 6. Texto e não Int[] de
+  // propósito: é lido inteiro, nunca filtrado no banco, e um array do Postgres complicaria o SQL
+  // versionado sem devolver nada.
+  diasSemana  String?
+
+  // O MINUTO DO DIA no fuso acima (0..1439) — a âncora que sobrevive à virada de horário. A
+  // recorrência avança em CALENDÁRIO (dia+1, semana+1) e só depois vira instante absoluto; somar
+  // 86.400.000 ms erraria uma hora exatamente no dia em que o cliente mais repara.
+  minutoLocal Int
+
+  inicioEm       DateTime // a PRIMEIRA ocorrência, em instante absoluto
+  ateEm          DateTime? // limite de validade da recorrência
+  maxOcorrencias Int? // ou um teto de repetições
+
+  // ── O RELÓGIO (a verdade, como em RagnabotAtendRelogio) ─────────────────────────────────────
+  // `proximaEm` É o carimbo da ocorrência corrente. Todo o mecanismo de "não dispara duas vezes"
+  // gira em torno dele: a reserva é condicionada a ele NÃO ter mudado, e a chave de idempotência
+  // do envio o carrega. Duas réplicas na mesma ocorrência: uma avança, a outra vê `proximaEm`
+  // diferente e desiste.
+  proximaEm          DateTime?
+  ultimaOcorrenciaEm DateTime?
+  ocorrenciasFeitas  Int       @default(0)
+
+  // pendente | pausado | concluido | cancelado
+  //   pausado   — o operador congelou (F "cancelar/pausar"); volta com `retomar()`
+  //   concluido — a recorrência acabou (única já disparou, ou bateu `ateEm`/`maxOcorrencias`)
+  //   cancelado — o operador desistiu; o que JÁ disparou fica no histórico (os envios não somem)
+  status String @default("pendente")
+
+  // POSSE DA OCORRÊNCIA. Mesma doutrina de `RagnabotFluxoFila.donoWorker`/`travadoEm`: um pod que
+  // morre no meio deixaria a agenda travada para sempre sem o prazo de visibilidade.
+  donoWorker String?
+  travadoEm  DateTime?
+
+  criadoPorUserId String?
+  criadoPorNome   String?
+  criadoEm        DateTime @default(now())
+  atualizadoEm    DateTime @updatedAt
+
+  // O trabalhador vive deste índice: "o que venceu e ainda está pendente".
+  @@index([status, proximaEm])
+  @@index([tenantId, status, proximaEm])
+  @@index([tenantId, cwInboxId])
+  // O ceifador: agenda presa em posse por réplica morta.
+  @@index([status, travadoEm])
+}
+
+// PARA QUEM. Uma linha por destinatário — e é isto que faz multi-contato ser N envios
+// INDEPENDENTES (exigência nº 4): quem falha falha sozinho.
+model RagnabotAgendamentoDestino {
+  id            String @id @default(uuid())
+  agendamentoId String
+  tenantId      String
+
+  // O contato na plataforma, quando já é conhecido. Quando não é, `contatoChave` (o telefone ou o
+  // identificador do canal) basta: `garantirConversa()` procura, e cria se não achar.
+  cwContactId  Int?
+  contatoChave String // telefone/identificador — só dígitos no WhatsApp
+  contatoNome  String?
+
+  // Conversa preferida. Preenchida quando o agendamento nasceu de dentro de um atendimento; do
+  // contrário é descoberta (ou criada) na hora do disparo e GRAVADA aqui, para a próxima ocorrência
+  // reaproveitar em vez de abrir conversa nova toda semana.
+  cwConversationId Int?
+
+  ativo Boolean @default(true)
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  // O mesmo contato não entra duas vezes no mesmo agendamento — senão ele recebe a mensagem em
+  // dobro e a culpa é do cadastro, não do trabalhador.
+  @@unique([agendamentoId, contatoChave])
+  @@index([tenantId, contatoChave])
+  @@index([agendamentoId, ativo])
+}
+
+// O QUE ACONTECEU — uma linha por (destinatário × ocorrência). É a caixa de saída e o histórico.
+//
+// ⚠️ ESTA TABELA É A PROVA DE "NÃO DISPARA DUAS VEZES". A coluna `chave` é única e determinística
+// (sha256 de agendamento|destino|instante-da-ocorrência|tentativa). O disparo começa por um
+// `INSERT … ON CONFLICT (chave) DO NOTHING`: quem inseriu manda, quem colidiu NÃO manda. Não é um
+// `if` em memória — é o Postgres recusando, e por isso vale entre réplicas e sobrevive a reinício.
+model RagnabotAgendamentoEnvio {
+  id            String @id @default(uuid())
+  tenantId      String
+  agendamentoId String
+  destinoId     String
+
+  // O carimbo da ocorrência: o `proximaEm` que estava valendo quando o disparo começou.
+  ocorrenciaEm    DateTime
+  // Tentativa MANUAL (o operador mandou reenviar). A automática NUNCA cria chave nova — ver o
+  // cabeçalho do serviço: dúvida não se repete sozinha.
+  tentativaManual Int      @default(0)
+
+  // sha256(agendamentoId|destinoId|ocorrenciaISO|tentativaManual). Também viaja como `rgt_efeito`
+  // em content_attributes da mensagem — a NOSSA marca no destino.
+  chave String @unique
+
+  // reservado — a linha nasceu, o envio ainda não voltou
+  // enviado   — o destino confirmou
+  // sem_janela— fora da janela de 24 h e sem modelo aprovado: NÃO saiu, e o motivo está escrito
+  // adiado    — não havia por onde sair (canal fora/caixa inativa). Retentável, com recuo.
+  // falhou    — o destino disse NÃO (recusa definitiva) ou estourou o teto de tentativas
+  // duvidoso  — o processo caiu entre a reserva e a confirmação, ou a rede caiu no meio. NÃO se
+  //             repete sozinho: pode ter saído. Só um humano manda reenviar.
+  // cancelado — o agendamento foi cancelado antes de este envio sair
+  status String @default("reservado")
+
+  motivo    String? // fora_da_janela | canal_ausente | caixa_inativa | sem_conversa | processo_caiu…
+  erro      String?
+  idExterno String? // id da mensagem na plataforma
+  degradado String? // link_no_texto | texto_numerado — o adaptador declara quando degrada
+
+  cwConversationId Int?
+  conversaCriada   Boolean @default(false) // fomos NÓS que abrimos? decide se podemos resolver
+  ticketAberto     Boolean @default(false)
+
+  tentativas         Int       @default(0)
+  proximaTentativaEm DateTime?
+  donoWorker         String?
+
+  reservadoEm DateTime  @default(now())
+  concluidoEm DateTime?
+
+  // A varredura de retentativa vive deste índice.
+  @@index([status, proximaTentativaEm])
+  // A tela: "o que aconteceu neste agendamento", da ocorrência mais recente para a mais antiga.
+  @@index([agendamentoId, ocorrenciaEm])
+  @@index([tenantId, status, reservadoEm])
+  @@index([destinoId, ocorrenciaEm])
+}

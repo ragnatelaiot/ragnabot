@@ -39,8 +39,9 @@ Aplique nesta ordem (as dependências de chave estrangeira são entre arquivos, 
 | 13 | `pagamento-pix/01-rb_pagamento_pix.sql` | `RagnabotPagamentoCredencial`, `RagnabotCobrancaPix`, `RagnabotCobrancaPixEvento` |
 | 14 | **`motor-fluxo/05-rb_fila_idempotencia.sql`** | ⚠️ `RagnabotFluxoFila.chaveIdem` + o índice único **parcial** `rb_fila_idem_pendente` — a mesma visita não entra duas vezes na fila |
 | 15 | `caixa-atendimento/01-rb_caixa_atendimento.sql` | `RagnabotSetor`, `RagnabotAgenteSetor`, `RagnabotConversa` — o índice de conversas e o **isolamento por agente e por setor** (contrato S2). ⚠️ Sem `RagnabotAgenteSetor` preenchido, nenhum agente enxerga fila (falha fechada, de propósito) |
+| 16 | `agendamento/01-rb_agendamento.sql` | `RagnabotAgendamento`, `RagnabotAgendamentoDestino`, `RagnabotAgendamentoEnvio` — o agendamento de mensagens (contrato S4). ⚠️ O índice **único** `RagnabotAgendamentoEnvio_chave_key` é a tranca de «não dispara duas vezes»: o disparo começa por `INSERT … ON CONFLICT ("chave") DO NOTHING`. Sem ele a idempotência vira decoração e o cliente recebe a mesma mensagem duas vezes |
 
-Total: **50 tabelas** — o mesmo número de modelos `Ragnabot*` no `schema.prisma`.
+Total: **53 tabelas** — o mesmo número de modelos `Ragnabot*` no `schema.prisma`.
 
 ## Como aplicar
 
@@ -84,3 +85,18 @@ prisma db execute --file /tmp/novo.sql
   que foram escritos. Quem aplicar deve rodar, logo depois, os dois verificadores do motor
   (`verificar-estrutura.mjs` e `verificar-comportamento.mjs`) para provar que as 3 FKs compostas
   continuam vivas — e lembrar que o cliente Prisma novo só vale no processo APÓS reinício.
+
+## Acréscimo de 02/09/2026 (S4 — agendamento de mensagens)
+
+- `agendamento/01-rb_agendamento.sql` — **gerado** por `prisma migrate diff --from-empty
+  --to-schema-datamodel <schema só com os 3 modelos novos> --script` e conferido: **zero `DROP`**
+  (`grep -ci drop` no resultado do diff = 0; as três ocorrências da palavra no arquivo estão só em
+  comentário).
+- **Provado** por `app/tests/ragnabot-agendamento-worker.test.mjs`, que aplica ESTE arquivo num
+  esquema temporário de um Postgres de verdade e mede, entre outras coisas, que o índice único da
+  chave existe e recusa a segunda inserção. Se a DDL versionada estiver errada, o teste quebra.
+- ⛔ **Ainda não aplicado em nenhum banco** — é decisão do chefe (lote). Quem aplicar deve rodar,
+  logo depois, `verificar-estrutura.mjs` e `verificar-comportamento.mjs` do motor, para provar que
+  as 3 FKs compostas continuam vivas — e lembrar que o cliente Prisma novo só vale no processo
+  APÓS reinício (por isso as rotas do agendamento têm guarda de modelo e respondem 503 com o
+  motivo escrito, em vez de estourar um TypeError cru).

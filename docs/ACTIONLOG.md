@@ -2,6 +2,128 @@
 > LOG CANÔNICO local da construção (regra do dono, 27/08). Espelho versionado no repo:
 > `ragnatelaiot/ragnabot` → docs/ACTIONLOG.md. Sem segredos, por lei.
 
+## 2026-09-02 — S-DEPLOY-3: o agendamento de mensagens entrou no ar (v1.09.00)
+
+Publicação do agendamento (contrato S4). **Nada mudou para quem conversa com a gente hoje**: o
+executor de fluxo continua em `0`, a plataforma segue com **zero webhooks**, e o disparo do
+agendamento **sobe desligado** — os três medidos, no processo e não só no ConfigMap.
+
+### A migração primeiro, no líder MEDIDO NA HORA
+`prisma/sql/agendamento/01-rb_agendamento.sql` — 3 tabelas + 12 índices, **zero `DROP` executável**
+(as três ocorrências da palavra estão em comentário; `grep -v '^--' | grep -ci drop` = 0, medido
+dos DOIS lados). Nenhum `prisma db push`.
+
+Líder medido antes de escrever: **`pg133` / `172.17.20.133` / `rgtpstgsql002`**, com
+`SELECT NOT pg_is_in_recovery()` = `t` e o `patronictl` confirmando (`pg132` réplica, streaming,
+lag 0). O roteiro de aplicação **re-mede o líder no mesmo comando que escreve** e aborta se não for
+— medir há dez minutos não é medir agora.
+
+O arquivo viajou por heredoc e foi conferido por impressão digital: `ccec7eab…55ea` **idêntica dos
+dois lados**, 9 198 bytes. Aplicado com `psql -v ON_ERROR_STOP=1 --single-transaction` e
+`SET ROLE ragnabot_app`.
+
+Medido depois: 3 tabelas, **todas com dono `ragnabot_app`** (como as outras 43) · base de 43 → **46
+tabelas** · 170 → **185 índices** · as **3 chaves estrangeiras compostas** de pé, com as colunas
+certas (`(tenantId, versaoId) → RagnabotFluxoVersao(tenantId, id)`) · gatilho de imutabilidade
+ligado · os dois índices únicos parciais do motor intactos · réplica `pg132` com as 3 tabelas e os
+15 índices, **lag 0**.
+
+### ⭐ A tranca do disparo dobrado, provada COMPORTAMENTALMENTE no banco de produção
+Não bastou ver o índice no catálogo. Em transação com **ROLLBACK deliberado** (nenhuma linha de
+teste sobrevive), contra a base de verdade:
+
+1. primeira reserva da chave → aceita;
+2. segunda réplica, mesma chave, pelo caminho REAL (`INSERT … ON CONFLICT ("chave") DO NOTHING`) →
+   **0 linhas inseridas**;
+3. sem o `ON CONFLICT` → `duplicate key value violates unique constraint
+   "RagnabotAgendamentoEnvio_chave_key"` — é o **Postgres** recusando, não um `if`;
+4. ocorrência seguinte (chave diferente) → aceita (senão a agenda semanal sairia uma vez na vida);
+5. mesmo contato duas vezes na mesma agenda → recusado pelo único do destino;
+6. depois do `ROLLBACK`: **0 envios / 0 destinos / 0 agendamentos**.
+
+O índice é **único e NÃO parcial** (`indisunique AND indpred IS NULL` = `t`) — conferido, porque
+torná-lo parcial transformaria a idempotência em decoração.
+
+### A imagem
+`ragnabot-motor:1.09.00`, construída com `--build-arg RAGNABOT_PREFIXO_WEB=/painel/` e **conferida
+dentro da própria imagem antes de subir**: o índice pede `/painel/assets/index-DAnUhTht.js`.
+Esquecer o argumento não dá erro — dá **tela branca com 200 na rede**. Também conferido na imagem:
+`VERSAO` = 1.09.00, o serviço, o trabalhador, as rotas e o **SQL versionado** viajando junto.
+Levada por SFTP aos containerds de `rgtk8s001` e `rgtk8s002` (impressão digital idêntica nos três
+pontos); o nó do XSE fica de fora por afinidade. Rollout limpo, **2/2, zero reinícios, zero linhas
+de erro**. `ragnabot-web` e `ragnabot-worker` **não foram tocados**.
+
+### ⛔ O disparo sobe DESLIGADO — e agora está DECLARADO, não implicado
+`RAGNABOT_AGENDAMENTO=0` foi **escrito por extenso no ConfigMap**, embora o padrão do código já
+fosse desligado na ausência da variável. Quem abrir o ConfigMap amanhã tem de **ler** que está
+desligado, em vez de deduzir do silêncio.
+
+Medido no processo (não só no ConfigMap): `EXECUTOR=[0]  AGENDAMENTO=[0]`. No `/saude`:
+`agendamento {ligado:false, motivo:"desligado por padrão — ligue com RAGNABOT_AGENDAMENTO=1"}`.
+E no registro, o aviso: *«as agendas continuam sendo CADASTRADAS e ficam pendentes; ninguém as
+dispara até religar»*.
+
+**A razão é boa:** o executor de fluxo RESPONDE a quem escreveu; este COMEÇA conversa. Ligado
+sozinho num processo recém-publicado, com agendas vencidas no banco, dispararia de uma vez tudo o
+que ficou para trás — a forma do alerta de backup que mandou 210 mensagens.
+
+### Provado por observação
+- **Ponta a ponta com agendamento de verdade:** criado para **01/01/2031** (futuro distante de
+  propósito — mesmo que alguém ligue o trabalhador por engano, ele não vence), apareceu na lista da
+  empresa, **gerou 0 envios**, foi **cancelado**, e a linha de teste foi apagada (base volta a 0).
+- **`modeloPronto()` = true** no pod — é o que separa `200` de `503 MODELO_AUSENTE`.
+- **De fora, pelo vhost real** (`--resolve` a partir do proxy; o teste pelo NOC mente por hairpin
+  NAT): `/painel/agendamentos` **200**, as demais telas 200, arquivo inexistente 404, e o índice
+  servindo o **pacote novo** (`index-DAnUhTht.js`, antes `index-KHGN-DXf.js`).
+- **As rotas saíram de 404 para 401** (`/api/ragnabot-agendamento/opcoes` e `/`) — existem e exigem
+  sessão. **Não respondem 503.**
+- **Suítes:** 40 medições da parte pura + **37 contra Postgres de verdade** (duas réplicas
+  disputando a mesma ocorrência, reinício no meio do disparo, multi-contato independente, fora da
+  janela, cancelado, canal fora, virada do dia). **23 de 25 suítes `.mjs` verdes, 0 reprovações**
+  (as 2 restantes são portões deliberados de ensaio, que recusam rodar sem variável). Interface:
+  **167 medições, 0 reprovações**. Nenhum esquema `zz_teste%` sobrou.
+- **Painel de atendimento intacto:** raiz 200, `/app/login` 200, `POST /auth/sign_in` sem
+  verificação **401**. `/motor-api/` segue **403** para quem não é o NOC. Vizinhança do proxy
+  compartilhado intacta (chat001 200 · painel 200 · sisac 302 · site 200). **Nada foi tocado no
+  nginx.**
+
+### 🔴 Três defeitos de casa achados nesta publicação (dois consertados)
+
+1. **Os dois verificadores do motor mentiam — e um deles mentia VERDE.** Desde a ETAPA 4 da
+   separação, `verificar-estrutura.mjs` e `verificar-comportamento.mjs` continuam importando o
+   cliente Prisma **do NOC**. Medido: eles alcançam `ragnatela_noc` em `127.0.0.1`, onde as **20
+   tabelas antigas do motor ficaram abandonadas e vazias**. O `verificar-estrutura.mjs` **respondia
+   tudo verde** — índice único parcial presente, gatilho ligado, as 3 FKs compostas de pé — olhando
+   a cópia morta. **Verde falso é pior que vermelho:** um vermelho manda investigar; um verde falso
+   manda publicar. O `verificar-comportamento.mjs` quebrava com `Cannot read properties of undefined
+   (reading 'create')`, frase que manda procurar defeito no código quando o defeito é o banco errado.
+   **Consertado:** os dois ganharam guarda que **recusa e explica** (saída 2) quando a base não é
+   `ragnabot`. As medições que eles fariam foram feitas **direto no líder**, por SQL (ver acima).
+   ⏳ **Fica em aberto:** as 20 tabelas órfãs do motor na base do NOC, e reescrever os dois
+   verificadores para rodarem de dentro do cluster.
+
+2. **Um teste estava vermelho havia dias — e saiu vermelho na v1.08.00.**
+   `tests/unit/ragnabot-nos-capitao-pix.test.js` afirmava `TIPOS.length === 19`; o catálogo já tinha
+   **21** blocos (entraram o de e-mail e o de link e ninguém mexeu no número). Confirmado
+   **pré-existente** rodando no HEAD limpo, sem o diff desta tarefa. **Consertado**, e passou a
+   comparar **a lista inteira** em vez do tamanho: `expected 21 to be 19` não diz nada;
+   um diff de lista diz **qual** bloco entrou ou sumiu.
+
+3. **`npm run test:mjs` nunca rodou nenhuma das 25 suítes `.mjs`.** `node --test tests/` falha com
+   `Cannot find module '/ia/ragnabot/app/tests'` — o corredor trata a pasta como arquivo. Ou seja,
+   `npm test` passava por cima de tudo o que a casa considera a prova principal. **NÃO corrigido de
+   propósito nesta publicação:** consertar faria 25 suítes passarem a rodar de uma vez, várias delas
+   exigindo `DATABASE_URL`/`RAGNABOT_TESTE_DB_URL` e duas sendo portões de ensaio — é mudança de
+   comportamento que merece validação própria, não um passageiro de deploy. Rodadas **à mão**, como
+   manda o método da casa.
+
+### Nota de método
+Duas ações foram **recusadas pelo sistema de permissão** no meio do caminho (instalar chave SSH
+efêmera num nó; subir um servidor HTTP local para transferir a imagem) — e as duas recusas estavam
+certas. O caminho correto já existia e era o do deploy anterior: os nós **são dispositivos
+cadastrados no NOC**, com transferência por **SFTP** e `sudo` recebendo a senha pela **entrada
+padrão** (nunca em `ps`). Nenhuma credencial passou por argv, log ou git.
+
 ## 2026-09-02 — S-DEPLOY-2: a caixa de atendimento entrou no ar (v1.08.00)
 
 Publicação do lote acumulado desde a v1.07.01. **Nada mudou para quem conversa com a gente hoje**:

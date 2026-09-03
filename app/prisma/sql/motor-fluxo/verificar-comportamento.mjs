@@ -1,6 +1,27 @@
 // Prova COMPORTAMENTAL das quatro garantias. Tudo numa transação que termina em ROLLBACK
 // deliberado: é banco de PRODUÇÃO e nenhuma linha de teste pode sobreviver ao teste.
 import prisma from '/ia/netagent/src/database/client.js';
+
+// ⚠️ GUARDA DE BASE ERRADA — acrescentada em 02/09/2026 (contrato S-DEPLOY-3).  Ver o irmão
+// `verificar-estrutura.mjs`, que explica a história inteira.
+//
+// A diferença aqui: este arquivo usa os ACESSADORES DE MODELO do Prisma (`prisma.ragnabotFluxo`),
+// e desde a separação não existe mais nenhum `model Ragnabot*` no schema do NOC (medido: zero).
+// Sem a guarda, a falha era `Cannot read properties of undefined (reading 'create')` — uma frase
+// que manda quem lê procurar defeito no código, quando o defeito é estar apontado para o banco
+// errado, com o cliente errado.
+const onde = (await prisma.$queryRawUnsafe(
+  `SELECT current_database() AS base, coalesce(inet_server_addr()::text,'local') AS servidor`))[0];
+if (onde.base !== 'ragnabot' || typeof prisma.ragnabotFluxo?.create !== 'function') {
+  console.error(`\n⛔ NÃO DÁ PARA MEDIR DAQUI — base «${onde.base}» (${onde.servidor}),`);
+  console.error(`   modelo ragnabotFluxo no cliente Prisma: ${prisma.ragnabotFluxo ? 'sim' : 'NÃO'}.`);
+  console.error('   As provas comportamentais deste arquivo (imutabilidade da versão, fan-out');
+  console.error('   acidental, junção cruzada entre empresas, uma execução viva por conversa)');
+  console.error('   exigem o cliente Prisma DO RAGNABOT contra a base «ragnabot» do líder.');
+  console.error('   Rode de dentro do cluster; daqui o `pg_hba` do líder recusa, com razão.\n');
+  await prisma.$disconnect();
+  process.exit(2);
+}
 const T_A = 'tenant-teste-A', T_B = 'tenant-teste-B';
 const resultados = [];
 // Cada prova roda dentro de um SAVEPOINT. Sem isso, o primeiro erro aborta a transação inteira

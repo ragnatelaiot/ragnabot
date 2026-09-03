@@ -17,6 +17,7 @@
 1-A. [Caixas de entrada — o cadastro que o robô consulta](#1-a-caixas-de-entrada--o-cadastro-que-o-robô-consulta)
 1-B. [A caixa de atendimento — quem vê qual conversa](#1-b-a-caixa-de-atendimento--quem-vê-qual-conversa)
 1-C. [Retrocarga — trazer para a caixa as conversas que já existiam](#1-c-retrocarga--trazer-para-a-caixa-as-conversas-que-já-existiam)
+1-D. [Agendamento de mensagens — marcar para sair na hora certa](#1-d-agendamento-de-mensagens--marcar-uma-mensagem-para-sair-na-hora-certa)
 2. [Relógios de atendimento](#2-relógios-de-atendimento)
 3. [Expediente, intervalo e feriado](#3-expediente-intervalo-e-feriado)
 4. [Transferência](#4-transferência)
@@ -91,6 +92,7 @@ ninguém chegava nele, porque não havia caminho.
 | **Fluxos** | desenhar e publicar o atendimento automático | todos |
 | **Respostas rápidas** | os atalhos de texto que a equipe repete o dia inteiro | todos |
 | **Testador de fluxo** | conversar com o fluxo antes de qualquer cliente | todos |
+| **Agendamentos** | mensagens marcadas para sair na hora certa, uma vez ou repetindo (**o disparo ainda está desligado** — ver §1-D) | todos |
 | **Caixas de entrada** | conferir as conexões que o robô conhece e acertá-las com a plataforma | administrador |
 | **Empresas** | cadastro comercial de quem contrata (é tela de operador do SaaS) | administrador |
 
@@ -258,6 +260,116 @@ aproximações saem **contadas no relatório**, com o motivo escrito — não es
 
 *Prova:* `app/tests/ragnabot-caixa-retrocarga.test.mjs` — 43 medições contra PostgreSQL de verdade,
 com o relatório real das conversas indexadas, a idempotência e a recusa por API.
+
+---
+
+## 1-D. Agendamento de mensagens — marcar uma mensagem para sair na hora certa
+
+**O que faz.** Deixa a mensagem escrita hoje e combinada para sair depois: numa data e hora, para um
+ou vários contatos, **uma vez ou repetindo** (todo dia, toda semana, todo mês). Serve para o aviso de
+manutenção da madrugada, a cobrança do dia 5, o «bom dia» de segunda da equipe de campo — tudo o que
+alguém hoje faz na mão, no horário errado, ou esquece.
+
+**Onde fica.** Menu **Agendamentos**. Não é tela só de administrador: quem agenda uma mensagem é o
+atendente ou o supervisor, e a tela é deles também. Cada empresa vê **só os seus** — um agendamento
+de outra empresa responde «não encontrado».
+
+---
+
+### Como marcar um envio
+
+1. **Título** — o nome pelo qual você vai reconhecer a agenda na lista.
+2. **Por qual conexão sai** — obrigatório. *Nada sai sem canal*: uma mensagem agendada sem conexão é
+   uma mensagem que não sai, então a tela nem deixa salvar. É aqui que se escolhe o WhatsApp, o chat
+   do site, o Instagram.
+3. **Para quem** — um ou vários contatos, até **500** por agendamento (acima disso o desenho certo é
+   campanha, que é outra coisa). O telefone é normalizado **enquanto se digita**: `(98) 98335-1000` e
+   `5598983351000` são o mesmo contato, e o mesmo contato repetido entra **uma vez só** — senão ele
+   receberia em dobro por erro de cadastro.
+4. **A mensagem** — texto livre, com as mesmas variáveis das respostas rápidas. Pode levar **anexo**
+   (imagem, vídeo, áudio, documento); com anexo, o texto vira a **legenda**.
+5. **Quando e com que repetição** — data e hora de início, e a recorrência: **única · diária ·
+   semanal · mensal**, com «a cada N». Na semanal escolhem-se os dias. Dá para pôr um **fim**
+   (`até`) ou um **teto de repetições**.
+6. **Abrir atendimento?** — marcado, a conversa fica **aberta** depois do envio e vai para o setor
+   escolhido: virou atendimento e alguém vai responder. Desmarcado, a conversa é **resolvida** logo
+   depois — mas só se **fomos nós que a abrimos**. Conversa que já estava com um atendente **não é
+   fechada por baixo dele**.
+
+> **O horário é o do cliente, não o do servidor.** Cada agendamento guarda o seu **fuso**. «Toda
+> terça às 8h» é 8h no relógio de quem recebe, inclusive no dia em que o horário de verão vira — a
+> conta é feita em calendário, não somando 24 horas, que é onde esse tipo de agenda costuma
+> escorregar uma hora exatamente no dia em que o cliente mais repara.
+
+---
+
+### O que aparece depois: o histórico, por destinatário
+
+Cada disparo gera **uma linha por destinatário e por ocorrência** — e é isso que permite dizer
+«saiu para o João às 08h02 e não saiu para a Maria, porque…». Os estados são estes:
+
+| Estado | O que quer dizer | Repete sozinho? |
+|---|---|---|
+| **Enviado** | o destino confirmou o recebimento | — |
+| **Fora da janela** | passaram-se mais de 24 h desde a última mensagem do contato e este agendamento não usa modelo aprovado. **Não saiu** | não — é regra da Meta, não defeito nosso |
+| **Adiado** | não havia por onde sair naquele instante (conexão desligada, caixa inativa). Fica com motivo e horário da nova tentativa | **sim**, com recuo crescente, até 6 tentativas |
+| **Falhou** | o destino disse não (número inválido, por exemplo), ou acabaram as tentativas | não |
+| **Em dúvida** | o processo caiu entre reservar e confirmar, ou a rede caiu no meio do envio | **não — e é de propósito** |
+| **Cancelado** | a agenda foi cancelada antes de este item sair | não |
+
+**Por que «em dúvida» não se repete sozinho.** Porque a mensagem **pode ter saído**. Quando a rede
+cai no meio de um envio, ninguém sabe se ela chegou ou não; reenviar por conta própria transformaria
+uma dúvida em **duas mensagens iguais** no WhatsApp de um cliente. Então o item para ali, marcado, e
+**só uma pessoa** manda repetir — no botão **«Reenviar»**, que aparece apenas nos itens que precisam
+de decisão humana. O reenvio nasce com registro próprio: **a tentativa antiga fica no histórico**,
+não é apagada.
+
+> **A tela não esconde o que é incômodo.** «Fora da janela» e «em dúvida» aparecem na lista com o
+> motivo por extenso. Um relatório que só mostra «enviado» é um relatório que mente por omissão.
+
+---
+
+### A mesma mensagem nunca sai duas vezes
+
+É a garantia central desta função, e ela **não é um cuidado do programa: é uma tranca do banco**.
+Cada par «destinatário × ocorrência» ganha uma chave única, e o envio começa reservando essa chave.
+Quem reserva, manda; quem esbarra numa chave já reservada, **não manda**. Isso vale mesmo com o
+sistema rodando em várias cópias ao mesmo tempo, e sobrevive a um reinício no meio do disparo.
+
+Por isso também **não existe botão «disparar agora»**. Ele pularia a reserva — que é justamente o
+que segura a mensagem dobrada. Quem quiser antecipar, **edita o horário**.
+
+---
+
+### Pausar, retomar e cancelar
+
+- **Pausar** congela a agenda. Nada sai enquanto estiver pausada.
+- **Retomar** volta à grade **para a frente**: se ficou três dias pausada, ela **não** dispara os três
+  «bom dia» atrasados de uma vez.
+- **Cancelar** encerra a agenda. O que **já disparou continua no histórico** — agendamento cancelado
+  não apaga o passado —, e o que estava a caminho é fechado com o motivo escrito, sem ficar pendurado.
+
+---
+
+### ⛔ Hoje o disparo está DESLIGADO — e isto é decisão, não pendência
+
+O cadastro **funciona por inteiro**: a tela abre, os agendamentos são criados, editados, pausados e
+cancelados, e ficam **pendentes**. O que ainda não acontece é a **saída da mensagem**.
+
+**Por quê.** Todo o resto do Ragnabot **responde** a quem escreveu. Este é o primeiro pedaço que
+**começa** conversa — ele fala com quem não pediu nada naquele instante. Um mecanismo assim, ligado
+sozinho num sistema recém-publicado com agendas vencidas guardadas, dispararia **de uma vez tudo o
+que ficou para trás**. Ligar é, portanto, um ato deliberado.
+
+**Como ligar** (quando for a hora): a variável `RAGNABOT_AGENDAMENTO=1`. **A recomendação registrada
+é estrear com uma agenda de teste, para um número da casa, com alguém do outro lado** — nunca em
+cima de agenda de cliente.
+
+*Prova:* `app/tests/ragnabot-agendamento.test.mjs` — 40 medições da parte pura (recorrência, fusos,
+virada do dia, virada do horário de verão, validação). E
+`app/tests/ragnabot-agendamento-worker.test.mjs` — 37 medições contra PostgreSQL de verdade, com
+**duas cópias do sistema disputando a mesma ocorrência**, reinício no meio do disparo, contato que
+falha sozinho sem derrubar os outros, e a recusa do banco à chave repetida.
 
 ---
 

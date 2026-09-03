@@ -139,6 +139,10 @@ await montar('/api/ragnabot-capitao', './routes/ragnabot-capitao.routes.js', aut
 // ATENDENTE. O isolamento por agente e por setor é imposto no `where` da consulta, dentro do
 // serviço, nunca por esconder item de menu.
 await montar('/api/ragnabot-caixa', './routes/ragnabot-caixa.routes.js', autenticar);
+// agendamento de mensagens (contrato S4): SEM `adminOnly` no mount, pela MESMA razão das respostas
+// rápidas e da caixa — quem agenda uma mensagem é o atendente ou o supervisor, cuja `role` do NOC é
+// 'user'. O isolamento é por `escopoDe()` dentro do serviço, e id de outra empresa responde 404.
+await montar('/api/ragnabot-agendamento', './routes/ragnabot-agendamento.routes.js', autenticar);
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 // TRABALHADORES
@@ -163,6 +167,8 @@ const trabalhadores = {
   // plataforma tinha 4 caixas e o nosso cadastro estava VAZIO — a função de reconciliação existia
   // desde 28/08 e nunca havia sido chamada por ninguém.
   caixas: { ligado: false, intervaloMs: null, erro: null },
+  // ⭐ Contrato S4 (agendamento, 02/09/2026). DESLIGADO por padrão — ver `ligarTrabalhadorDeAgendamento`.
+  agendamento: { ligado: false, intervaloMs: null, erro: null, motivo: null },
 };
 const desligadores = [];
 
@@ -226,6 +232,11 @@ export async function ligarTrabalhadores() {
       logger.warn(`[ragnabot] sincronização de caixas não subiu: ${e.message}`);
     }
 
+    // ⭐ AGENDAMENTO DE MENSAGENS (contrato S4). Em `try` próprio e DESLIGADO por padrão — ver a
+    // função abaixo. Falha dele não pode levar junto a portaria nem o executor: uma agenda que não
+    // sobe atrasa uma mensagem; o executor que não sobe cala o robô com o cliente escrevendo.
+    await ligarTrabalhadorDeAgendamento({ canalPorta, chatwoot });
+
     const amarrado = await amarrarMotorDeFluxo(canalPorta);
 
     // ⭐ O ELO QUE FALTAVA (contrato S-FILA). Sem este laço, tudo o que vem antes é encanamento
@@ -262,6 +273,52 @@ export async function ligarTrabalhadores() {
     trabalhadores.portaria.erro    = trabalhadores.portaria.erro    ?? e.message;
     trabalhadores.executorFluxo.erro = trabalhadores.executorFluxo.erro ?? e.message;
     logger.error(`[ragnabot] trabalhadores não subiram: ${e.message}`);
+  }
+}
+
+/**
+ * LIGA O TRABALHADOR DO AGENDAMENTO DE MENSAGENS (contrato S4, 02/09/2026).
+ *
+ * ⛔ DESLIGADO POR PADRÃO, e o padrão é o inverso do executor de fluxo — de propósito.
+ *
+ * O executor de fluxo RESPONDE a quem escreveu: o padrão certo lá é ligado, porque a omissão da
+ * variável não pode calar o robô diante de um cliente esperando. Este aqui COMEÇA conversa: ele
+ * manda mensagem para quem não pediu nada naquele instante. Um trabalhador assim subindo sozinho
+ * num processo recém-implantado, com agendas antigas vencidas no banco, dispararia tudo o que ficou
+ * para trás de uma vez — que é exatamente a forma do alerta de backup que mandou 210 mensagens.
+ * Por isso ligar é DECISÃO EXPLÍCITA, com `RAGNABOT_AGENDAMENTO=1`, e é do chefe.
+ *
+ * ⚠️ Desligado, o cadastro CONTINUA funcionando (as rotas e a tela respondem, as agendas nascem e
+ * ficam pendentes). O que não acontece é o disparo. Quando ligar, o que estiver vencido sai — e é
+ * por isso que a recomendação registrada é ligar primeiro com UMA agenda de teste, para um número
+ * da casa, e não em cima de uma agenda de cliente.
+ */
+export async function ligarTrabalhadorDeAgendamento({ canalPorta, chatwoot } = {}) {
+  try {
+    const ligado = ['1', 'true', 'sim', 'on'].includes(String(process.env.RAGNABOT_AGENDAMENTO ?? '').toLowerCase());
+    if (!ligado) {
+      const motivo = 'desligado por padrão — ligue com RAGNABOT_AGENDAMENTO=1 (decisão do chefe)';
+      trabalhadores.agendamento = { ...trabalhadores.agendamento, ligado: false, motivo };
+      logger.warn('[ragnabot] trabalhador de agendamento NÃO ligado — '
+        + 'as agendas continuam sendo CADASTRADAS e ficam pendentes; ninguém as dispara até religar.');
+      return { ligado: false, motivo };
+    }
+
+    const ag = await import('./services/ragnabot-agendamento-worker.service.js');
+    const cp = canalPorta ?? await import('./services/ragnabot-canal.porta.js');
+    const cw = chatwoot ?? (await import('./services/ragnabot-chatwoot.porta.js')).default;
+    ag.configurarAgendamentoWorker({ canal: cp.portaCanal, chatwoot: cw });
+
+    const ms = Math.max(10_000, Number(process.env.RAGNABOT_AGENDAMENTO_INTERVALO_MS || 30_000));
+    const parar = ag.iniciarTrabalhadorDeAgendamento({ intervaloMs: ms, workerId: WORKER_ID });
+    desligadores.push(parar);
+    trabalhadores.agendamento = { ligado: true, intervaloMs: ms, erro: null, motivo: null };
+    logger.info(`[ragnabot] trabalhador de agendamento no ar (${Math.round(ms / 1000)}s)`);
+    return { ligado: true, intervaloMs: ms };
+  } catch (e) {
+    trabalhadores.agendamento = { ...trabalhadores.agendamento, ligado: false, erro: e.message };
+    logger.error(`[ragnabot] trabalhador de agendamento não subiu: ${e.message}`);
+    return { ligado: false, erro: e.message };
   }
 }
 
