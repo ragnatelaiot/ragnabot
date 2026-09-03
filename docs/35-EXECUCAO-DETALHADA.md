@@ -160,7 +160,7 @@ Nada disso trava o começo. **S1 e S2 já estão liberados e começam agora.**
 | S5 Capitão | 🔄 em execução (chave desligada por decisão) |
 | S6 conexões e provedor | ⏳ |
 | S-Efí pagamento | 🔄 em execução (doc 36) |
-| S7 configurações | ⏳ |
+| S7 configurações | ✅ código pronto · **62 medições (40 do serviço + 22 pela API, com servidor de verdade no ar)** · migração **não aplicada** e **não publicado** (lote do chefe) |
 | S8 canais oficiais | ⛔ preso à Meta |
 | S9 automação por caixa | ⏳ |
 | S10 marca | ⏳ |

@@ -26,20 +26,26 @@
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { Building2, FlaskConical, Inbox, LogOut, Menu, MessagesSquare, Workflow, X, Zap } from 'lucide-react';
+import { Building2, FlaskConical, Inbox, LogOut, Menu, MessagesSquare, Workflow, X, Zap, Settings } from 'lucide-react';
 
 import { atorAtual, empresaAtual, sair, versaoDoMotor } from '../lib/api.js';
 import { ehItemAtivo, itemPorCaminho, itensVisiveis } from '../lib/navegacao.js';
 
 /** O catálogo guarda o NOME do ícone (é JavaScript puro e não pode conter JSX); a tradução para o
  *  componente mora aqui. Ícone desconhecido cai no de fluxo em vez de derrubar a tela. */
-const ICONES = { Workflow, Zap, Building2, FlaskConical, Inbox, MessagesSquare };
+// ⭐ 02/09/2026 (contrato S7): `Settings` entrou com a tela de Configurações. Ícone sem tela é
+// item de menu que abre o nada — a regra de `lib/navegacao.js`, repetida aqui.
+const ICONES = { Workflow, Zap, Building2, FlaskConical, Inbox, MessagesSquare, Settings };
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 // MENU LATERAL
 // ════════════════════════════════════════════════════════════════════════════════════════════════
-export function MenuLateral({ papel, aberto = false, aoFechar = () => {} }) {
-  const itens = itensVisiveis(papel);
+export function MenuLateral({ papel, operadorDoSaas = false, aberto = false, aoFechar = () => {} }) {
+  // ⭐ 02/09/2026 (contrato S7). `operadorDoSaas` vem do SERVIDOR (`GET /api/ragnabot-config/quem-sou`),
+  // nunca de uma dedução por nome de empresa — nome é dado de cadastro e uma empresa cliente que se
+  // renomeasse "Ragnatela" herdaria o menu. E, como sempre: isto é DESENHO. A trava é
+  // `src/base/operador-saas.js`, no servidor, medida por API.
+  const itens = itensVisiveis(papel, { operadorDoSaas });
   return (
     <>
       {/* O véu só existe no celular, e só quando o menu está aberto. Fechar tocando fora é o gesto
@@ -79,10 +85,11 @@ export function MenuLateral({ papel, aberto = false, aoFechar = () => {} }) {
             reparar na falta. Melhor ela ler o motivo aqui do que concluir que o produto perdeu
             funcionalidade. Cada tela nova apaga uma linha desta lista. */}
         <p className="casca__rodape-menu">
-          Atendimentos e Configurações ainda não têm tela própria aqui — seguem no painel de
-          atendimento. Conexões entrou pela metade (contrato S-CAIXAS, 02/09/2026): «Caixas de
-          entrada» CONFERE e sincroniza o cadastro; criar e remover conexão, que pede segundo fator
-          e credencial de canal, continua em Empresas e no painel.
+          Configurações ainda não tem tela própria aqui — segue no painel de atendimento. Conexões
+          entrou pela metade (contratos S-CAIXAS e S6, 02/09/2026): «Caixas de entrada» CONFERE e
+          sincroniza o cadastro, «Conexões» OPERA a conexão (provedor, estado, reinício,
+          transferência e cota); criar e remover conexão, que pede segundo fator e credencial de
+          canal, continua em Empresas e no painel.
         </p>
       </aside>
     </>
@@ -160,11 +167,29 @@ export function Rodape({ versao, empresa }) {
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 // A CASCA
 // ════════════════════════════════════════════════════════════════════════════════════════════════
-export default function Casca({ aviso = null, versao = null, ator = null, empresa = null }) {
+// ⭐ 02/09/2026 (contrato S7). `operadorDoSaas` é um PARÂMETRO opcional só para poder ser MEDIDO:
+// `null` (o normal, em produção) = pergunte ao servidor; booleano = use este valor. O teste de
+// renderização precisa fixar o fato sem rede, e um teste que não consegue fixar a entrada mede
+// sorte, não comportamento.
+export default function Casca({ aviso = null, versao = null, ator = null, empresa = null, operadorDoSaas: operadorFixo = null }) {
   const quem = ator || atorAtual();
   const daEmpresa = empresa || empresaAtual();
   const local = useLocation();
   const [menuAberto, setMenuAberto] = useState(false);
+
+  // ⭐ 02/09/2026 (contrato S7). UMA pergunta ao servidor, no arranque da casca: «esta conta opera
+  // o SaaS?». Enquanto ele não responde, o padrão é FALSO — item que pisca e some é pior que item
+  // que aparece um segundo depois. Falha na chamada também deixa falso: falha FECHADA.
+  const [operadorDoSaas, setOperadorDoSaas] = useState(operadorFixo === true);
+  useEffect(() => {
+    if (operadorFixo !== null) { setOperadorDoSaas(operadorFixo === true); return undefined; }
+    let vivo = true;
+    import('../lib/api-configuracoes.js')
+      .then((m) => m.quemSou())
+      .then((r) => { if (vivo) setOperadorDoSaas(r?.operadorDoSaas === true); })
+      .catch(() => { if (vivo) setOperadorDoSaas(false); });
+    return () => { vivo = false; };
+  }, [operadorFixo]);
 
   // Trocar de tela fecha o menu do celular. Sem isto, o menu fica por cima da tela recém-aberta e
   // parece que o clique não funcionou.
@@ -174,17 +199,17 @@ export default function Casca({ aviso = null, versao = null, ator = null, empres
   // e quem trabalha o dia inteiro tem várias.
   useEffect(() => {
     const item = itemPorCaminho(local.pathname)
-      || itensVisiveis(quem.papel).find((i) => ehItemAtivo(i, local.pathname));
+      || itensVisiveis(quem.papel, { operadorDoSaas }).find((i) => ehItemAtivo(i, local.pathname));
     document.title = item ? `RAGNABOT — ${item.rotulo}` : 'RAGNABOT';
-  }, [local.pathname, quem.papel]);
+  }, [local.pathname, quem.papel, operadorDoSaas]);
 
   const tela = itemPorCaminho(local.pathname)
-    || itensVisiveis(quem.papel).find((i) => ehItemAtivo(i, local.pathname))
+    || itensVisiveis(quem.papel, { operadorDoSaas }).find((i) => ehItemAtivo(i, local.pathname))
     || null;
 
   return (
     <div className="casca">
-      <MenuLateral papel={quem.papel} aberto={menuAberto} aoFechar={() => setMenuAberto(false)} />
+      <MenuLateral papel={quem.papel} operadorDoSaas={operadorDoSaas} aberto={menuAberto} aoFechar={() => setMenuAberto(false)} />
       <div className="casca__coluna">
         <Cabecalho aviso={aviso} titulo={tela?.rotulo || null} ator={quem} empresa={daEmpresa}
           aoAbrirMenu={() => setMenuAberto(true)} />

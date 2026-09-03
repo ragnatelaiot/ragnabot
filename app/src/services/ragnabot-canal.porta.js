@@ -66,6 +66,16 @@
 import prisma from '../base/db.js';
 import logger from '../base/logger.js';
 import chatwootPadrao from './ragnabot-chatwoot.porta.js';
+// ⭐ Contrato S6 (02/09/2026) — a CAMADA DE PROVEDOR (doc 34 §F9.2.2). O cabeçalho deste arquivo já
+// dizia onde ela entraria: «em `descobrirCanal` — o resto deste arquivo não muda». É exatamente o
+// que aconteceu: duas linhas em `descobrirCanal` e uma em `portaCanalDa`. Nenhum despacho mudou.
+//
+// ⚠️ CICLO DE IMPORTAÇÃO, DECLARADO: `ragnabot-provedor.service.js` importa `CAPACIDADES` daqui, e
+// este arquivo importa `capacidadeEfetiva` de lá. É seguro porque NENHUM dos dois toca o outro na
+// AVALIAÇÃO do módulo — só dentro de corpo de função. Quem mexer aqui precisa manter essa regra:
+// uma constante de topo lendo do outro lado quebraria com «Cannot access before initialization»,
+// e a quebra depende da ORDEM em que o processo importa, o que a torna intermitente.
+import { capacidadeEfetiva, normalizarProvedor } from './ragnabot-provedor.service.js';
 
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 // CAPACIDADE POR CANAL — a tabela que decide botão × texto numerado
@@ -284,16 +294,21 @@ async function descobrirCanal({ cwAccountId, cwConversationId, tenantId }) {
   const guardado = cacheCanal.get(chave);
   if (guardado && Date.now() - guardado.quando < CACHE_CANAL_MS) return guardado.info;
 
-  let info = { tenantId: tenantId ?? null, channelType: 'desconhecido', cwInboxId: null, nome: null, phoneNumberId: null };
+  let info = { tenantId: tenantId ?? null, channelType: 'desconhecido', cwInboxId: null, nome: null, phoneNumberId: null, provedor: 'nativo' };
   try {
     const caixa = await portas.chatwoot?.caixaDaConversa?.({ cwAccountId, cwConversationId });
     if (caixa) {
+      const tipo = caixa.channelType || 'desconhecido';
       info = {
         tenantId: caixa.tenantId ?? tenantId ?? null,
-        channelType: caixa.channelType || 'desconhecido',
+        channelType: tipo,
         cwInboxId: caixa.cwInboxId ?? null,
         nome: caixa.nome ?? null,
         phoneNumberId: caixa.phoneNumberId ?? null,
+        // ⭐ S6. QUEM OPERA a conexão. Vem do cadastro (`RagnabotInbox.provedor`); ausente ou
+        // incoerente com o canal, cai no padrão do canal COM AVISO — nunca lança. Cadastro
+        // estragado não pode calar o atendimento; ele degrada e grita no log.
+        provedor: normalizarProvedor(caixa.provedor, tipo, { avisar: (m) => log().warn?.(m) }),
       };
     }
   } catch (e) {
@@ -759,7 +774,11 @@ export async function portaCanalDa(alvoBruto = {}) {
   const cwAccountId = alvoBruto.cwAccountId;
   const cwConversationId = alvoBruto.cwConversationId;
   const canal = await descobrirCanal({ cwAccountId, cwConversationId, tenantId: alvoBruto.tenantId });
-  const capacidade = capacidadeDoCanal(canal.channelType);
+  // ⭐ S6. ERA `capacidadeDoCanal(canal.channelType)`. Passou a compor canal + provedor — e a FORMA
+  // do resultado é idêntica (`{interativo, botoesMax, listaMax, anexo, template}`), que é o que
+  // mantém o motor sem saber que provedor existe. A composição é sempre RESTRITIVA: provedor tira
+  // capacidade, nunca acrescenta (ver `ragnabot-provedor.service.js`).
+  const capacidade = capacidadeEfetiva(canal.channelType, canal.provedor, { avisar: (m) => log().warn?.(m) });
   const alvo = {
     tenantId: alvoBruto.tenantId ?? canal.tenantId ?? null,
     cwAccountId,
@@ -767,6 +786,10 @@ export async function portaCanalDa(alvoBruto = {}) {
     execucaoId: alvoBruto.id ?? null,
     channelType: canal.channelType,
     phoneNumberId: canal.phoneNumberId ?? null,
+    // Só para DIAGNÓSTICO e log. ⛔ Nenhum despacho deste arquivo pode ramificar por ele — quem
+    // decide o que dá para mandar é `capacidade`, e é assim que se troca de provedor sem tocar em
+    // código. Um `if (alvo.provedor === …)` aqui desfaz a camada inteira.
+    provedor: canal.provedor ?? null,
   };
 
   return {
@@ -860,9 +883,16 @@ export default {
 //   declarada, não silêncio.
 // • NÃO faz a chamada do nó `http`. O egresso da casa (com guarda de destino) não existe no
 //   repositório; abrir `fetch` para URL de editor sem essa guarda seria pior que a falta.
-// • NÃO conhece Whatsmeow nem intermediário (doc 34 §F9.2.2). Quando a camada de provedor existir,
-//   ela entra em `descobrirCanal` — o resto deste arquivo não muda, porque só depende da CAPACIDADE
-//   do canal, não de quem o opera.
+// • ⭐ RESOLVIDO em 02/09/2026 (contrato S6). Este parágrafo dizia: «NÃO conhece Whatsmeow nem
+//   intermediário; quando a camada de provedor existir, ela entra em `descobrirCanal` — o resto
+//   deste arquivo não muda». Foi exatamente assim: `ragnabot-provedor.service.js` entrou em
+//   `descobrirCanal` e em `portaCanalDa` (a capacidade passou a ser composta), e NENHUM dos catorze
+//   despachos mudou uma linha. Este arquivo continua sem saber quem opera o canal — ele lê
+//   `capacidade`, e a capacidade já vem composta.
+// • NÃO fala com o Whatsmeow nem com intermediário DIRETO. A conexão pode ser marcada com esses
+//   provedores no cadastro (é o que a camada permite decidir depois), mas o transporte continua
+//   sendo a plataforma. Ligar um transporte novo é serviço próprio, e ele entra como mais uma
+//   implementação da porta — não como `if` aqui dentro.
 // • NÃO foi exercitado com cliente. Zero caixas de WhatsApp em 02/09/2026. O que existe é teste com
 //   dublê (`tests/ragnabot-canal-porta.test.mjs`) e leitura do contrato.
 // ════════════════════════════════════════════════════════════════════════════════════════════════

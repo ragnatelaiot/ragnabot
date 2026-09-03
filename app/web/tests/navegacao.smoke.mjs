@@ -58,11 +58,31 @@ medir('toda tela do catálogo tem rótulo em português e um apoio que explica',
   }
 });
 
-medir('o atendente NÃO vê a tela de Empresas; o administrador vê', () => {
+// ⭐ REESCRITA EM 02/09/2026 (contrato S7). Esta medição dizia «o administrador VÊ Empresas», e
+// estava certa enquanto a única distinção era papel. A ordem do dono acrescentou uma segunda:
+// Empresas é do OPERADOR DO SaaS — um administrador de empresa CLIENTE também é `admin`, e via um
+// item que a API já lhe recusava. Menu que promete o que o servidor nega é pior que menu sem item.
+medir('Empresas é do OPERADOR do SaaS: nem o atendente nem o admin de empresa cliente a veem', () => {
   const doAtendente = nav.itensVisiveis('user').map((i) => i.id);
-  const doAdmin = nav.itensVisiveis('admin').map((i) => i.id);
+  const doAdminCliente = nav.itensVisiveis('admin').map((i) => i.id);
+  const doAdminOperador = nav.itensVisiveis('admin', { operadorDoSaas: true }).map((i) => i.id);
   assert.ok(!doAtendente.includes('empresas'), 'o atendente está vendo Empresas');
-  assert.ok(doAdmin.includes('empresas'), 'o administrador NÃO está vendo Empresas');
+  assert.ok(!doAdminCliente.includes('empresas'), 'o admin de empresa CLIENTE está vendo Empresas');
+  assert.ok(doAdminOperador.includes('empresas'), 'o operador do SaaS NÃO está vendo Empresas');
+  // ⚠️ E a regra do topo de `lib/navegacao.js`, repetida porque é onde ela mais tenta: isto é
+  // DESENHO. A recusa de verdade está em `app/tests/ragnabot-configuracao-visibilidade.test.mjs`,
+  // que sobe o servidor e mede 403 pela API.
+});
+
+medir('Configurações é de TODO MUNDO — o atendente lê o que muda a tela dele', () => {
+  // ⭐ Contrato S7. O que ele NÃO pode é escrever, e quem recusa isso é o servidor (403 EXIGE_ADMIN).
+  for (const papel of ['user', 'admin']) {
+    assert.ok(nav.itensVisiveis(papel).map((i) => i.id).includes('configuracoes'),
+      `${papel} não vê Configurações`);
+  }
+  const item = nav.itemPorCaminho('/configuracoes');
+  assert.ok(item, '/configuracoes não está no catálogo');
+  assert.equal(item.id, 'configuracoes');
 });
 
 medir('o que é de todo mundo aparece para os dois papéis', () => {
@@ -79,6 +99,12 @@ medir('papel desconhecido cai para o MENOS poderoso (falha fechada)', () => {
   for (const ruim of [undefined, null, '', 'super', 'administrator', 'root', 0, {}]) {
     const ids = nav.itensVisiveis(ruim).map((i) => i.id);
     assert.ok(!ids.includes('empresas'), `papel ${JSON.stringify(ruim)} abriu Empresas`);
+    // ⭐ S7: e o mesmo vale para o fato do operador — valor estranho não abre o menu do SaaS.
+    for (const talvez of [undefined, null, '', 'sim', 1, 'true', {}]) {
+      const comContexto = nav.itensVisiveis('admin', { operadorDoSaas: talvez }).map((i) => i.id);
+      assert.ok(!comContexto.includes('empresas'),
+        `operadorDoSaas=${JSON.stringify(talvez)} abriu o menu do SaaS`);
+    }
   }
 });
 
@@ -138,10 +164,18 @@ medir('o menu desenhado do ATENDENTE não traz Empresas', () => {
   assert.doesNotMatch(comoAtendente, />Empresas</);
 });
 
-medir('o menu desenhado do ADMINISTRADOR traz as três', () => {
-  for (const id of ['fluxos', 'respostas-rapidas', 'empresas']) {
+medir('o menu desenhado do ADMINISTRADOR de empresa cliente NÃO traz Empresas', () => {
+  for (const id of ['fluxos', 'respostas-rapidas', 'configuracoes']) {
     assert.match(comoAdmin, new RegExp(`data-item="${id}"`), `faltou ${id}`);
   }
+  // ⭐ S7: o administrador de empresa CLIENTE é `admin`, e o item comercial não é dele.
+  assert.doesNotMatch(comoAdmin, /data-item="empresas"/, 'o item comercial vazou para o cliente');
+});
+
+medir('o menu desenhado do OPERADOR do SaaS traz Empresas', () => {
+  const comoOperador = semMarcas(renderizarCasca({ papel: 'admin', caminho: '/fluxos', operadorDoSaas: true }));
+  assert.match(comoOperador, /data-item="empresas"/, 'o operador do SaaS perdeu o item comercial');
+  assert.match(comoOperador, /data-item="configuracoes"/);
 });
 
 medir('Caixas de entrada é do ADMINISTRADOR — o atendente não a vê desenhada', () => {
@@ -182,11 +216,13 @@ medir('o rodapé assina o produto (doc 34 §F5.2)', () => {
 });
 
 medir('o menu DIZ o que ainda não tem tela, em vez de fingir que não existe', () => {
-  assert.match(comoAtendente, /Atendimentos e Configura/);
-  // ⭐ 02/09/2026: «Conexões» deixou de ser ausência total e virou ausência PARCIAL — a tela de
-  // conferência existe, a de criar/remover não. A frase tem de dizer a metade certa; dizer «não
-  // existe» com a tela no ar mandaria o operador procurar no lugar errado.
+  // ⭐ 02/09/2026, contrato S2: «Atendimentos» saiu desta frase porque a tela passou a existir.
+  // ⭐ 02/09/2026, contrato S6: «Conexões» também ganhou tela (a de OPERAÇÃO). A frase tem de dizer
+  // exatamente a metade que falta — dizer «não existe» com a tela no ar manda o operador procurar
+  // no lugar errado, e dizer «existe tudo» o faz abrir chamado quando não achar o botão de criar.
+  assert.match(comoAtendente, /Configurações ainda não tem tela/);
   assert.match(comoAtendente, /Conexões entrou pela metade/);
+  assert.match(comoAtendente, /criar e remover conexão/);
 });
 
 medir('a casca não trouxe nada do NOC pendurado', () => {

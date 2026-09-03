@@ -143,6 +143,18 @@ await montar('/api/ragnabot-caixa', './routes/ragnabot-caixa.routes.js', autenti
 // rápidas e da caixa — quem agenda uma mensagem é o atendente ou o supervisor, cuja `role` do NOC é
 // 'user'. O isolamento é por `escopoDe()` dentro do serviço, e id de outra empresa responde 404.
 await montar('/api/ragnabot-agendamento', './routes/ragnabot-agendamento.routes.js', autenticar);
+// ⭐ conexões, API pública e webhook de saída (contrato S6): SEM `adminOnly` no mount, pela MESMA
+// razão dos vizinhos — o ATENDENTE lê as conexões (precisa saber por qual linha o atendimento
+// dele chega), e o que muda o mundo (trocar provedor, transferir atendimento, emitir credencial)
+// exige administrador DENTRO do router. O escopo por empresa vem de `escopoDe()`, nunca do corpo.
+await montar('/api/ragnabot-conexao', './routes/ragnabot-conexao.routes.js', autenticar);
+// ⭐ menu Configurações (contrato S7): SEM `adminOnly` no mount, pela MESMA razão dos vizinhos — o
+// ATENDENTE precisa LER os ajustes que mudam a tela dele (tema, modo das etiquetas, assinatura).
+// Quem pode ESCREVER é conferido dentro do router (`exigirAdmin`).
+// ⛔ E é ali dentro que mora a ordem do dono: whitelabel, empresas e planos passam por
+// `exigirOperadorDoSaas` (src/base/operador-saas.js) e respondem 403 a conta de cliente — a trava
+// é do SERVIDOR, e o teste de aceite é a recusa pela API, não a aba escondida no menu.
+await montar('/api/ragnabot-config', './routes/ragnabot-configuracao.routes.js', autenticar);
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 // TRABALHADORES
@@ -169,6 +181,12 @@ const trabalhadores = {
   caixas: { ligado: false, intervaloMs: null, erro: null },
   // ⭐ Contrato S4 (agendamento, 02/09/2026). DESLIGADO por padrão — ver `ligarTrabalhadorDeAgendamento`.
   agendamento: { ligado: false, intervaloMs: null, erro: null, motivo: null },
+  // ⭐ Contrato S6 (webhook de saída, 02/09/2026). DESLIGADO por padrão, e por decisão do chefe:
+  // em 02/09 não há webhook cadastrado e o executor de fluxo está desligado — um carteiro rodando
+  // sem nada para entregar só gastaria passada. Ligar é `webhooks.iniciarCarteiro()`, e a rota
+  // `POST /api/ragnabot-conexao/webhooks/entregar-agora` faz UMA passada à mão, para provar a
+  // entrega sem ligar nada permanentemente.
+  webhookSaida: { ligado: false, intervaloMs: null, erro: null, motivo: 'desligado por decisão do chefe (lote)' },
 };
 const desligadores = [];
 

@@ -5,7 +5,7 @@
 > código). Quando uma versão nova entra em `VERSOES.md`, a função correspondente entra ou muda aqui —
 > os dois arquivos andam juntos.
 >
-> Estado coberto: **v1.07.01**. O que ainda não existe está marcado _(planejado)_ e aponta o item
+> Estado coberto: **v1.10.00**. O que ainda não existe está marcado _(planejado)_ e aponta o item
 > do `docs/32-PLANO-DE-EXECUCAO.md`.
 
 ---
@@ -28,6 +28,9 @@
 5-I. [Ainda não ligado: Capitão e Pix](#5-i-ainda-não-ligado-capitão-agente-de-ia-e-cobrança-por-pix)
 5-J. [Os números em cada saída do fluxo](#5-j-os-números-em-cada-saída-do-fluxo)
 6. [Multiempresa, planos e cobrança](#6-multiempresa-planos-e-cobrança)
+6-A. [Conexões: por onde o cliente fala](#6-a-conexões-por-onde-o-cliente-fala)
+6-B. [API própria da empresa e avisos para o sistema dela](#6-b-api-própria-da-empresa-e-avisos-para-o-sistema-dela)
+6-C. [Configurações: como o atendimento se comporta](#6-c-configurações-como-o-atendimento-se-comporta)
 7. [Protocolo e auditoria](#7-protocolo-e-auditoria)
 7-A. [Entrar no Ragnabot (login da tela)](#7-a-entrar-no-ragnabot-login-da-tela)
 8. [Infraestrutura (o que sustenta tudo)](#8-infraestrutura)
@@ -94,7 +97,9 @@ ninguém chegava nele, porque não havia caminho.
 | **Testador de fluxo** | conversar com o fluxo antes de qualquer cliente | todos |
 | **Agendamentos** | mensagens marcadas para sair na hora certa, uma vez ou repetindo (**o disparo ainda está desligado** — ver §1-D) | todos |
 | **Caixas de entrada** | conferir as conexões que o robô conhece e acertá-las com a plataforma | administrador |
-| **Empresas** | cadastro comercial de quem contrata (é tela de operador do SaaS) | administrador |
+| **Conexões** | operar a conexão: quem opera, como está, quanto do plano já foi usado, transferir (§6-A) | administrador |
+| **Configurações** | como o atendimento se comporta — dez painéis de ajuste, por empresa (§6-C) | todos leem; **só administrador altera** |
+| **Empresas** | cadastro comercial de quem contrata (é tela de operador do SaaS) | ⛔ **só a conta que opera o SaaS** |
 
 O menu recolhe no botão do canto (fica só o ícone) e a escolha é lembrada no navegador. Os itens são
 **links de verdade**: abrem em nova aba, o endereço pode ser copiado e o botão "voltar" funciona.
@@ -718,6 +723,152 @@ não têm como divergir.
 controlam limites (usuários, conexões, filas) e módulos ligados. Cobrança integrada. O isolamento
 entre empresas é feito **sempre a partir do usuário logado**, nunca do que a tela manda — admin de
 uma empresa não enxerga outra (provado contra o ataque real).
+
+---
+
+## 6-A. Conexões: por onde o cliente fala
+
+**O que faz.** Uma tela com um cartão para cada canal ligado — WhatsApp, Instagram, Facebook, site,
+e-mail. Cada cartão mostra o **número da conexão** (é ele que se digita ao amarrar um fluxo), o
+nome, o número/endereço, **quem opera** aquele canal, **como ele está** e quando isso foi medido.
+No topo, a **cota do plano**: quantas conexões já estão ligadas, de quantas, e se ainda cabe mais
+uma.
+
+**Quem opera o canal — e por que isso é um campo.** Existe o *canal* (o meio pelo qual a pessoa
+fala) e existe o *provedor* (quem opera esse meio para nós). São coisas diferentes: o mesmo
+WhatsApp pode chegar pela conta oficial da Meta, por uma sessão não-oficial ou por um
+intermediário. Guardar isso num campo é o que permite **trocar de caminho depois sem reescrever o
+robô** — trocar o provedor de uma conexão é mudar um campo, e o construtor de fluxo nem fica
+sabendo. O que muda sozinho é o que dá para mandar: um canal que não desenha botão passa a receber
+o mesmo menu em **texto numerado**, e o cartão avisa isso em português antes de acontecer.
+
+**O sinal de estado, e a idade dele.** O estado nasce **«não medida»**, e é de propósito: dizer
+«conectada» sem ter olhado é o pior erro possível numa tela de plantão. Quando há medição, o cartão
+diz o estado **e há quanto tempo** ele foi medido — «conectada (medida há 3 dias)» é uma afirmação
+sobre o passado, e quem está resolvendo um problema precisa saber disso.
+
+**Reiniciar a conexão.** Solta o que o robô tinha guardado sobre aquele canal, confere o cadastro
+com a plataforma e remede o estado. Antes, isso só se conseguia reiniciando o serviço inteiro — o
+que derrubava o atendimento junto. ⚠️ Para provedores com sessão própria (que ainda não estão
+ligados), o botão **diz que não fez nada**, em vez de piscar «pronto».
+
+**Transferir atendimentos entre conexões.** Serve para trocar de número sem perder o histórico. Ele
+mostra uma **prévia** do que seria movido, pede o **motivo**, e move: os atendimentos abertos passam
+a ser roteados pela conexão nova, cada conversa **guarda de onde veio** (mesmo depois de três
+transferências, a origem continua sendo a primeira), e fica um **aviso interno** na conversa
+explicando a mudança. ⚠️ **Limite honesto:** a plataforma de atendimento não permite trocar a caixa
+de entrada de uma conversa já aberta — lá ela continua na caixa original, e é por isso que deixamos
+o aviso. A tela diz isso com todas as letras em vez de fingir sucesso.
+
+**Cota.** O plano diz quantas conexões cabem, no total e por canal. Estourou, a criação é
+**recusada** com o número na frente: quantas há, de quantas, e o que fazer (desligar uma que não é
+mais usada ou mudar o plano). A conferência é feita de dois jeitos independentes — pelo nosso
+cadastro e pela plataforma —, para a cota continuar valendo mesmo quando a plataforma está fora.
+
+**Registro por canal.** Cada mensagem que o robô mandou por aquela conexão já ficava registrada
+(com o resultado, o erro e o código HTTP); o que faltava era onde olhar. A tela lista, filtra só as
+falhas e resume: quantas confirmaram, quantas falharam, e a taxa de falha.
+
+---
+
+## 6-B. API própria da empresa e avisos para o sistema dela
+
+**O que faz.** Cada empresa cliente pode ter a **chave e o segredo** dela para conversar com o
+Ragnabot por programa — e pode pedir que o Ragnabot **avise o sistema dela** quando algo acontece
+(uma conversa nasceu, foi resolvida, uma conexão mudou de estado).
+
+**A credencial.** A **chave** é pública: aparece na tela, entra no registro, e serve para dizer
+*qual* integração está falando. O **segredo** aparece **uma única vez**, na hora de gerar, e nunca
+mais — ele é guardado cifrado, e nem nós conseguimos lê-lo depois. Perdeu, **regenera**: a
+credencial anterior **para de valer na hora**, e fica registrado quem regenerou e por quê.
+
+**O aviso (webhook).** A empresa cadastra o endereço do sistema dela e escolhe quais eventos quer.
+Cada aviso vai **assinado**: o Ragnabot calcula uma assinatura do conteúdo com o segredo daquele
+destino e a manda no cabeçalho `X-Hub-Signature-256`. É **o mesmo padrão que a Meta usa** — quem já
+integra com a Meta não escreve uma linha nova para integrar conosco.
+
+**Se o sistema do cliente estiver fora do ar, nada se perde.** O aviso não é «tentou e desistiu»:
+ele fica gravado e é reentregue com espera crescente — meio minuto, dois minutos, oito, meia hora,
+duas horas, seis horas. O conteúdo reenviado é **idêntico ao primeiro** (senão a assinatura mudaria
+e o outro lado não conseguiria conferir). Esgotadas as tentativas, o aviso fica marcado como
+**desistido**, com o motivo escrito, e **não se repete sozinho** — alguém precisa mandar reenviar.
+É a mesma regra do agendamento, e pelo mesmo motivo: repetição automática sem ninguém olhando é
+como um sistema manda a mesma coisa trezentas vezes.
+
+⚠️ **Estado em 02/09/2026 (v1.10.00, no ar):** o cadastro da credencial e do destino do aviso
+**já funciona**, e cada aviso **já é gravado na fila assinado**. Mas **o carteiro está desligado**:
+nada sai para fora até alguém ligá-lo, e **nenhum webhook está cadastrado** na plataforma de
+atendimento. Ligar é decisão do responsável pela publicação — e é assim de propósito, porque um
+carteiro ligado sozinho num sistema recém-publicado despeja de uma vez tudo o que ficou para trás.
+
+---
+
+## 6-C. Configurações: como o atendimento se comporta
+
+**O que faz.** Reúne num lugar só os ajustes que mudam o comportamento do atendimento da sua
+empresa, em dez painéis: **Atendimento · Horários · Notificações · Agenda · Aparência · Mensagens ·
+Integrações · Inteligência artificial · Sistema** e, **só para quem opera o serviço**, **Whitelabel**.
+
+**Tudo é por empresa.** Um ajuste salvo na sua empresa vale só nela. A empresa vizinha não lê nem
+escreve o seu — e isso não é «a tela não mostra»: é o servidor que decide, a partir de quem entrou.
+
+**Quem pode mexer.** Qualquer pessoa da equipe **lê** os ajustes (o atendente precisa saber o tema,
+o modo das etiquetas e se pode assinar a mensagem). **Alterar** exige perfil de administrador.
+
+### O que cada painel guarda
+
+| Painel | Para que serve |
+|---|---|
+| **Atendimento** | Saudação automática · aviso ao transferir · **histórico global ou por setor** · ignorar grupo · aceitar ligação e áudio · exigir setor ao aceitar · assinatura do atendente · botão de pausar · **carteira de clientes por contato ou por atendimento** |
+| **Horários** | ⚠️ O expediente em si (dias, janelas, **almoço**, plantão que vira a madrugada, **feriado**) já tem tela própria no motor de atendimento e **não é duplicado aqui** — este painel abre aquela. |
+| **Notificações** | Permitir e exibir **avaliação do atendimento** · notificação e som para conversa de grupo |
+| **Agenda** | **Quem manda no expediente**: a empresa, o setor ou a conexão. É escolha sua, e não uma ordem fixa — por isso os outros níveis ficam parados em vez de brigar entre si |
+| **Aparência** | Tema padrão · etiqueta com texto ou bolinha · atendimentos fechados no Kanban |
+| **Mensagens** | Textos automáticos que não existiam por conexão: chamada recusada, áudio recusado, ao aceitar o atendimento e ao transferir de setor. ⚠️ Quando a conexão tiver texto próprio, **o da conexão vence** — é o mais específico |
+| **Integrações** | **Servidor de e-mail próprio** da empresa (a senha é guardada cifrada e **nunca volta**) · interruptor da cobrança por Pix, cujas credenciais ficam na tela de pagamento, não aqui |
+| **Inteligência artificial** | A IA que **ajuda o atendente** — resumir o atendimento e sugerir resposta. Provedor **trocável** (OpenAI, Anthropic, Google, Azure ou um servidor nosso), modelo, chave e **teto de gasto no mês**. ⚠️ **Não é** o agente que atende o cliente sozinho: aqui a pessoa continua sendo quem envia |
+| **Sistema** | Correção ortográfica · política de senha forte · sessão única. ⚠️ Os dois últimos são **registro da sua política**: quem confere a senha no login é a plataforma de atendimento, não o Ragnabot |
+| **Whitelabel** | ⛔ **Só da conta que vende o serviço.** Nome do sistema, cores (claro e escuro), fundos, logotipos, tela de entrada, links de política e termos, mensagens de boas-vindas/redefinição de senha/código, e os dias de teste da empresa nova |
+
+### ⛔ Marca, Empresas e Planos são de quem vende o serviço
+
+Por ordem do dono: **Whitelabel, Empresas e Planos não aparecem na conta de cliente** — e não é só
+o menu. Uma conta de cliente que peça esses painéis **pelo endereço direto** recebe recusa do
+servidor, não a lista. É proposital: quem visse a lista de empresas veria o plano, o valor, o
+vencimento e o e-mail de **todos os outros clientes**.
+
+### Segredo é segredo
+
+Senha do servidor de e-mail e chave de IA são guardadas **cifradas**. Depois de salvas, **ninguém as
+lê de volta** — nem a tela, nem o suporte, nem o registro. O que aparece é uma **impressão digital**
+curta, que serve para você conferir «é a chave que eu coloquei?» sem que ela possa ser reconstruída.
+Para trocar, digite a nova; deixar o campo em branco mantém a que está lá.
+
+### Tudo o que muda fica registrado
+
+Toda alteração vai para a auditoria com **quem**, **quando** e o **antes → depois**. Salvar o mesmo
+valor de novo **não** vira registro — auditoria cheia de ruído é auditoria que ninguém lê, e a que
+ninguém lê é a que não pega o dia em que mudou de verdade. Para um segredo, o registro guarda a
+impressão digital antes e depois: prova que **mudou**, sem guardar o valor.
+
+### Um aviso honesto na própria tela
+
+Ajuste que ainda **não é lido por nenhuma parte do produto** aparece marcado como
+**«guardado, ainda sem efeito»**. É de propósito: painel cheio de interruptor que não faz nada
+ensina a desconfiar de todos, inclusive dos que funcionam. Hoje quase todos estão nesse estado — o
+que existe é o lugar de guardar, auditado e isolado por empresa; ligar cada comportamento é a
+próxima etapa de cada assunto.
+
+### O que depende de decisão do dono
+
+A tela lista, no próprio painel, o que está esperando resposta: **HubSoft** (só entra se for usado),
+**Facebook/Instagram oficiais** (presos à análise da Meta), **provedor de API de WhatsApp** (depende
+do caminho comercial escolhido) e **ligar o agente de IA que atende sozinho**.
+
+⚠️ **Estado em 02/09/2026 (v1.10.00, no ar):** a tabela **foi criada** e a tela **está publicada**
+em `/painel/configuracoes`. O que continua valendo é o aviso acima: **quase todo ajuste está
+«guardado, ainda sem efeito»** — o painel guarda, audita e isola por empresa; quem ainda não lê o
+ajuste é o resto do produto.
 
 ---
 

@@ -17,10 +17,12 @@
 // servidor, e o teste de aceite de isolamento é a API recusando, não o botão sumindo. Este arquivo
 // existe para a pessoa não tropeçar em tela que não é dela, não para impedir quem quer entrar.
 //
-// ── ⛔ O QUE EU DELIBERADAMENTE NÃO PUS AQUI ────────────────────────────────────────────────────
-// Conexões e Configurações — os outros itens do menu do chat atual. As telas NÃO existem. Item de
-// menu que abre tela vazia ensina o operador a desconfiar do menu inteiro; quando cada uma nascer
-// (S6, S7), ela entra aqui em uma linha.
+// ── ⭐ CONFIGURAÇÕES ENTROU EM 02/09/2026 (contrato S7) ─────────────────────────────────────────
+// Este bloco dizia, até hoje: «Configurações — a tela NÃO existe. Item de menu que abre tela vazia
+// ensina o operador a desconfiar do menu inteiro; quando ela nascer (S7), entra aqui em uma linha.»
+// A tela nasceu, e a linha entrou — nesta ordem, que é a regra deste arquivo.
+// (Conexões saiu desta lista em 02/09/2026, contrato S6: a tela passou a existir — e entrou no
+// menu só DEPOIS disso, que é a regra deste arquivo.)
 // (Atendimentos saiu desta lista em 02/09/2026: a tela passou a existir — ver o item `caixa`.)
 //
 // ⭐ 02/09/2026 (contrato S3.1): entrou `testador`. Ele é a prova de que a promessa acima vale nos
@@ -112,13 +114,45 @@ export const MENU = Object.freeze([
     apoio: 'Conferir as conexões que o robô conhece, e acertá-las com a plataforma',
   },
   {
+    // ⭐ 02/09/2026 (contrato S6, doc 34 §F9.2.3). Fica logo ABAIXO de «Caixas de entrada» porque é
+    // o mesmo assunto visto de outro ângulo: lá se CONFERE o cadastro contra a plataforma, aqui se
+    // OPERA a conexão (provedor, estado, reinício, transferência, cota). `papeis: ['admin']` porque
+    // é operação de conexão — e, como sempre neste arquivo, ISTO NÃO É A TRAVA: quem recusa é o
+    // servidor (`ragnabot-conexao.routes.js`, `exigirAdmin` em tudo que muda o mundo).
+    id: 'conexoes',
+    rotulo: 'Conexões',
+    caminho: '/conexoes',
+    papeis: ['admin'],
+    icone: 'Plug',
+    apoio: 'Por onde o cliente fala: canal, quem opera, como está e quanto do plano já foi usado',
+  },
+  {
+    // ⭐ 02/09/2026 (contrato S7, doc 34 §F8). Última do menu porque é o que se abre de vez em
+    // quando, não o que se usa o dia inteiro. `papeis: null` porque o ATENDENTE também precisa
+    // LER os ajustes que mudam a tela dele (tema, modo das etiquetas, assinatura) — quem não pode
+    // ESCREVER recebe 403 EXIGE_ADMIN do servidor, com a tela em modo de leitura.
+    id: 'configuracoes',
+    rotulo: 'Configurações',
+    caminho: '/configuracoes',
+    papeis: null,
+    icone: 'Settings',
+    apoio: 'Como o atendimento se comporta: saudação, histórico, horários, avaliações e integrações',
+  },
+  {
     id: 'empresas',
     rotulo: 'Empresas',
     caminho: '/empresas',
     // Cadastro comercial de quem VENDE o SaaS. O doc 34 §F8 é explícito: whitelabel, empresas e
-    // planos são abas do operador, não do cliente. Aqui é só o desenho; a trava de servidor dessa
-    // regra é o S7 e ainda não existe — está dito no relatório, e não fingido aqui.
+    // planos são abas do OPERADOR, não do cliente.
+    //
+    // ⭐ 02/09/2026 (contrato S7): a trava de servidor dessa regra PASSOU A EXISTIR — é
+    // `src/base/operador-saas.js`, e `tests/ragnabot-configuracao-visibilidade.test.mjs` mede a
+    // recusa pela API (403 NAO_E_OPERADOR_DO_SAAS), não o botão sumido. Por isso este item deixou
+    // de ser `papeis: ['admin']`: um administrador de empresa CLIENTE é admin, e via aqui um item
+    // que a API já lhe recusava — menu que promete o que o servidor nega é pior que menu sem item.
+    // `somenteOperadorDoSaas` é lido por `itensVisiveis`, que agora recebe também esse fato.
     papeis: ['admin'],
+    somenteOperadorDoSaas: true,
     icone: 'Building2',
     apoio: 'Cadastro das empresas atendidas pelo Ragnabot',
   },
@@ -132,11 +166,28 @@ export function normalizarPapel(papel) {
 
 /**
  * Os itens que este papel enxerga.
+ *
+ * ⭐ 02/09/2026 (contrato S7): ganhou o segundo argumento. `operadorDoSaas` NÃO é deduzido aqui —
+ * ele vem de `GET /api/ragnabot-config/quem-sou`, ou seja, do SERVIDOR. Deduzir pelo nome ou pelo
+ * slug da empresa seria pior que não checar: nome de empresa é dado de cadastro, editável pela
+ * própria tela de Empresas, e uma empresa cliente que se renomeasse "Ragnatela" herdaria o menu.
+ *
+ * ⚠️ E vale a regra do topo deste arquivo, sempre: ISTO NÃO É A TRAVA. Quem recusa é
+ * `src/base/operador-saas.js`, no servidor. Aqui só se evita o tropeço.
+ *
  * @param {string} papel  'admin' | 'user'
+ * @param {{operadorDoSaas?:boolean}} [contexto]
  */
-export function itensVisiveis(papel) {
+export function itensVisiveis(papel, contexto = {}) {
   const p = normalizarPapel(papel);
-  return MENU.filter((item) => !item.papeis || item.papeis.includes(p));
+  // Padrão FALSO, e não "não sei": enquanto o servidor não respondeu, o menu do operador não
+  // aparece. Um item que pisca e some é pior que um item que aparece um segundo depois.
+  const operador = contexto.operadorDoSaas === true;
+  return MENU.filter((item) => {
+    if (item.papeis && !item.papeis.includes(p)) return false;
+    if (item.somenteOperadorDoSaas && !operador) return false;
+    return true;
+  });
 }
 
 /** O item cujo caminho é este — ou `null`. Usado para o título da aba e para a marcação de ativo. */

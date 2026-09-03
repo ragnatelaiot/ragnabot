@@ -494,12 +494,12 @@ sozinho**.
 | # | Item | Estado | Nota |
 |---|---|---|---|
 | 9.2.1 | **Embedded Signup da Meta** — o cliente clica um botão no Ragnabot, faz login na Meta numa janela da própria Meta, escolhe a página/WABA dele e volta conectado | 🔴 novo | é a resposta CERTA ao problema que o ConnectAi resolve errado; **depende da Análise do App** |
-| 9.2.2 | **Camada de provedor de canal** — abstração `provedor` no cadastro de conexão (`meta_direto` \| `whatsmeow` \| `terceiro`) | 🔴 novo | não amarrar o motor a um caminho só; é o que permite decidir depois sem reescrever |
-| 9.2.3 | **Tela de Conexões** com cartão por canal: ID, nome, número, última atualização, sinal de estado, desconectar/editar/excluir | 🟡 dados já existem | paridade visual da tela 40 |
-| 9.2.4 | **Transferir tickets entre conexões** (botão da tela 40) | 🔴 novo | necessário ao trocar de número sem perder histórico |
-| 9.2.5 | **Reiniciar conexões** | 🟡 | operação de suporte; hoje só no `kubectl` |
-| 9.2.6 | **Logs de requisição por canal** + relatório (tela 37) | 🟡 | o motor já registra; falta a tela |
-| 9.2.7 | **Cota de canais por empresa** (Limite × Ativos × Uso %) | 🔴 novo | casa com F8.13 e com `ragnabot-cobranca.service.js` |
+| 9.2.2 | ~~**Camada de provedor de canal**~~ ✅ **02/09/2026 (S6)** | `ragnabot-provedor.service.js` + `RagnabotInbox.provedor`. Quatro valores: `meta_direto` · `whatsmeow` · `terceiro` · **`nativo`** (o quarto entrou porque site/e-mail/Telegram não têm terceiro no caminho, e marcá-los como «meta_direto» seria mentira em coluna de cadastro). **Provado que não vaza para o motor** pelos dois lados: varredura estática (0 ocorrências) e o MESMO menu virando texto numerado só por trocar um campo do banco |
+| 9.2.3 | ~~**Tela de Conexões**~~ ✅ **02/09/2026 (S6)** | `web/src/paginas/Conexoes.jsx`. Cartão por canal com id, nome, número, última atualização e sinal — **mais** quem opera e o que aquele par canal+provedor consegue fazer, em português. ⚠️ O sinal traz a IDADE da medição junto: «conectada» medida há 3 dias parece atual e engana quem está de plantão. **Criar/remover conexão continua em Empresas** (é lá que fica o 2FA e a credencial de canal) |
+| 9.2.4 | ~~**Transferir tickets entre conexões**~~ ✅ **02/09/2026 (S6)**, com limite declarado | Move o NOSSO roteamento + registra a ORIGEM em cada conversa + aviso interno na conversa. ⚠️ **A plataforma NÃO expõe rota para trocar a caixa de entrada de uma conversa** (leitura do contrato da API, não medição) — por isso o resultado diz `moveuNaPlataforma: false` em vez de fingir. Histórico provado: a origem sobrevive a três transferências seguidas |
+| 9.2.5 | ~~**Reiniciar conexões**~~ ✅ **02/09/2026 (S6)**, com o «não» dito em voz alta | Para `nativo`/`meta_direto` faz o que existe: solta o cache de canal (60 s), reconcilia com a plataforma e remede o estado — antes isso só se conseguia com `kubectl`, derrubando o atendimento junto. Para `whatsmeow`/`terceiro` devolve `naoDisponivel` **com o motivo**: não há transporte, e botão que pisca «pronto» sem fazer nada é pior que botão que falta |
+| 9.2.6 | ~~**Logs de requisição por canal** + relatório~~ ✅ **02/09/2026 (S6)** | **Sem tabela nova**: lê `RagnabotFluxoEfeito` (que o motor já grava) juntando por `RagnabotConversa` → `RagnabotFluxoExecucao`. O relatório conta por status e por tipo e chama de **amostra** o que é amostra (teto de 500) |
+| 9.2.7 | ~~**Cota de canais por empresa**~~ ✅ **02/09/2026 (S6)** | A REGRA já existia (`cabeMaisUmaCaixa`); nasceram a LEITURA (limite × ativos × uso %, no total, por canal e por provedor) e uma **segunda guarda** que conta o NOSSO cadastro — ela vem ANTES da leitura da plataforma, porque é justamente quando a plataforma está fora que uma cota baseada nela deixaria passar |
 
 ### 9.3 — Templates (HSM) — 🔴 LACUNA REAL, independente de intermediário
 
@@ -527,10 +527,10 @@ receber da Meta serve para assinar o que sai**. Reaproveitar, não reescrever.
 
 | # | Item | Nota |
 |---|---|---|
-| 9.4.1 | Credencial de API por empresa (chave + segredo), com regeneração | casa com o *botão de gerar token* que o dono já pediu |
-| 9.4.2 | Cadastro de webhooks de saída por empresa (N URLs) | |
-| 9.4.3 | Assinatura HMAC-SHA256 no corpo + `Bearer` no cabeçalho | reusar `verificarAssinaturaMeta` |
-| 9.4.4 | Reentrega com recuo exponencial + registro de falha | sem isto, webhook que cai perde evento em silêncio |
+| 9.4.1 | ~~Credencial de API por empresa (chave + segredo), com regeneração~~ ✅ **02/09/2026 (S6)** | `RagnabotApiCredencial`. Segredo **cifrado** (AES-256-GCM, a mesma chave já em produção) + impressão digital; aparece em claro UMA vez e nunca mais; **nunca em log** (provado varrendo o log capturado). **Regenerar revoga a anterior na mesma transação** — provado: o par antigo para de autenticar na hora |
+| 9.4.2 | ~~Cadastro de webhooks de saída por empresa (N URLs)~~ ✅ **02/09/2026 (S6)** | `RagnabotWebhookSaida`, com filtro por evento e por conexão, segredo próprio por destino e disjuntor. ⚠️ URL só `https` e **rede interna recusada** (inclusive `169.254.169.254`): administrador enganado também aponta webhook para dentro |
+| 9.4.3 | ~~Assinatura HMAC-SHA256 no corpo + `Bearer` no cabeçalho~~ ✅ **02/09/2026 (S6)** | ⚠️ **Correção do plano:** `verificarAssinaturaMeta` **não existia** — o que existia era a conferência do retorno da Efí, embutida em `ragnabot-cobranca.routes.js`. Foi extraída para `src/base/assinatura.js` e agora serve para **receber e assinar**. Provado conferindo do lado do destino, com o `crypto` do Node, sobre os bytes que trafegaram |
+| 9.4.4 | ~~Reentrega com recuo exponencial + registro de falha~~ ✅ **02/09/2026 (S6)** | `RagnabotWebhookEntrega`: **a linha é a verdade, o laço é o carteiro** (a próxima tentativa é COLUNA, não `setTimeout`). Recuo 30 s · 2 min · 8 min · 32 min · 2 h · **teto 6 h**; idempotência por índice único; **o corpo é reenviado byte a byte igual** (remontar mudaria a assinatura entre tentativas); esgotadas as tentativas vira `desistiu`, grita como ERRO e **só humano reenvia** — mesma decisão do agendamento (S4). ⛔ Carteiro **DESLIGADO** por padrão |
 
 ### 9.5 — Canais que eles têm e nós não
 

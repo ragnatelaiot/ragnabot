@@ -19,6 +19,90 @@
 
 ---
 
+## v1.10.00 — Onde o cliente fala, e como o atendimento se comporta (02/09/2026)
+
+A frase que resume: **duas telas que faltavam para o Ragnabot deixar de ser «o que a gente
+configura por fora» — a lista das conexões e o painel de ajustes da empresa.**
+
+Até aqui, saber por onde o cliente falava exigia abrir a plataforma de atendimento, e mudar o
+comportamento do atendimento exigia pedir a alguém da Ragnatela. Esta versão traz as duas coisas
+para dentro do painel, cada empresa vendo só o que é dela.
+
+### O que o cliente ganha
+
+**Conexões (`/painel/conexoes`).** Um cartão por conexão, dizendo em português: **qual canal**
+(WhatsApp, Instagram, Facebook, site, e-mail, Telegram), **quem opera** aquele canal, **como está**
+(conectada, com falha, sem notícia) e **quanto do plano já foi usado** — «3 de 5 conexões, 60%».
+Dá para ver o registro do que saiu por cada conexão (com contagem por resultado e taxa de falha),
+soltar o cache do canal sem chamar o suporte, e **transferir os atendimentos de uma conexão para
+outra** quando um número morre — com opção de avisar o cliente na conversa.
+
+**API própria da empresa.** A empresa emite a sua **credencial** (chave + segredo), escolhe o que
+ela pode fazer, e o sistema dela consulta o Ragnabot sem passar por ninguém. Segredo aparece
+**uma vez só**, na hora de criar; depois vira impressão digital. Dá para **regenerar** (o antigo
+morre) e **revogar** com motivo registrado.
+
+**Avisos para o sistema da empresa (webhook de saída).** Cadastrar um endereço para receber os
+acontecimentos do atendimento, **assinados** (HMAC-SHA256) — quem recebe consegue provar que veio
+de nós. Com fila, repetição com recuo crescente e **disjuntor**: destino que falha seguidas vezes
+é pausado em vez de continuar sendo martelado.
+
+**Configurações (`/painel/configuracoes`).** Dez painéis — Atendimento, Horários, Notificações,
+Agenda, Aparência, Mensagens, Integrações, Inteligência artificial, Sistema e, **só para quem
+opera o serviço**, Whitelabel. Cada ajuste é **por empresa**: o que você salva vale só na sua.
+Ler é de todos; **alterar exige administrador**. Toda mudança vai para a auditoria com quem,
+quando e o antes → depois.
+
+### ⭐ A regra que essa versão trancou: cliente não vê o negócio dos outros
+
+Por ordem do dono, **Whitelabel, Empresas e Planos são da conta que vende o serviço**. Isso deixou
+de ser «o menu não mostra» e passou a ser **o servidor recusando**: uma conta de cliente que peça
+esses painéis pelo endereço direto recebe **403**, não a lista. Quem visse essa lista veria plano,
+valor, vencimento e e-mail de **todos os outros clientes**.
+
+A decisão de quem é o operador não sai de nome nem de apelido — sai de uma **variável do ambiente**
+(`RAGNABOT_TENANT_OPERADOR`), que o cliente não escreve. E, se ninguém declarar a variável, a
+resposta é **negar**: falha fechada, de propósito. Permissão que erra para o lado aberto só aparece
+no vazamento.
+
+### ⚠️ Segredo entra e não volta
+
+Senha do servidor de e-mail, chave de IA, segredo de credencial e segredo de webhook são guardados
+**cifrados**. Depois de salvos ninguém os lê de volta — nem a tela, nem o suporte, nem o registro.
+O que aparece é uma **impressão digital** curta: serve para conferir «é a chave que eu coloquei?»
+sem que ela possa ser reconstruída.
+
+### ⚠️ «Guardado, ainda sem efeito» — o aviso honesto na própria tela
+
+Ajuste que ainda **não é lido por nenhuma parte do produto** aparece marcado assim, na cara. Hoje
+quase todos estão nesse estado: o que existe é **o lugar de guardar** — auditado, isolado por
+empresa e com a trança de escopo no banco. Ligar cada comportamento é a etapa seguinte de cada
+assunto. Painel cheio de interruptor que não faz nada ensina a desconfiar de todos, inclusive dos
+que funcionam.
+
+### ⛔ O que sobe DESLIGADO (e continua desligado)
+
+- **Executor de fluxo** (`RAGNABOT_EXECUTOR_FLUXO=0`) — nenhuma conversa é conduzida por robô.
+- **Disparo do agendamento** (`RAGNABOT_AGENDAMENTO=0`) — agendas são cadastradas, ninguém as envia.
+- **Carteiro do webhook de saída** — a fila existe e é gravada; **nada sai** até alguém ligar.
+- **Nenhum webhook cadastrado** na plataforma de atendimento.
+
+### O que mudou por baixo
+
+- **5 tabelas novas** e **10 colunas novas** no banco do Ragnabot (46 → 51 tabelas, 185 → 206
+  índices), aplicadas pelo caminho manual da casa — nunca `prisma db push`.
+- **A trava de coerência de escopo** (`RagnabotConfiguracao_escopo_coerente`): o banco recusa uma
+  linha cujo dono e cujo escopo não batam. É o que impede, para sempre, o ajuste de uma empresa
+  ser lido como sendo de outra — e foi **provado no banco de produção**, em transação desfeita.
+- **Camada de provedor:** o Ragnabot fala **direto** com a Meta (decisão registrada do dono: a
+  mensagem do cliente não transita pela infraestrutura de outra empresa). A camada existe para que
+  contratar outro caminho amanhã não exija reescrever nada — e o intermediário aparece no catálogo
+  **marcado como contrário à decisão do dono**, em vez de escondido.
+- **Assinatura HMAC** virou peça única (`src/base/assinatura.js`), servindo para **receber** (Efí) e
+  para **assinar** (webhook de saída) — antes era código repetido em três pontos.
+
+---
+
 ## v1.09.00 — A mensagem que sai na hora certa, sem ninguém acordar para mandar (02/09/2026)
 
 A frase que resume: **até aqui o Ragnabot só sabia responder; agora ele sabe começar uma conversa —

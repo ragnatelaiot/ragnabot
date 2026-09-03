@@ -221,18 +221,48 @@ model RagnabotInbox {
   identifier            String // número, e-mail ou endereço do site — o que identifica a conexão
   credentialFingerprint String?
   metadata              Json? // wabaId, phoneNumberId, websiteToken, callbackWebhook
+
+  // ── ⭐ CAMADA DE PROVEDOR (contrato S6, doc 34 §F9.2.2) ────────────────────────────────────
+  // QUEM OPERA a conexão, separado do que ela SABE FAZER. meta_direto|whatsmeow|terceiro|nativo.
+  // O catálogo, as regras de combinação e a composição da capacidade vivem em
+  // `ragnabot-provedor.service.js` — aqui é só o valor gravado.
+  //
+  // ⚠️ O PADRÃO É `nativo`, e NÃO «meta_direto», de propósito: a coluna nasce preenchida para TODAS
+  // as linhas existentes, inclusive as de Site e e-mail, e `nativo` é o único valor que não mente
+  // sobre nenhuma delas. Quem for de WhatsApp/Instagram/Facebook é corrigido pela retrocarga do
+  // SQL (que aplica `provedorPadraoDoCanal` por tipo de canal) e pela sincronização seguinte.
+  provedor       String  @default("nativo")
+  provedorRef    String? // id da instância no provedor (sessão do Whatsmeow, conta no intermediário)
+  // ⛔ SEM SEGREDO. Só o que é endereço/apelido: url base do provedor, apelido do segredo no cofre.
+  // O valor do segredo vive em `RagnabotFluxoSegredo` (cifrado) ou na plataforma — nunca aqui.
+  provedorConfig Json?
+
+  // ── ESTADO DA CONEXÃO (F9.2.3 — o «sinal» do cartão) ──────────────────────────────────────
+  // conectado|desconectado|degradado|desconhecido. `desconhecido` é o padrão e é honesto: enquanto
+  // ninguém MEDIU o canal, dizer «conectado» é o pior erro possível numa tela de operação.
+  estado        String    @default("desconhecido")
+  estadoDetalhe String? // a frase que explica o estado, em português
+  estadoEm      DateTime? // quando o estado foi MEDIDO — sem isto, «desconectado» de 3 dias atrás
+  //                      // parece novidade
+
+  // ── REINÍCIO (F9.2.5) ─────────────────────────────────────────────────────────────────────
+  reiniciadaEm        DateTime?
+  reiniciadaPorUserId String?
   // Trava de corrida: "canal:identificador" enquanto a conexão está ATIVA, null
   // depois de removida. Um número de WhatsApp pertence a UMA empresa por vez, e
   // dois pedidos simultâneos não conseguem prender o mesmo número — mas o número
   // volta a ficar livre quando a conexão é desligada (Postgres aceita vários
   // nulos num índice único, e é exatamente disso que precisamos aqui).
-  activeKey             String?        @unique
-  removedAt             DateTime? // conexão desligada — a linha NUNCA é apagada (histórico)
-  createdAt             DateTime       @default(now())
-  updatedAt             DateTime       @updatedAt
+  activeKey           String?   @unique
+  removedAt           DateTime? // conexão desligada — a linha NUNCA é apagada (histórico)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   @@index([tenantId, removedAt])
   @@index([channelType, identifier])
+  // ⭐ S6: «quantas conexões desta empresa estão em cada provedor» é a consulta da tela de Conexões
+  // e do relatório de cota. Sem o índice, ela vira varredura da tabela inteira a cada abertura.
+  @@index([tenantId, provedor])
 }
 
 model RagnabotTenantEvent {
@@ -1833,6 +1863,14 @@ model RagnabotConversa {
   caixaNome String? // desnormalizado de RagnabotInbox: a fila é lida em relance, não com JOIN
   canal     String? // whatsapp | web_widget | instagram | facebook | email | telegram | api
 
+  // ── ⭐ TRANSFERÊNCIA ENTRE CONEXÕES (contrato S6, doc 34 §F9.2.4) ───────────────────────────
+  // De ONDE esta conversa veio quando foi movida de conexão. Guardado UMA vez (a primeira
+  // transferência): é a ORIGEM verdadeira, não o passo anterior. Uma conversa movida três vezes
+  // continua sabendo onde nasceu — que é a pergunta que se faz ao trocar de número («este
+  // atendimento é de qual linha?»), e a que um campo sobrescrito a cada passo não responde.
+  origemCwInboxId Int?
+  transferidaEm   DateTime?
+
   // ── SETOR (a 2ª etiqueta, e o eixo do histórico) ────────────────────────────────────────────
   cwTeamId  Int?
   setorNome String?
@@ -2099,4 +2137,250 @@ model RagnabotAgendamentoEnvio {
   @@index([agendamentoId, ocorrenciaEm])
   @@index([tenantId, status, reservadoEm])
   @@index([destinoId, ocorrenciaEm])
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// CONEXÕES, API PÚBLICA E WEBHOOK DE SAÍDA — contrato S6 (02/09/2026), doc 34 §F9.2 e §F9.4.
+//
+// MEDIDO ANTES DE ESCREVER (02/09/2026), para não reconstruir o que existe:
+//   · `RagnabotInbox`                    JÁ existia — ganhou colunas (provedor, estado, reinício),
+//                                        não uma tabela nova. A tela de Caixas de entrada, a
+//                                        sincronização e a guarda de fluxo continuam iguais.
+//   · cota por plano                     JÁ existia em `config/ragnabot-plans.js#cabeMaisUmaCaixa`.
+//                                        O que faltava era a LEITURA (limite × ativos × uso %) e a
+//                                        recusa a partir do NOSSO cadastro, não só da plataforma.
+//   · registro de requisição por canal   JÁ existia em `RagnabotFluxoEfeito` (httpStatus, erro,
+//                                        resposta resumida) e em `RagnabotFluxoEvento`. Nenhuma
+//                                        tabela nova para isso: o serviço LÊ as duas.
+//   · assinatura HMAC                    JÁ existia, embutida em `ragnabot-cobranca.routes.js`.
+//                                        Virou `src/base/assinatura.js` e serve aos DOIS sentidos.
+// O que realmente não existia, e é o que nasce aqui: credencial de API por empresa, webhook de
+// SAÍDA, a fila de entrega com recuo, e o registro das transferências entre conexões.
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+// CREDENCIAL DA API PÚBLICA, POR EMPRESA (F9.4.1).
+//
+// ⛔ O SEGREDO NÃO FICA EM TEXTO PURO. `segredoCifrado` é AES-256-GCM (`src/base/crypto.js`,
+// ENCRYPTION_KEY) e `segredoDigital` é o sha256 truncado — o MESMO padrão já em produção em
+// `RagnabotInbox.credentialFingerprint` e `RagnabotFluxoSegredo`. Nenhuma rota devolve o cifrado;
+// o valor em claro aparece UMA vez, na resposta da emissão, e nunca mais.
+//
+// ⚠️ POR QUE `chave` É PÚBLICA E O `segredo` NÃO: a chave identifica (vai no cabeçalho, aparece na
+// tela, entra em log de diagnóstico); o segredo autentica. Guardar os dois do mesmo jeito faria a
+// tela ter de esconder a chave também — e aí ninguém consegue dizer QUAL credencial está sendo
+// usada quando uma integração quebra.
+model RagnabotApiCredencial {
+  id       String @id @default(uuid())
+  tenantId String
+
+  nome           String // "ERP do cliente", "Integração com o site" — quem lê o log precisa saber de quem é
+  chave          String @unique // rgtk_<32 hex>: identificador PÚBLICO
+  segredoCifrado String
+  segredoDigital String
+
+  // ler | escrever. Lista, e não booleano, porque escopo novo entra sem migração — e porque uma
+  // credencial de leitura é o que se entrega a um painel de terceiro sem medo.
+  escopos String[] @default(["ler"])
+
+  ativa             Boolean   @default(true)
+  revogadaEm        DateTime?
+  revogadaPorUserId String?
+  motivoRevogacao   String?
+  // A credencial que ESTA substituiu (regeneração). Sem isto, «regenerar» apaga a trilha de quem
+  // usava a anterior — e a integração que quebrou não tem como ser identificada.
+  substituiuId      String?
+
+  criadaPorUserId String?
+  ultimoUsoEm     DateTime?
+  ultimoUsoIp     String?
+  usos            Int       @default(0)
+
+  criadaEm     DateTime @default(now())
+  atualizadaEm DateTime @updatedAt
+
+  @@index([tenantId, ativa])
+  @@index([tenantId, criadaEm])
+}
+
+// WEBHOOK DE SAÍDA, POR EMPRESA (F9.4.2).
+// N URLs por empresa, opcionalmente presas a UMA conexão. O segredo é por webhook (não por
+// empresa): revogar um destino não pode obrigar a trocar a chave de todos os outros.
+model RagnabotWebhookSaida {
+  id       String @id @default(uuid())
+  tenantId String
+
+  nome      String
+  url       String
+  // [] = todos os eventos. Lista explícita evita mandar o mundo inteiro para quem só quer
+  // «conversa.resolvida» — e volume que ninguém quer é o que faz o destino começar a recusar.
+  eventos   String[] @default([])
+  cwInboxId Int? // null = todas as conexões da empresa
+
+  segredoCifrado String
+  segredoDigital String
+
+  ativo Boolean @default(true)
+
+  // ── DISJUNTOR ─────────────────────────────────────────────────────────────────────────────
+  // Destino que está fora há horas não pode consumir a fila inteira a cada passada. Depois de
+  // `falhasSeguidas` demais, o webhook fica em repouso até `pausadoAte` — e o repouso é do
+  // DESTINO, não da entrega: a fila continua guardando o que aconteceu, para reentregar depois.
+  falhasSeguidas Int       @default(0)
+  pausadoAte     DateTime?
+
+  ultimaEntregaEm DateTime?
+  ultimoStatus    Int?
+  ultimoErro      String?
+
+  criadoPorUserId String?
+  criadoEm        DateTime  @default(now())
+  atualizadoEm    DateTime  @updatedAt
+  removidoEm      DateTime? // nunca apagamos: a trilha de entregas apontaria para o nada
+
+  @@index([tenantId, ativo])
+  @@index([tenantId, cwInboxId])
+}
+
+// A FILA DE ENTREGA (F9.4.4) — e é ELA a funcionalidade, não o `fetch`.
+//
+// ⚠️ A LINHA É A VERDADE, O LAÇO É O CARTEIRO. Mesmo desenho de `RagnabotAtendRelogio` e de
+// `RagnabotAgendamentoEnvio`, pelo mesmo motivo: um `setTimeout` de retentativa morre com o pod, e
+// o evento some sem ninguém saber. Aqui a próxima tentativa é uma COLUNA; reiniciar o processo não
+// perde nada.
+//
+// ⚠️ `chave` É A TRANCA DE «NÃO ENTREGA DUAS VEZES»: sha256(webhookId|evento|idDoEvento), com
+// índice ÚNICO de banco. O enfileiramento é `INSERT … ON CONFLICT DO NOTHING` — o mesmo evento
+// reprocessado (webhook da plataforma reentregue, varredura repetida) não vira segunda entrega.
+model RagnabotWebhookEntrega {
+  id        String @id @default(uuid())
+  webhookId String
+  tenantId  String
+
+  evento     String // conversa.criada|conversa.resolvida|mensagem.recebida|conexao.estado|…
+  idDoEvento String // o id do fato no NOSSO lado — é ele que torna a chave estável
+  chave      String @unique
+
+  // ⚠️ O corpo é gravado UMA VEZ e reenviado IGUAL. Remontar a cada tentativa mudaria a assinatura
+  // entre tentativas (e a ordem das chaves do JSON basta para isso) — o destino receberia a mesma
+  // entrega com assinaturas diferentes e nunca conseguiria conciliar.
+  corpo Json
+
+  tentativa     Int      @default(0)
+  maxTentativas Int      @default(6)
+  // pendente | entregue | falhou | desistiu | cancelada
+  //   falhou   = a tentativa desta rodada falhou, mas ainda há rodada
+  //   desistiu = acabaram as tentativas. NÃO se repete sozinha — só humano manda reenviar,
+  //              exatamente como no agendamento e na caixa de saída do motor.
+  estado        String   @default("pendente")
+  proximaEm     DateTime
+
+  httpStatus     Int?
+  // ⛔ NUNCA o corpo cru da resposta: só um resumo aparado. Corpo de terceiro pode carregar dado
+  // pessoal e vira depósito de LGPD que ninguém sabe que tem.
+  respostaResumo String?
+  erro           String?
+  duracaoMs      Int?
+
+  entregueEm   DateTime?
+  criadaEm     DateTime  @default(now())
+  atualizadaEm DateTime  @updatedAt
+
+  @@index([estado, proximaEm]) // o carteiro vive deste índice
+  @@index([webhookId, criadaEm])
+  @@index([tenantId, evento, criadaEm])
+}
+
+// TRANSFERÊNCIA DE ATENDIMENTOS ENTRE CONEXÕES (F9.2.4).
+// Uma linha por OPERAÇÃO (não por conversa): é o que a tela mostra e o que a auditoria lê.
+// O que aconteceu com cada conversa fica em `RagnabotConversa.origemCwInboxId/transferidaEm`.
+model RagnabotConexaoTransferencia {
+  id       String @id @default(uuid())
+  tenantId String
+
+  origemCwInboxId  Int
+  destinoCwInboxId Int
+  origemNome       String?
+  destinoNome      String?
+
+  // Que conversas entraram: os estados pedidos e quantas casaram.
+  filtroEstados String[] @default([])
+  encontradas   Int      @default(0)
+  movidas       Int      @default(0)
+  falhas        Int      @default(0)
+
+  // concluida | parcial | falhou
+  resultado String
+  // O que NÃO deu certo, conversa a conversa, em português. Contador sem motivo não conserta nada.
+  detalhes  Json?
+
+  // ⚠️ A honestidade desta funcionalidade mora aqui: a plataforma de atendimento NÃO expõe rota
+  // para mudar a caixa de entrada de uma conversa. O que se move é o NOSSO roteamento (projeção,
+  // fluxo, relógios) e o aviso interno na conversa. `avisoNaConversa` diz se o aviso foi mesmo
+  // gravado lá — sem ele, o atendente lê a conversa e não entende por que ela mudou de linha.
+  avisoNaConversa   Boolean @default(false)
+  moveuNaPlataforma Boolean @default(false)
+
+  motivo              String
+  solicitadaPorUserId String?
+  solicitadaPorNome   String?
+
+  criadaEm    DateTime  @default(now())
+  concluidaEm DateTime?
+
+  @@index([tenantId, criadaEm])
+  @@index([origemCwInboxId])
+  @@index([destinoCwInboxId])
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// CONFIGURAÇÕES — o menu Configurações inteiro (contrato S7, doc 34 §F8), 02/09/2026
+//
+// UMA tabela chave/valor para os 10 painéis, e não uma coluna por caixinha marcada. A razão está
+// escrita por extenso em `src/services/ragnabot-configuracao.catalogo.js`: são 29 itens no plano e
+// o dono já avisou que "virão mais telas". Coluna por ajuste seria uma migração por caixinha, num
+// banco em que migração é o item mais caro (LEI 2 da casa: nada de `db push`, SQL versionado à
+// mão, e cliente Prisma novo só vale depois de reiniciar o processo).
+//
+// O preço — `Json` não é validado pelo banco — está pago pelo `validar()` do catálogo, que roda
+// ANTES de qualquer gravação e recusa tipo, faixa, opção e tamanho fora do previsto.
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+model RagnabotConfiguracao {
+  id String @id @default(uuid())
+
+  // ⚠️ ANULÁVEL: a linha do OPERADOR do SaaS (whitelabel, dias de teste) não pertence a empresa
+  // nenhuma. Por isso o índice único NÃO pode ser sobre esta coluna — no Postgres dois NULOS não
+  // colidem, e o whitelabel da casa poderia ser cadastrado dez vezes sem o banco reclamar.
+  tenantId String?
+
+  // A chave materializada que o banco TRANCA: "casa" | "tenant:<uuid>". NOT NULL, sempre.
+  // Mesma lição de `RagnabotPagamentoCredencial.chaveEscopo` e `RagnabotAtendPolitica.escopoChave`.
+  chaveEscopo String
+
+  // atendimento | horarios | notificacoes | agenda | aparencia | mensagens | integracoes | ia |
+  // sistema | whitelabel  — o catálogo é a fonte da verdade; aqui é só para consultar por aba.
+  painel String
+  chave  String
+
+  // `{ v: <valor> }` para ajuste comum; `{ c: "iv:tag:cifrado" }` para SEGREDO.
+  // ⛔ Segredo entra cifrado (aes-256-gcm, `src/base/crypto.js`) e NUNCA volta pela API.
+  valor Json
+
+  segredo Boolean @default(false)
+
+  // sha256 do valor em claro, 12 primeiros hex. É o que a tela mostra no lugar do segredo, e o que
+  // a auditoria registra para provar que MUDOU — sem que ninguém possa reconstruir o valor.
+  impressaoDigital String?
+
+  atualizadoPorId   String?
+  atualizadoPorNome String?
+
+  criadoEm DateTime @default(now())
+  // ⚠️ SEM `@updatedAt` de propósito: o serviço grava o instante explicitamente, e assim o banco
+  // de verdade e o banco de mentira do teste se comportam igual. `@updatedAt` faria o teste medir
+  // uma coisa e a produção fazer outra.
+  atualizadoEm DateTime @default(now())
+
+  @@unique([chaveEscopo, chave])
+  @@index([chaveEscopo, painel])
+  @@index([tenantId])
 }

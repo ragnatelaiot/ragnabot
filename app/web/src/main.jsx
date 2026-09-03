@@ -59,6 +59,8 @@ import TestadorDeFluxo from './paginas/TestadorDeFluxo.jsx';
 import Agendamentos from './paginas/Agendamentos.jsx';
 import Empresas from './paginas/Empresas.jsx';
 import CaixasDeEntrada from './paginas/CaixasDeEntrada.jsx';
+import Conexoes from './paginas/Conexoes.jsx';
+import Configuracoes from './paginas/Configuracoes.jsx';
 import CaixaDeAtendimento from './paginas/CaixaDeAtendimento.jsx';
 import { ContextoDaSessao, PortaoDeSessao } from './paginas/Entrada.jsx';
 import { CAMINHO_PADRAO, itensVisiveis } from './lib/navegacao.js';
@@ -121,10 +123,14 @@ function NaoEncontrada() {
  * A tela de Empresas é do OPERADOR do SaaS (doc 34 §F8, ordem do dono de 02/09).
  *
  * ⚠️ ISTO NÃO É A TRAVA. Quem tem de recusar é o servidor — e o teste de aceite escrito no doc 34 é
- * «um usuário de conta cliente chamando a rota PELA API recebe recusa, não a lista». Essa trava é o
- * sprint S7 e ainda NÃO existe: hoje `ragnabot-tenant.routes.js` é montado com `adminOnly`, o que
- * barra o atendente mas não separa admin-de-cliente de admin-da-Ragnatela. Este componente evita o
- * tropeço; ele não substitui a trava, e não pode ser confundido com ela.
+ * «um usuário de conta cliente chamando a rota PELA API recebe recusa, não a lista».
+ *
+ * ⭐ 02/09/2026 (contrato S7): essa trava PASSOU A EXISTIR e está medida.
+ *   · whitelabel/empresas/planos → `src/base/operador-saas.js` (403 NAO_E_OPERADOR_DO_SAAS);
+ *   · `ragnabot-tenant.routes.js` já recusava por defesa em profundidade — medido pela API em
+ *     `tests/ragnabot-configuracao-visibilidade.test.mjs`: cookie de administrador de empresa
+ *     CLIENTE em `GET /api/ragnabot/tenants` responde 403, não a lista.
+ * Este componente continua sendo só o que sempre foi: evita o tropeço, não substitui a trava.
  */
 function SoAdministrador({ children }) {
   if (atorAtual().papel === 'admin') return children;
@@ -172,7 +178,17 @@ function Miolo() {
             quem recusa é o servidor (`ragnabot-tenant.routes.js`, já fechado a administrador do
             grupo RAGNATELA). Este componente evita o tropeço, não substitui a trava. */}
         <Route path="/caixas" element={<SoAdministrador><CaixasDeEntrada /></SoAdministrador>} />
+        {/* ⭐ Contrato S6 (02/09/2026). Mesma ressalva das vizinhas, e ela vale sempre: ISTO NÃO É A
+            TRAVA. Quem recusa é o servidor — `ragnabot-conexao.routes.js` exige administrador em
+            tudo que muda o mundo, e o escopo por empresa vem de `escopoDe()`, nunca do corpo. */}
+        <Route path="/conexoes" element={<SoAdministrador><Conexoes /></SoAdministrador>} />
         <Route path="/empresas" element={<SoAdministrador><Empresas ehSuperusuario={atorAtual().isSuperuser === true} /></SoAdministrador>} />
+        {/* ⭐ Contrato S7 (02/09/2026). SEM `SoAdministrador`, e é de propósito: o ATENDENTE precisa
+            LER os ajustes que mudam a tela dele. Quem não pode escrever recebe 403 EXIGE_ADMIN do
+            servidor e a tela fica em modo de leitura — a recusa é do servidor, não de um `if` aqui.
+            E as abas do OPERADOR do SaaS (marca, empresas, planos) só aparecem porque
+            `GET /api/ragnabot-config/quem-sou` disse que esta conta é a operadora. */}
+        <Route path="/configuracoes" element={<Configuracoes />} />
         {/* URL do tempo em que a tela morava no NOC. `servir.smoke.mjs` mede que ela devolve a
             página em vez de 404; sem esta linha ela passaria a cair no «não encontrei», que é
             quebrar a promessa por dentro depois de cumpri-la por fora. */}

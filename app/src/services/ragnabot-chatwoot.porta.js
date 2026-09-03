@@ -555,7 +555,10 @@ export async function caixaDaConversa({ cwAccountId, cwConversationId } = {}) {
   if (!conversa?.cwInboxId) return null;
   const caixa = await prisma.ragnabotInbox.findFirst({
     where: { tenantId, cwInboxId: conversa.cwInboxId, removedAt: null },
-    select: { id: true, name: true, channelType: true, identifier: true, metadata: true },
+    // ⭐ S6 (02/09/2026): `provedor` entrou na projeção. É QUEM OPERA a conexão, e é o que
+    // `ragnabot-canal.porta.js` compõe com o canal para chegar à capacidade efetiva. Sem ele aqui,
+    // a camada de provedor nasceria cega — toda conexão cairia no padrão do canal.
+    select: { id: true, name: true, channelType: true, identifier: true, metadata: true, provedor: true },
   }).catch(() => null);
   return {
     tenantId,
@@ -567,6 +570,10 @@ export async function caixaDaConversa({ cwAccountId, cwConversationId } = {}) {
     nome: caixa?.name || null,
     identificador: caixa?.identifier || null,
     phoneNumberId: caixa?.metadata && typeof caixa.metadata === 'object' ? (caixa.metadata.phoneNumberId ?? null) : null,
+    // `null` quando a caixa não está no nosso cadastro — e é honesto: quem normaliza é
+    // `normalizarProvedor`, que cai no padrão DO CANAL. Chutar «meta_direto» aqui prometeria
+    // modelo aprovado da Meta a uma conexão que talvez nem seja de WhatsApp.
+    provedor: caixa?.provedor ?? null,
   };
 }
 

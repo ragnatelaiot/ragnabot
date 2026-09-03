@@ -25,12 +25,16 @@ console.error = (...args) => {
   erroOriginal(...args);
 };
 
-export function renderizarCasca({ papel = 'user', caminho = '/fluxos', versao = null, empresa = null, aviso = null } = {}) {
+// ⭐ 02/09/2026 (contrato S7): `operadorDoSaas` entrou como entrada FIXA. Em produção o fato vem do
+// servidor (`GET /api/ragnabot-config/quem-sou`); aqui ele é fixado para o teste poder medir os
+// dois lados sem rede — que é a única forma de provar que o menu do operador NÃO aparece para o
+// administrador de uma empresa cliente.
+export function renderizarCasca({ papel = 'user', caminho = '/fluxos', versao = null, empresa = null, aviso = null, operadorDoSaas = false } = {}) {
   const ator = { id: 'cw:7', nome: papel === 'admin' ? 'Ana Administradora' : 'Bruno Atendente', papel, isSuperuser: false };
   return renderToString(
     <MemoryRouter initialEntries={[caminho]}>
       <Routes>
-        <Route element={<Casca ator={ator} empresa={empresa} versao={versao} aviso={aviso} />}>
+        <Route element={<Casca ator={ator} empresa={empresa} versao={versao} aviso={aviso} operadorDoSaas={operadorDoSaas} />}>
           <Route path="*" element={<TelaDeMentira />} />
         </Route>
       </Routes>

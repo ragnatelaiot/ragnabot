@@ -679,7 +679,12 @@ export async function obterEmpresa(id) {
   return { ...resumirTenant(t), eventos: t.events, caixas: t.inboxes };
 }
 
-function limitesVigentes(t) {
+/** Os limites que valem para ESTA empresa: o instantâneo gravado no provisionamento (que carrega o
+ *  que foi negociado) e, na falta dele, o catálogo do plano.
+ *  ⭐ 02/09/2026 (contrato S6): passou a ser EXPORTADA. A cota de canais da tela de Conexões
+ *  (`ragnabot-conexao.service.js`) precisa exatamente desta regra, e uma segunda cópia dela seria
+ *  a tela dizendo um limite e a criação recusando por outro. */
+export function limitesVigentes(t) {
   if (t.limits && typeof t.limits === 'object') return t.limits;
   // Plano renomeado/removido do código não pode derrubar a listagem inteira:
   // devolve o mínimo e deixa o problema visível no campo, não numa exceção.
@@ -1108,6 +1113,22 @@ export async function criarCaixa(tenantId, { tipo, nome, ...dados } = {}, { ator
   const rotulo = exigirTexto(nome, 'nome da caixa de entrada', { min: 2, max: 80 });
   const limites = limitesVigentes(t);
 
+  // ── ⭐ COTA, PRIMEIRA GUARDA (contrato S6, doc 34 §F9.2.7) ─────────────────────────────────
+  // Conta o NOSSO cadastro (`RagnabotInbox`), e vem ANTES da leitura da plataforma DE PROPÓSITO:
+  // a segunda guarda (abaixo) depende de a plataforma responder, e é justamente quando ela está
+  // fora que uma cota baseada nela deixaria passar. Duas guardas medindo a MESMA regra por
+  // caminhos diferentes — a mensagem desta diz o limite, o uso e o que fazer.
+  try {
+    const conexoes = await import('./ragnabot-conexao.service.js');
+    await conexoes.exigirCotaParaLigar(tenantId, tipo);
+  } catch (e) {
+    // Só a recusa de cota interrompe. Se o serviço de conexões não carregar (migração ainda não
+    // aplicada nesta instalação), a criação segue para a guarda de baixo — guarda que trava por
+    // indisponibilidade da própria guarda é guarda contornada.
+    if (e?.code === 'COTA_DE_CANAIS_ESGOTADA') throw e;
+    logger.warn(`[ragnabot-tenant] cota pelo cadastro não conferida (${redigir(e.message)}) — seguindo com a conferência pela plataforma`);
+  }
+
   const atuais = await listarCaixas(tenantId);
   const veredito = cabeMaisUmaCaixa(limites, tipo, atuais.map((c) => ({ channelType: c.tipoCanal })));
   if (!veredito.permitido) throw new Error(veredito.motivo);
@@ -1126,6 +1147,11 @@ export async function criarCaixa(tenantId, { tipo, nome, ...dados } = {}, { ator
   }
 
   const canal = montarCanal(tipo, dados);
+  // ⭐ S6: QUEM OPERA a conexão nasce preenchido, pela regra única de
+  // `ragnabot-provedor.service.js`. Import dinâmico porque há CICLO por esse caminho
+  // (tenant → provedor → canal.porta → chatwoot.porta → tenant): estático travaria o arranque.
+  const { provedorPadraoDoCanal } = await import('./ragnabot-provedor.service.js');
+  const provedorDaConexao = provedorPadraoDoCanal(tipo);
   const identificador = canal.phone_number || canal.email || canal.website_url || `${tipo}-${Date.now()}`;
   const digital = digitalDoSegredo(canal.provider_config?.api_key || canal.bot_token || null);
 
@@ -1142,6 +1168,7 @@ export async function criarCaixa(tenantId, { tipo, nome, ...dados } = {}, { ator
         tenantId, cwInboxId: null, name: rotulo,
         channelType: tipo, identifier: identificador,
         activeKey: `${tipo}:${identificador}`,
+        provedor: provedorDaConexao,
         // ⚠️ NADA de credencial aqui: só a impressão digital, para conferir
         // rotação de token sem nunca poder reconstruir o segredo.
         credentialFingerprint: digital,
@@ -1310,6 +1337,9 @@ export async function sincronizarCaixas(tenantId, {
       + 'Provisione a empresa (ou informe o id da conta) antes.',
     );
   }
+  // ⭐ S6: a regra do provedor padrão, carregada uma vez por passada. Import dinâmico pelo mesmo
+  // motivo de `criarCaixa`: há ciclo por este caminho.
+  const { provedorPadraoDoCanal: provedorPadrao } = await import('./ragnabot-provedor.service.js');
   const vivas = caixasDaPlataforma ? await caixasDaPlataforma(tenantId, t) : await listarCaixas(tenantId, { db });
   const idsVivos = new Set(vivas.map((c) => c.id));
   // TODAS as linhas da empresa, inclusive as já marcadas como removidas — é isso que permite
@@ -1380,6 +1410,10 @@ export async function sincronizarCaixas(tenantId, {
           activeKey: chave,
           credentialFingerprint: c.digitalDaCredencial || null,
           metadata: mesclarMetadados(null, c, agora),
+          // ⭐ S6. Só na CRIAÇÃO. A atualização acima NÃO mexe em `provedor` de propósito: o
+          // operador pode ter trocado o provedor desta conexão pela tela, e reconciliação que
+          // desfaz escolha humana a cada 15 minutos é pior que reconciliação nenhuma.
+          provedor: provedorPadrao(c.tipoCanal),
         },
       });
       criadas++;

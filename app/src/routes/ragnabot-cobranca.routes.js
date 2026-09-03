@@ -26,12 +26,15 @@
 // NOC 2026-08-28.
 // =============================================================================
 import { Router } from 'express';
-import crypto from 'node:crypto';
 import { z } from 'zod';
 import { superuserOnly } from '../middleware/auth.middleware.js';
 import { validateBody } from '../middleware/validate.js';
 import { checkOperator2fa, requestOperatorOtp } from '../utils/operator-2fa.js';
 import { logAction } from '../base/auditoria.js';
+// ⭐ S6 (02/09/2026): a assinatura HMAC virou peça compartilhada. Nasceu DESTE arquivo (a
+// conferência do retorno da Efí) e agora serve também para ASSINAR o que sai (webhook de saída,
+// doc 34 §F9.4.3) — que era exatamente a ordem: «reaproveite, não reescreva».
+import { conferir as conferirAssinatura, iguaisComSeguranca as comparacaoSegura } from '../base/assinatura.js';
 import logger from '../base/logger.js';
 import prisma from '../base/db.js';
 import * as cobranca from '../services/ragnabot-cobranca.service.js';
@@ -308,12 +311,15 @@ router.get('/eventos', async (req, res) => {
 // ═════════════════════════════════════════════════════════════════════════════
 export const webhookRouter = Router();
 
-// Comparação de segredo resistente a timing attack — mesmo padrão do webhook do Zabbix.
+// Comparação de segredo resistente a timing attack.
+// ⭐ 02/09/2026 (contrato S6): o corpo desta função MUDOU DE LUGAR, não de comportamento. A
+// implementação passou a ser `src/base/assinatura.js#iguaisComSeguranca` — a MESMA que a API
+// pública e o webhook de SAÍDA usam. O envoltório continua aqui só para preservar a guarda de
+// «vazio nunca casa»: dois vazios são iguais byte a byte, e sem esta linha um segredo não
+// configurado passaria a conferir contra um cabeçalho ausente.
 function iguaisComSeguranca(a, b) {
-  const ba = Buffer.from(String(a ?? ''), 'utf8');
-  const bb = Buffer.from(String(b ?? ''), 'utf8');
-  if (ba.length === 0 || ba.length !== bb.length) return false;
-  try { return crypto.timingSafeEqual(ba, bb); } catch { return false; }
+  if (!a || !b) return false;
+  return comparacaoSegura(a, b);
 }
 
 /**
@@ -362,8 +368,10 @@ function conferirAutenticidade(req, res, next) {
     if (!req.corpoBruto) {
       logger.warn('[ragnabot-cobranca] assinatura enviada mas o corpo cru não está disponível — monte o webhook ANTES do express.json global');
     } else {
-      const esperado = crypto.createHmac('sha256', cfg.segredoWebhook).update(req.corpoBruto).digest('hex');
-      if (!iguaisComSeguranca(String(assinatura).replace(/^sha256=/, ''), esperado)) {
+      // ⭐ 02/09/2026 (contrato S6): era um `createHmac` solto aqui. Passou a ser
+      // `assinatura.conferir()` — a MESMA peça que assina o webhook de SAÍDA. Duas implementações
+      // do mesmo HMAC divergindo é como um lado passa a assinar o que o outro recusa.
+      if (!conferirAssinatura(cfg.segredoWebhook, req.corpoBruto, assinatura)) {
         logger.warn(`[ragnabot-cobranca] assinatura HMAC inválida (ip=${req.ip})`);
         return res.status(401).json({ ok: false });
       }
