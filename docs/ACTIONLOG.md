@@ -2,6 +2,100 @@
 > LOG CANÔNICO local da construção (regra do dono, 27/08). Espelho versionado no repo:
 > `ragnatelaiot/ragnabot` → docs/ACTIONLOG.md. Sem segredos, por lei.
 
+## 2026-09-03 — S-DEPLOY-LOTE: três versões subiram juntas (v1.15.00, no ar)
+
+Publicação do lote que quatro contratos deixaram pronto e nenhum publicou. No ar rodava a
+**v1.12.01**; a v1.13.00 (mesa) e a v1.14.00 (tempo real) estavam construídas, provadas e **nunca
+tinham subido**. As três chegaram ao usuário no mesmo instante.
+
+### Antes de commitar
+Bateria rodada à mão (o `npm run test:mjs` está quebrado no Node 22 — `node --test tests/` tenta
+resolver `tests/` como módulo; defeito do script, pré-existente, não tocado). **39 arquivos**:
+30 verdes, **9 reprovando por falta de `DATABASE_URL`/`RAGNABOT_TESTE_DB_URL`**. Os 9 foram
+conferidos **um a um contra um worktree limpo do HEAD anterior**: mesmos 9 arquivos, mesmos códigos
+de saída, mesmas razões. **Zero vermelho novo.** Os dois testes novos passam. `node --check` nos 12
+arquivos tocados + validação do YAML.
+
+### Os dois commits
+- `fd3f79c` — botões nativos + cofre de segredos + credencial em 4 degraus (S-BOTOES-NATIVOS e
+  S-CREDENCIAL-IG). O achado que desmonta o enunciado: **Telegram e Facebook SEMPRE desenharam
+  botão** (lido no código da plataforma v4.17.1); a nossa tabela `CAPACIDADES` é que mentia. E o
+  defeito que doía: o casador só comparava pela **carga**, que quase nunca volta — o cliente tocava
+  no botão certo e ouvia «não entendi». Agora casa por carga **ou** rótulo.
+- `9100b8a` — `VERSAO` 1.15.00, bloco rico no `VERSOES.md` cobrindo as **três** versões, seção
+  **5-K** no `MANUAL.md`, e a correção da cópia de recuperação de desastre do nginx.
+
+### A cópia do proxy que mentia (achado corrigido)
+`app/deploy/nginx/bot-painel.conf` não tinha `proxy_set_header Upgrade` nem `Connection
+$ragnabot_conn_upgrade`, que **existem no vhost real**. Quem recriasse o ambiente do repositório
+subiria um proxy sem fluxo contínuo — a caixa ao vivo voltaria a depender de F5 e ninguém saberia
+por quê. Corrigida, com a dependência do `map` (que vive em `conf.d`) documentada ao lado.
+⛔ **O nginx não foi tocado** — só o arquivo versionado.
+
+### A imagem
+`ragnabot-motor:1.15.00`, construída do **worktree do commit** (nunca da árvore de trabalho), com
+`--build-arg RAGNABOT_PREFIXO_WEB=/painel/`. Conferido **dentro do artefato antes de subir**:
+`VERSAO`=1.15.00, o índice pede `/painel/assets/index-Cwr1dwnr.js`, **zero** `/assets/` cru e zero
+`/painel/app/` — esquecer o argumento não dá erro, dá tela branca com 200. Levada por SFTP aos
+containerds de `rgtk8s001` e `rgtk8s002`: **mesma impressão digital nos três pontos**
+(`sha256:af66cb401f5a…`). Rollout **2/2, zero reinícios**; `ragnabot-web` e `ragnabot-worker`
+**não foram tocados** (6d18h de idade, intacta).
+
+### Validação
+- `/saude` **nos dois pods**: `1.15.00` · `tempoReal.canal.compartilhado: true` (tipo `postgres`) ·
+  `credencialDeCanal.amarrada: true` · `cadastroDeSetores` ligado a 900 000 ms ·
+  `executorFluxo`, `agendamento` e `webhookSaida` **desligados**, com motivo declarado.
+- ⭐ **SSE pelo caminho PÚBLICO** (primeiro endpoint de streaming em produção), pelo proxy com
+  `--resolve`, nunca pelo NOC: **200**, `content-type: text/event-stream`, `retry: 3000` e
+  **`event: pronto` em 100 ms / 170 ms / 95 ms** em três aberturas.
+  ⚠️ `x-accel-buffering` **não aparece** na resposta ao cliente — e isso é o **certo**: é cabeçalho
+  de controle, os dois nginx o CONSOMEM. Provado batendo **direto no pod** (sem nginx nenhum no
+  caminho): ali o `X-Accel-Buffering: no` aparece. O tempo abaixo de 200 ms é a prova de que não há
+  buferização.
+- **A mesa** pela API publicada: `#41` (WhatsApp, do próprio dono) abre com **3 mensagens**;
+  `#40` (Instagram) abre com **2** (uma com anexo). ⚠️ **Não aceitei nem devolvi**: a identidade de
+  serviço não está ligada a um atendente da plataforma. Exercitei o `aceitar` de propósito e ele
+  **recusou com 409 `SEM_IDENTIDADE_DE_ATENDENTE`**, deixando a conversa intacta (`aguardando`,
+  sem atendente) — a guarda é do servidor, não da tela.
+- Telas respondendo a **F5**: `/painel/`, `/ragnabot-fluxos`, `/atendimento`, `/conexoes`,
+  `/respostas-rapidas` → todas **200**. Pacote publicado = o do artefato (515 KB) + CSS 200.
+- **Chatwoot intacto**: `/` e `/app/login` **200**. `/motor-api/` **403** de origem não autorizada
+  e **200** do NOC (`allow 172.20.11.20; deny all` conferido no vhost).
+
+### ⚠️ Achado GRAVE de backup, corrigido na hora
+O `ragnabot-backup.service.js` dumpa **só a base `chatwoot`**. Medido hoje: o motor tem **base
+própria** (`ragnabot`, 12 MB, **51 tabelas**) — é onde vivem as **3 chaves estrangeiras compostas**
+(`rb_no_versao_fk`, `rb_aresta_versao_fk`, `rb_exec_versao_fk`). **Um backup só de `chatwoot`
+restaura a plataforma e perde o Ragnabot inteiro.** O primeiro objeto que gerei tinha 100 tabelas e
+nenhuma das chaves; refeito cobrindo as duas bases.
+📌 **Pendência para o chefe:** corrigir o serviço de backup **automático**, que continua cobrindo só
+`chatwoot`. Enquanto não for corrigido, **o backup diário do produto está incompleto.**
+
+### Backup, no líder MEDIDO NA HORA
+Líder re-medido **dentro do mesmo script que dumpa** (`SELECT NOT pg_is_in_recovery()` = `t` em
+`pg132`/172.17.20.132, `f` no outro), com aborto se tivesse trocado no meio. Objeto
+`backup-postgres/ragnabot-completo_2026-09-03T16-40-19-845Z.sql.gz`, **96 607 bytes**, Object Lock
+**GOVERNANCE** até 13/09. Conferido por `head_object` **+** `get_object` **da chave exata** — nunca
+pela listagem (LIST é instável no iDrive e2) — e **byte a byte idêntico** ao enviado. Dentro:
+**151 tabelas**, as duas bases (`CREATE DATABASE chatwoot`, `CREATE DATABASE ragnabot`) e as **3
+chaves compostas**.
+
+### ⚠️ O que NÃO foi provado
+- **Não há caixa de Telegram nem de Facebook ligada**, e o Instagram nunca recebeu um toque de
+  botão real. Nada da v1.15.00 foi exercitado por um cliente de verdade. (Corrigindo o briefing:
+  **já existem** as caixas `WhatsApp Ragnatela` e `Instagram-Ragnatela` — o «zero caixas» está
+  vencido.)
+- **Não abri o navegador do dono.** E ele precisa recarregar (Ctrl+Shift+R): o pacote mudou de nome.
+- **Não aceitei conversa nenhuma** — ver acima.
+- A credencial da Meta foi conferida **por impressão digital** (`80ff0e42…`, 203 bytes) e o
+  `RAGNABOT_META_PAGINA_ID` no ConfigMap. Valor nenhum foi impresso. Ela passou a valer com o
+  rollout, mas **não foi exercitada contra a Meta**.
+
+⛔ Executor de fluxo, agendamento e carteiro de webhook seguem **desligados**, medidos no processo.
+**Zero migração** — nada sob `app/prisma/`. Zero webhook cadastrado na plataforma.
+
+---
+
 ## 2026-09-03 — S-LIGAR: dá para ligar as caixas do fluxo (v1.12.01, no ar)
 
 **Relato do dono, ao vivo:** *«não estou conseguindo criar e ligar as caixas do fluxo»* — com o
