@@ -540,6 +540,21 @@ async function problemaNaCaixaDoFluxo(tenantId, cwInboxId) {
  *
  * @returns {Promise<object|null>} o fluxo que já atende aquela caixa, ou `null` quando está livre
  */
+/**
+ * A porta de entrada do fluxo, em uma frase — para a auditoria dizer O QUE mudou.
+ * «Metadados alterados» some no meio de mil linhas; «passou a atender a caixa 1 em vez da 34» é o
+ * que alguém vai procurar depois.
+ */
+function descreverEntrada(f) {
+  const e = String(f?.entrada || '—');
+  if (e === 'caixa') return `caixa ${f?.cwInboxId ?? '(nenhuma)'}`;
+  if (e === 'palavra_chave') {
+    const n = Array.isArray(f?.palavrasChave) ? f.palavrasChave.length : 0;
+    return `palavra-chave (${n})`;
+  }
+  return e;
+}
+
 async function outroFluxoJaAtendeACaixa(tenantId, cwInboxId, excetoFluxoId) {
   if (cwInboxId == null) return null;
   return prisma.ragnabotFluxo.findFirst({
@@ -745,7 +760,14 @@ router.patch('/fluxos/:id', async (req, res) => {
 
     const mudouOnde = ('cwInboxId' in s.dados && s.dados.cwInboxId !== f.cwInboxId)
       || ('entrada' in s.dados && s.dados.entrada !== f.entrada);
-    await auditoria.registrar({
+    // ⛔ A AUDITORIA NUNCA DERRUBA A AÇÃO — regra da casa, e este ponto não a seguia.
+    // Medido em 03/09/2026, contra o motor publicado: um identificador não definido ao MONTAR a
+    // descrição estourou DEPOIS do `update`. A gravação tinha acontecido, e quem chamou recebeu
+    // 500 — ou seja, a tela dizia «não consegui» sobre uma mudança que ESTAVA feita. É o pior
+    // desencontro possível: o operador refaz, ou desiste achando que não valeu.
+    // `registrar()` já engole os próprios erros; o que faltava era proteger o cálculo dos
+    // argumentos, que roda FORA dele.
+    await (async () => { await auditoria.registrar({
       tenantId: f.tenantId, atorTipo: 'user', atorId: req.user?.id || null, atorNome: req.user?.name || null,
       categoria: 'configuracao', acao: 'fluxo_editado', entidade: 'fluxo', entidadeId: f.id,
       // A descrição NOMEIA a mudança de porta de entrada. «Metadados alterados» some no meio de mil
@@ -756,7 +778,7 @@ router.patch('/fluxos/:id', async (req, res) => {
         : `Metadados do fluxo "${novo.nome}" alterados`,
       ip: req.ip, userAgent: req.get('user-agent'),
       antes: Object.fromEntries(Object.keys(s.dados).map((k) => [k, f[k]])), depois: s.dados,
-    });
+    }); })().catch((e) => logger.warn(`[ragnabot-fluxo] auditoria da edição não registrada: ${e.message}`));
     res.json(semBigInt({ ...novo, conversasEmAndamento: vivas, estavaNoAr: vivoAgora }));
   } catch (e) {
     if (e.code === 'P2002') return res.status(409).json({ error: 'Já existe um fluxo com esse nome nesta empresa.' });

@@ -19,6 +19,25 @@
 
 ---
 
+## v1.17.01 — Correção: trocar a caixa gravava e devolvia erro (03/09/2026)
+
+**O defeito, medido contra o motor no ar:** trocar a caixa de um fluxo **gravava a mudança** e
+mesmo assim devolvia **erro 500** para a tela. O operador via «não consegui», mas a troca **estava
+feita** — o pior desencontro possível: ou ele refaz, ou desiste achando que não valeu.
+
+**A causa:** ao montar a frase da auditoria eu chamei um auxiliar que nunca escrevi. Ele estourava
+**depois** do `UPDATE`. Duas coisas foram consertadas, não uma:
+
+1. o auxiliar passou a existir (é ele que escreve «passou a atender a caixa 1 em vez da 34»);
+2. **a auditoria deixou de poder derrubar a ação** — regra que a casa já segue em outros pontos e
+   que faltava justamente aqui. Agora, se qualquer coisa falhar ao registrar, a gravação continua
+   valendo e a falha vai para o registro, nunca para o operador.
+
+**Como apareceu:** só na prova ponta a ponta contra o motor publicado. `node --check` lê a
+sintaxe — **não** descobre um nome que não existe, porque isso só falha na hora da chamada.
+
+---
+
 ## v1.17.00 — O interruptor do robô é seu, e a caixa do fluxo deixou de ser eterna (03/09/2026)
 
 A frase que resume: **ligar ou desligar o robô numa caixa virou um botão na tela do dono. Antes era
