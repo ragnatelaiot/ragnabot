@@ -19,6 +19,121 @@
 
 ---
 
+## v1.14.00 — A caixa se atualiza sozinha: sem botão, sem F5 (03/09/2026)
+
+> ⏳ **ESTADO: construída e provada, PUBLICAÇÃO PENDENTE do lote.** Não subi a imagem, e a razão é
+> boa: em 03/09 a árvore tem **três frentes ao mesmo tempo** (esta, os botões nativos e a mesa), e
+> duas delas ainda estão **em obra, sem commit**. Uma imagem tirada desta árvore levaria para
+> produção o trabalho inacabado de outra pessoa — e, pior, um instantâneo de um arquivo que talvez
+> estivesse sendo escrito naquele segundo. A lei do lote existe para isso: **um** build no fim,
+> quando as três fecharem. O roteiro pronto está no relatório da entrega.
+
+A frase que resume: **a fila do atendente deixou de depender de alguém clicar. Conversa nova
+aparece, mudança de estado reflete na hora, mensagem entra na conversa aberta — e, quando a ligação
+cai, ela volta sozinha e relê tudo o que perdeu.**
+
+### O que o dono pediu
+
+*«Essa parte não deve ser necessário clicar em sincronizar; a atualização deve ser em tempo real, e
+inclusive sem atualizar a página, como é hoje no chat atual.»*
+
+Ele está certo, e isso vale para a caixa inteira. Botão «Atualizar» e botão «Sincronizar setores»
+eram muleta: numa mesa de atendimento, conversa nova tem de **aparecer sozinha**.
+
+### 1. Os setores se conferem sozinhos
+
+O espelho de setores e da lotação deles passou a rodar **uma vez no arranque e a cada 15 minutos** —
+o mesmo desenho e o mesmo intervalo das caixas de entrada, que já se conferiam assim.
+
+⚠️ **Por que isso era grave e não apenas incômodo:** era o único dado da caixa que nascia de gesto
+humano, e é justamente ele que decide **quem vê a fila de quem**. Em 03/09 todas as conversas
+apareciam «sem setor» pelo motivo mais simples possível: ninguém nunca tinha clicado no botão. Um
+atendente recém-incluído num setor não via a fila dele — e um atendente **retirado** de um setor
+continuava vendo. Este segundo caso é o que dói.
+
+O botão continua existindo como reforço, para quem acabou de criar um setor e não quer esperar.
+
+### 2. A fila viva
+
+Conversa nova entra na lista; aceitar tira de «Aguardando» e põe em «Atendendo»; transferir move o
+cartão da tela de quem perdeu para a de quem recebeu; resolver muda de aba. **Os contadores das abas
+acompanham** — eles vêm do servidor, do mesmo construtor de consulta da listagem, porque contador
+que mente é pior que contador ausente.
+
+Dentro da conversa aberta, **mensagem nova aparece sem F5**, sem piscar a tela e sem tirar do lugar
+o que o atendente está lendo ou digitando.
+
+### 3. O selo que não deixa a tela mentir
+
+Verde, **«Ao vivo»**: está atualizando sozinha. Amarelo, **«Reconectando…»**: caiu e está voltando —
+com recuo de 1 s, 2 s, 4 s… até 30 s, e com sorteio, para trinta navegadores que caíram juntos não
+voltarem juntos em cima do motor. Quando volta, **relê a fila inteira**.
+
+Sem o selo, «não chegou nada» e «a ligação morreu» seriam a mesma imagem para quem atende. Tela que
+congela em silêncio é pior que tela que avisa.
+
+### 4. ⭐ A armadilha que define esta entrega: duas réplicas
+
+O motor roda em **2 pods**. O aviso nasce no pod que recebeu o webhook; o atendente pode estar
+pendurado no outro. **Sem canal comum, ele nunca recebe** — e o defeito é intermitente por natureza:
+some quando alguém testa com um pod só e volta em produção.
+
+A resposta é **canal comum**, não afinidade de sessão no proxy (que amarraria a pessoa a um pod e
+transformaria cada implantação em «a tela travou»). O canal usa `LISTEN/NOTIFY` do **PostgreSQL** —
+que a aplicação já usa, com o segredo que já existe e a porta que a política de rede já libera.
+
+**Provado com dois processos de verdade**, PIDs diferentes, no mesmo banco: o evento publicado por um
+chega ao cliente conectado ao outro. E provado ao contrário também — desligando o canal comum, o
+teste **reprova**, que é o que garante que o verde vale alguma coisa.
+
+### 5. O isolamento vale no tempo real
+
+O aviso **só é escrito para quem tem direito de ver aquela conversa**, com as **mesmas cláusulas** da
+consulta — não há uma segunda cópia da regra para divergir em silêncio. Empurrar para todo mundo e
+filtrar na tela seria vazamento: o roteamento de conversas de outro setor chegaria de verdade ao
+navegador, e bastaria abrir o inspetor de rede.
+
+**Nenhum texto de cliente viaja no aviso.** Ele diz «a conversa 41 mudou, motivo: mensagem»; o
+conteúdo a tela busca na fonte.
+
+### O que foi escolhido, e por quê
+
+**Transporte: SSE, não WebSocket.** O motivo decisivo é **autenticação**: SSE é um `GET` comum,
+entra no mesmo router e passa pelo **mesmo** guarda de sessão de todas as outras rotas, com o mesmo
+cookie. O `upgrade` do WebSocket acontece antes disso e exigiria um **segundo** caminho de
+identidade, escrito à mão, no ponto mais sensível do sistema. Somam-se: o tráfego é de mão única
+(a tela já responde pelas rotas normais), nenhuma dependência nova, e reconexão nativa do navegador.
+
+⚠️ **Correção honesta:** a primeira versão desta justificativa dizia que WebSocket «não passaria»
+pelo proxy. **Medido no vhost que está no ar, é falso** — as linhas de `Upgrade` existem lá. Quem
+mente é a **cópia versionada** do vhost (`app/deploy/nginx/bot-painel.conf`), que está defasada.
+Fica registrado como achado para quem cuida do proxy: aquele arquivo é a fonte de recriação do
+ambiente do zero, e fonte de recriação que mente é pior que fonte ausente. A escolha por SSE não
+muda — muda a razão, que agora é a verdadeira.
+
+As duas armadilhas de SSE atrás de nginx foram medidas e desarmadas de dentro da aplicação:
+buferização (o bloco `/painel/` não declara `proxy_buffering`, então vale o padrão, que é ligado →
+`X-Accel-Buffering: no`) e corte por ociosidade (proxy em 120 s, Ingress em 60 s → batimento de
+20 s).
+
+**Barramento: PostgreSQL, não Redis.** Mesmo critério. Redis exigiria dependência nova, três chaves
+novas no `Secret` e uma porta de Sentinel que nunca foi medida na política de rede — ou seja, uma
+decisão de infraestrutura antes da primeira mensagem andar. O PostgreSQL não custa nada disso. O
+canal é uma peça trocável: quando o volume justificar, entra Redis mudando uma linha.
+
+### Onde conferir
+
+`GET /saude` ganhou `tempoReal` (canal, se é compartilhado, conexões abertas, avisos recusados por
+isolamento) e `cadastroDeSetores` (quando o espelho rodou, e com que resultado).
+
+### Limite honesto
+
+Ainda **não há caixa de WhatsApp criada** no ambiente. A travessia entre réplicas, o isolamento e os
+cabeçalhos foram provados; o volume de uma mesa real com dezenas de atendentes ainda não foi medido
+porque não existe mesa real ainda.
+
+---
+
 ## v1.13.00 — A caixa virou mesa de trabalho: aceitar, ver, responder e transferir (03/09/2026)
 
 A frase que resume: **a nossa tela de Atendimentos era uma lista que não abria nada. Agora o

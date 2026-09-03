@@ -17,6 +17,7 @@
 1-A. [Caixas de entrada — o cadastro que o robô consulta](#1-a-caixas-de-entrada--o-cadastro-que-o-robô-consulta)
 1-B. [A caixa de atendimento — quem vê qual conversa](#1-b-a-caixa-de-atendimento--quem-vê-qual-conversa)
 1-B-2. [⭐ A mesa de trabalho — abrir, aceitar, responder e transferir](#1-b-2--a-mesa-de-trabalho--abrir-aceitar-responder-e-transferir-v11300)
+1-B-3. [⭐ A caixa ao vivo — sem botão e sem F5](#1-b-3--a-caixa-ao-vivo--sem-botão-e-sem-f5-v11400)
 1-C. [Retrocarga — trazer para a caixa as conversas que já existiam](#1-c-retrocarga--trazer-para-a-caixa-as-conversas-que-já-existiam)
 1-D. [Agendamento de mensagens — marcar para sair na hora certa](#1-d-agendamento-de-mensagens--marcar-uma-mensagem-para-sair-na-hora-certa)
 2. [Relógios de atendimento](#2-relógios-de-atendimento)
@@ -408,6 +409,73 @@ própria conversa.
 verdade (a corrida com vencedor único, a recusa de escrita pela API, a espiada auditada, a
 transferência que muda quem vê na hora, o histórico que não atravessa a fronteira de setor). E
 `app/web/tests/caixa.smoke.mjs` — 33 medições da tela.
+
+---
+
+## 1-B-3. ⭐ A caixa ao vivo — sem botão e sem F5 (v1.14.00)
+
+**O que mudou para quem atende.** A fila se atualiza sozinha. Conversa nova aparece, conversa aceita
+sai de «Aguardando» e entra em «Atendendo», conversa transferida some da tela de quem a perdeu e
+aparece na de quem a recebeu, mensagem nova entra na conversa aberta — **tudo sem clicar em nada e
+sem recarregar a página**. Os contadores das abas acompanham.
+
+Ordem do dono, 03/09/2026: *«essa parte não deve ser necessário clicar em sincronizar; a atualização
+deve ser em tempo real, e inclusive sem atualizar a página, como é hoje no chat atual.»*
+
+### O que continua existindo, e por quê
+- **O botão «Atualizar»** ficou como reforço — quem acabou de mexer em outra aba quer conferir na
+  hora. Ele deixou de ser o caminho.
+- **O botão «Sincronizar setores»** também. Os setores e a lotação deles passaram a ser conferidos
+  **sozinhos**: uma vez no arranque e a cada **15 minutos**, do mesmo jeito que as caixas de entrada
+  já faziam. Era o único dado da caixa que dependia de alguém clicar — e é justamente ele que decide
+  **quem vê a fila de quem**. Um atendente recém-incluído num setor ficava sem ver a fila dele; pior,
+  um atendente **retirado** de um setor continuava vendo.
+
+### O selo «Ao vivo»
+No alto da tela há um selo. Verde e escrito **«Ao vivo»**: a fila está se atualizando sozinha.
+Amarelo e escrito **«Reconectando…»**: a ligação caiu e o painel está voltando por conta própria —
+e, quando volta, **relê a fila inteira**, então nada do que aconteceu no intervalo se perde.
+Tela parada e tela desligada não podem ser a mesma coisa vista pelo atendente.
+
+### O que o aviso carrega — e o que ele NÃO carrega
+O aviso diz apenas **que houve** mudança: «a conversa 41 mudou, motivo: mensagem». **Nenhum texto de
+cliente viaja nele.** O conteúdo a tela busca na fonte, pelas mesmas rotas de sempre. Duas cópias da
+mesma conversa é como uma delas fica desatualizada — e a desatualizada é sempre a que alguém está
+lendo.
+
+### O isolamento vale aqui também
+O aviso **só é escrito para quem tem direito de ver aquela conversa**. A recusa é do servidor, um
+evento por vez, usando **as mesmas cláusulas** da consulta (§1-B) — não há uma segunda regra que
+possa divergir. Mandar para todo mundo e esconder na tela seria vazamento: bastaria abrir o inspetor
+de rede do navegador para ler o roteamento de conversas de outro setor.
+
+Uma exceção declarada, e ela **não** abre nada: quando uma conversa **sai** da sua vista (foi
+transferida), você é avisado — pelo estado em que ela **ainda era sua**. É o que faz o cartão sumir
+sozinho em vez de ficar morto na tela até um F5.
+
+### Como funciona por dentro (para quem opera)
+- **Transporte:** «eventos enviados pelo servidor» (SSE) — um `GET` de resposta longa em
+  `/painel/api/ragnabot-tempo-real/ao-vivo`. Escolhido porque é um `GET` comum e por isso passa pelo
+  **mesmo guarda de sessão** de todas as outras rotas; um WebSocket exigiria um segundo caminho de
+  autenticação escrito à mão. Atravessa os dois nginx do caminho sem configuração nova.
+- **Batimento de 20 s** para o proxy não cortar o cano por ociosidade.
+- **A conexão vale 15 minutos** e se renova sozinha: cada renovação **reautentica** e **relê os
+  setores** no banco. Sem isso, quem saísse de um setor continuaria recebendo os avisos dele até
+  fechar o navegador.
+- **Reconexão com recuo exponencial** (1 s, 2 s, 4 s… até 30 s, com sorteio). Nunca há laço
+  apertado: trinta atendentes reconectando em laço derrubariam o motor junto.
+- **Canal comum entre as réplicas:** o motor roda em **2 pods**. O aviso nasce no pod que recebeu o
+  webhook e o atendente pode estar pendurado no outro. O canal comum usa `LISTEN/NOTIFY` do
+  PostgreSQL — que a aplicação já usa, com o segredo que já existe e a porta que a política de rede
+  já libera.
+- **Onde conferir:** `GET /saude`, campo `tempoReal`. `canal.compartilhado: true` é o que separa
+  «funciona na mesa» de «funciona em produção»; `conexoesAbertas` diz quantos navegadores estão
+  pendurados naquele pod; `cadastroDeSetores` diz quando o espelho de setores rodou pela última vez.
+
+*Prova:* `app/tests/ragnabot-tempo-real.test.mjs` — 55 medições, incluindo a travessia entre **dois
+processos de verdade** (PIDs diferentes) no mesmo PostgreSQL, o isolamento valendo **através** do
+canal e a recusa do avaliador diante de operador desconhecido. E `app/web/tests/ao-vivo.smoke.mjs` —
+8 medições da tela e do recuo.
 
 ---
 
