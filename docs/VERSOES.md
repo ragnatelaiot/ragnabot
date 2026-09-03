@@ -19,6 +19,73 @@
 
 ---
 
+## v1.16.00 — O sistema parou de saber e não contar: publicar agora diz o que está errado (03/09/2026)
+
+A frase que resume: **acabaram os dois validadores que discordavam. Agora existe um número só, com
+um dono só — e quando ele diz que há erro, ele diz QUAL erro, EM QUAL bloco, e leva você até lá.**
+
+### O que aconteceu, na tela do dono
+
+Ele terminou de desenhar o fluxo — Início → Boas-vindas → Botões → «Teste do sim» → Encerrar, com as
+ligações de exceção todas desenhadas. A barra de cima dizia, **em verde: «desenho fechado»**. Clicou
+em publicar e recebeu: **«Não consegui publicar — O fluxo tem 2 erro(s) e não pode ser publicado.»**
+Sem dizer quais.
+
+Duas conferências, dois veredictos opostos, e nenhuma pista. O fluxo dele estava a **dois cliques**
+de publicar, e não havia como descobrir onde.
+
+### Os dois erros, medidos no ar
+
+| # | O que era | Por que era defeito NOSSO |
+|---|---|---|
+| 1 | O bloco de mídia tinha a categoria `imagem` e o motor só aceitava `image` | O seletor da tela oferecia «Imagem» e «Documento» **em português**, e gravava `imagem`/`documento`. O motor só falava o vocabulário da Meta. **Duas das quatro opções do seletor produziam um fluxo impossível de publicar.** |
+| 2 | «O fluxo tem nó que espera resposta, mas não define nó de resgate» | O nó de resgate só é usado numa **migração forçada** de conversas vivas — e este fluxo nunca tinha sido publicado, com **zero conversa** dentro. Pior: a instrução mandava «marque um nó com `config.resgate=true`», e **a tela não tinha esse interruptor em lugar nenhum**. Uma regra que não dá para cumprir não protege nada: só trava o produto. |
+
+### O que mudou
+
+**1. Um validador só, e ele é o do servidor.** A tela tinha uma conferência própria que cobria
+menos regras que a publicação — foi ela que pintou o verde mentiroso. Agora a barra do editor
+**pergunta ao servidor** (a cada meio segundo depois de você parar de mexer) e mostra a resposta
+**dele**: o número da barra e o número da publicação são, por construção, o mesmo número. Quando o
+servidor não responde, a tela ainda mostra a conferência local — mas **diz que é local**.
+
+**2. A caixa de publicar LISTA os erros.** Cada linha traz o que é, **em qual bloco** (pelo nome,
+não pelo identificador), o que fazer, e um botão **«Ir para o nó»** que fecha a caixa e leva a vista
+até o bloco. Quando o problema é uma ligação fantasma — dessas que não aparecem no desenho e não dá
+para tocar —, a linha traz o botão que a apaga. E o botão «Publicar» fica desabilitado enquanto
+houver erro, dizendo quantos são.
+
+**3. O erro aparece enquanto você desenha.** Novo botão **«Problemas»** na barra de vista abre uma
+gaveta com a lista completa — a mesma da caixa de publicar. O contador da barra virou botão: clicar
+nele abre a gaveta.
+
+**4. O seletor de mídia fala o vocabulário certo.** Continua escrito «Imagem», «Documento», «Áudio»,
+«Vídeo» — e agora também «Figurinha» —, mas grava o valor que o motor entende. Fluxo já salvo com o
+valor antigo em português **continua valendo**: o motor passou a reconhecer os dois.
+
+**5. O nó de resgate deixou de travar quem não precisa dele.** Virou **aviso** na publicação normal
+e continua **erro** só no retrofit forçado, que é onde ele realmente é usado. E o interruptor
+**«Usar este nó como resgate»** passou a existir, na aba «Avançado» do bloco — para quem quiser
+cumprir a regra de fato.
+
+**6. O servidor ganhou as regras que só a tela tinha.** Duas ligações na mesma saída agora são
+recusadas por ele (antes só a tela via, e o banco recusaria depois). E saída de exceção sem destino
+virou **aviso** em vez de silêncio: sem destino ali, quem escrever fora da janela de 24 horas não
+recebe nada — e o autor merece saber disso antes.
+
+### Prova
+`app/tests/ragnabot-fluxo-validacao-unica.test.mjs` — **27 verificações**, entre elas a que compara
+o contador da barra com o da publicação sobre cinco documentos × três modos de migração. Se alguém
+reintroduzir uma segunda conta em qualquer um dos lados, esse teste quebra.
+
+### Achado de passagem
+O arquivo `ragnabot-fluxo-publicacao.service.js` continha **três bytes NUL literais** (usados como
+separador de chave composta). Efeito colateral: o `grep` tratava o arquivo inteiro como binário e
+**não achava nada dentro dele** — num serviço crítico de 780 linhas. O separador continua sendo o
+mesmo caractere, agora escrito como `\u0000`.
+
+---
+
 ## v1.15.00 — O botão que o cliente toca passa a valer, e o segredo saiu do ambiente (03/09/2026)
 
 > 🚀 **Este número publica TRÊS versões de uma vez.** A v1.13.00 (a mesa) e a v1.14.00 (o tempo

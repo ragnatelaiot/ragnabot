@@ -87,6 +87,19 @@ function jsonCanonico(v) {
 
 const sha256 = (texto) => crypto.createHash('sha256').update(texto, 'utf8').digest('hex');
 
+/**
+ * Qual nó SUGERIR como resgate, para o aviso levar o operador a algum lugar em vez de só reclamar.
+ * Preferência: um nó de encerramento (é onde faz sentido despejar quem ficou sem lugar); senão, o
+ * primeiro nó que não seja o de início. Devolve `null` quando não há candidato — e aí o aviso sai
+ * sem âncora, o que é honesto: sugerir o nó errado é pior que não sugerir.
+ */
+function resgateSugerido(nos) {
+  const fim = nos.find((n) => n?.tipo === 'encerrar' && n?.id);
+  if (fim) return fim.id;
+  const outro = nos.find((n) => n?.id && n?.tipo !== 'inicio');
+  return outro?.id ?? null;
+}
+
 /** As saídas de um nó, ordenadas e à prova de tipo desconhecido (que a validação já reprova). */
 function saidasOrdenadas(no) {
   try {
@@ -160,14 +173,35 @@ export function classificarMudanca(docVigente, docNovo) {
  * NUNCA lança: um validador que quebra deixa o editor sem diagnóstico e o operador publica no escuro.
  * Os problemas de nível 'erro' (classe A) impedem publicar; os de nível 'aviso' (classe B) não.
  *
+ * ── ⭐ VALIDADOR ÚNICO (contrato S-PUBLICAR, 03/09/2026) ────────────────────────────────────────
+ * Até hoje havia DOIS validadores: este, e um `conferirDesenho()` reimplementado na tela. Eles
+ * discordavam — a barra do editor dizia «desenho fechado» (verde) enquanto a publicação recusava
+ * com «o fluxo tem 2 erro(s)», e o operador não tinha como saber qual dos dois mentia, porque a
+ * caixa de publicar não LISTAVA os erros. Duas verdades sobre «o fluxo está válido» é o defeito;
+ * a discordância é só o sintoma.
+ *
+ * A decisão: **este arquivo é o único dono da regra**. Ele passou a cobrir também o que só a tela
+ * cobria (duas arestas na mesma saída) e a EMITIR AVISO para saída de exceção sem destino — que
+ * antes ele ignorava em silêncio. A tela deixou de decidir: ela chama `POST /fluxos/:id/validar` e
+ * MOSTRA esta resposta, de modo que o número da barra e o da publicação são o mesmo número.
+ *
+ * Todo problema que dá para amarrar a um nó sai com `noId` preenchido — é o que deixa a tela levar
+ * o operador até o bloco com um clique. «Há 2 erros» sem dizer quais é o que custou o dia.
+ *
+ * @param {object} opcoes
+ * @param {'fixar'|'retrofit'|'retrofit_forcado'} [opcoes.modoMigracao] muda a severidade de
+ *   `SEM_NO_RESGATE` (ver adiante). Padrão `fixar`.
  * @returns {{ ok:boolean, erros:Array, avisos:Array, noInicialId:(string|null),
  *             noResgateId:(string|null), temEstaciona:boolean, perfilLimite:string }}
  */
-export function validarDocumento(documento, { tenantId = null, perfilLimite = PERFIL_LIMITES_PADRAO.perfil, fluxoId = null } = {}) {
+export function validarDocumento(documento, {
+  tenantId = null, perfilLimite = PERFIL_LIMITES_PADRAO.perfil, fluxoId = null, modoMigracao = 'fixar',
+} = {}) {
   const erros = [];
   const avisos = [];
   const push = (p) => (p?.nivel === 'aviso' ? avisos : erros).push(p);
-  const problema = (codigo, campo, mensagem, comoCorrigir) => ({ nivel: 'erro', codigo, campo, mensagem, comoCorrigir });
+  const problema = (codigo, campo, mensagem, comoCorrigir, extra = {}) => ({ nivel: 'erro', codigo, campo, mensagem, comoCorrigir, ...extra });
+  const aviso = (codigo, campo, mensagem, comoCorrigir, extra = {}) => ({ nivel: 'aviso', codigo, campo, mensagem, comoCorrigir, ...extra });
 
   const nos = Array.isArray(documento?.nos) ? documento.nos : [];
   const arestas = Array.isArray(documento?.arestas) ? documento.arestas : [];
@@ -183,7 +217,7 @@ export function validarDocumento(documento, { tenantId = null, perfilLimite = PE
       continue;
     }
     if (idsVistos.has(n.id)) {
-      erros.push(problema('NO_ID_REPETIDO', `nos.${n.id}`, `Há mais de um nó com id "${n.id}".`, 'Ids de nó são únicos.'));
+      erros.push(problema('NO_ID_REPETIDO', `nos.${n.id}`, `Há mais de um nó com id "${n.id}".`, 'Ids de nó são únicos.', { noId: n.id }));
     }
     idsVistos.add(n.id);
   }
@@ -210,7 +244,7 @@ export function validarDocumento(documento, { tenantId = null, perfilLimite = PE
     try {
       for (const p of validarNo(n, ctx)) push({ ...p, campo: `nos.${n.id}.${p.campo ?? ''}`.replace(/\.$/, ''), noId: n.id });
     } catch (e) {
-      erros.push(problema('NO_INVALIDO', `nos.${n.id}`, `Não foi possível validar o nó "${n.id}": ${e.message}`, 'Confira o tipo do nó.'));
+      erros.push(problema('NO_INVALIDO', `nos.${n.id}`, `Não foi possível validar o nó "${n.id}": ${e.message}`, 'Confira o tipo do nó.', { noId: n.id }));
     }
     try {
       // `noEstaciona(n)` e não `executor.estaciona`: desde 29/08 o botão de LINK não estaciona
@@ -221,33 +255,49 @@ export function validarDocumento(documento, { tenantId = null, perfilLimite = PE
   }
 
   // Arestas: cada uma tem de ligar nós EXISTENTES por uma saída que o nó de origem realmente possui.
-  const temAresta = new Set(); // "de saida" — quais saídas já têm destino
+  const temAresta = new Set(); // "de\u0000saida" (o NUL separa: nenhum id de nó o contém) — quais saídas já têm destino
   for (const a of arestas) {
     const de = a?.de; const saida = a?.saida; const para = a?.para;
     if (!nosPorId.has(de)) {
-      erros.push(problema('ARESTA_ORIGEM_INEXISTENTE', 'arestas', `Aresta parte de um nó inexistente ("${de}").`, 'Corrija a origem ou remova a aresta.'));
+      erros.push(problema('ARESTA_ORIGEM_INEXISTENTE', 'arestas', `Uma ligação parte de um nó inexistente ("${de}").`, 'Corrija a origem ou apague a ligação.', { saida }));
       continue;
     }
     if (!nosPorId.has(para)) {
-      erros.push(problema('ARESTA_DESTINO_INEXISTENTE', 'arestas', `Aresta aponta para um nó inexistente ("${para}").`, 'Corrija o destino ou remova a aresta.'));
+      erros.push(problema('ARESTA_DESTINO_INEXISTENTE', `nos.${de}`, `A saída "${saida}" do nó "${de}" aponta para "${para}", que não existe no documento.`, 'Religue essa saída a um nó existente, ou apague a ligação.', { noId: de, saida, acao: { tipo: 'apagarAresta', de, saida } }));
       continue;
     }
     const validas = new Set(saidasOrdenadas(nosPorId.get(de)));
     if (!validas.has(saida)) {
-      erros.push(problema('ARESTA_SAIDA_INEXISTENTE', `arestas.${de}`, `O nó "${de}" não tem a saída "${saida}".`, 'Use uma das saídas do nó.'));
+      // ⚠️ ARESTA FANTASMA — a saída de onde ela parte deixou de existir (o item de lista foi
+      // renomeado, o botão foi apagado). O canvas NÃO a desenha: não há linha para tocar nem pino
+      // para clicar. Por isso a correção sai por BOTÃO na lista de problemas, e não por «arrume no
+      // desenho» — instrução que o operador não tem como cumprir.
+      erros.push(problema('ARESTA_SAIDA_INEXISTENTE', `nos.${de}`, `O nó "${de}" já não tem a saída "${saida}", mas ainda existe uma ligação dela para "${para}".`, 'Essa ligação não aparece no desenho e não dá para tocá-la. Apague-a pelo botão da lista de problemas.', { noId: de, saida, acao: { tipo: 'apagarAresta', de, saida } }));
       continue;
     }
-    temAresta.add(`${de} ${saida}`);
+    // Duas ligações na MESMA saída. O banco recusa isso na projeção (@@unique) e até hoje só a TELA
+    // conferia — era uma das regras que os dois validadores não compartilhavam.
+    if (temAresta.has(`${de}\u0000${saida}`)) {
+      erros.push(problema('SAIDA_COM_DUAS_ARESTAS', `nos.${de}`, `A saída "${saida}" do nó "${de}" tem mais de uma ligação.`, 'Apague a ligação sobrando: uma saída leva a um destino só.', { noId: de, saida, acao: { tipo: 'apagarAresta', de, saida } }));
+      continue;
+    }
+    temAresta.add(`${de}\u0000${saida}`);
   }
 
-  // Saída obrigatória sem destino: só o caminho FELIZ é cobrado (exceção/falha é opcional).
+  // Saída sem destino. O caminho FELIZ é cobrado como ERRO; a saída de exceção/falha vira AVISO —
+  // ela é legítima sem destino (o nó tem política própria), mas o silêncio não é: sem destino, quem
+  // escrever fora da janela de 24 h não recebe nada. O autor merece saber disso antes, não depois.
+  // ⭐ Este aviso é novo (03/09): antes o servidor pulava a saída opcional CALADO, enquanto a tela
+  // a mostrava — mais uma fonte de discordância entre os dois contadores.
   for (const n of nos) {
     if (!n?.id) continue;
     for (const saida of saidasOrdenadas(n)) {
-      if (SAIDAS_OPCIONAIS.has(saida)) continue;
-      if (!temAresta.has(`${n.id} ${saida}`)) {
-        erros.push(problema('SAIDA_SEM_DESTINO', `nos.${n.id}`, `A saída "${saida}" do nó "${n.id}" não leva a lugar nenhum.`, 'Ligue essa saída a um nó.'));
+      if (temAresta.has(`${n.id}\u0000${saida}`)) continue;
+      if (SAIDAS_OPCIONAIS.has(saida)) {
+        avisos.push(aviso('SAIDA_DE_EXCECAO_SEM_DESTINO', `nos.${n.id}`, `A saída "${saida}" do nó "${n.id}" não leva a lugar nenhum.`, 'Sem destino aqui, essa exceção termina em silêncio para o cliente. Ligue-a a um nó se quiser tratá-la.', { noId: n.id, saida }));
+        continue;
       }
+      erros.push(problema('SAIDA_SEM_DESTINO', `nos.${n.id}`, `A saída "${saida}" do nó "${n.id}" não leva a lugar nenhum.`, 'Toque no conector dessa saída e depois no nó de destino.', { noId: n.id, saida }));
     }
   }
 
@@ -268,7 +318,7 @@ export function validarDocumento(documento, { tenantId = null, perfilLimite = PE
     }
     for (const n of nos) {
       if (n?.id && !alcancados.has(n.id)) {
-        erros.push(problema('NO_ORFAO', `nos.${n.id}`, `O nó "${n.id}" não é alcançável a partir do início.`, 'Ligue-o ao fluxo ou remova-o.'));
+        erros.push(problema('NO_ORFAO', `nos.${n.id}`, `O nó "${n.id}" não é alcançável a partir do início.`, 'Ligue alguma saída até ele, ou apague-o.', { noId: n.id }));
       }
     }
   }
@@ -285,6 +335,7 @@ export function validarDocumento(documento, { tenantId = null, perfilLimite = PE
         `O nó "${n.id}" faz este fluxo chamar a si mesmo. Na conversa real isso anda em círculo até `
         + 'bater no teto de passos e morrer, depois de gastar mensagens com o cliente.',
         'Aponte o sub-fluxo para outro fluxo, ou troque o nó por uma ligação dentro deste mesmo desenho.',
+        { noId: n.id },
       ));
     }
   }
@@ -294,7 +345,34 @@ export function validarDocumento(documento, { tenantId = null, perfilLimite = PE
   const resgate = nos.find((n) => n?.config?.resgate === true) || (documento?.noResgateId ? nosPorId.get(documento.noResgateId) : null);
   const noResgateId = resgate?.id ?? (nosPorId.has(documento?.noResgateId) ? documento.noResgateId : null);
   if (temEstaciona && !noResgateId) {
-    erros.push(problema('SEM_NO_RESGATE', 'documento', 'O fluxo tem nó que espera resposta, mas não define nó de resgate.', 'Marque um nó com config.resgate=true (destino da migração forçada).'));
+    // ── ⚠️ CORREÇÃO DE SEVERIDADE (03/09/2026) — esta regra bloqueava publicação por nada ────────
+    // O nó de resgate SÓ é usado num caminho: `migrarConversas()`, quando o modo é
+    // `retrofit_forcado` E a conversa viva está parada num nó que sumiu. Em `fixar` (o padrão, e o
+    // único modo possível numa PRIMEIRA publicação, quando não há versão vigente nem conversa
+    // dentro) ele nunca é lido.
+    //
+    // Mesmo assim ele era ERRO BLOQUEANTE sempre. Efeito medido no fluxo do dono: qualquer fluxo
+    // com um nó de botões/pergunta/lista — isto é, qualquer fluxo útil — era IMPOSSÍVEL de
+    // publicar, e a instrução dizia «marque um nó com config.resgate=true», um campo que a tela
+    // sequer oferecia. Regra que não dá para cumprir não protege nada: só trava o produto.
+    //
+    // Agora: AVISO quando não há risco, ERRO quando a publicação é justamente a que usa o resgate.
+    // A guarda dentro da transação (`migrarConversas`) continua de pé, como defesa em profundidade.
+    const cobrar = modoMigracao === 'retrofit_forcado';
+    const detalhe = {
+      noId: resgateSugerido(nos) ?? null,
+      codigo: 'SEM_NO_RESGATE',
+    };
+    (cobrar ? erros : avisos).push({
+      nivel: cobrar ? 'erro' : 'aviso',
+      codigo: 'SEM_NO_RESGATE',
+      campo: 'documento',
+      noId: detalhe.noId,
+      mensagem: cobrar
+        ? 'Retrofit forçado move quem está no meio da conversa, e este fluxo não diz para onde levar quem ficar sem nó. Sem destino de resgate, essa migração não pode acontecer.'
+        : 'Este fluxo tem nó que espera resposta e ainda não define um nó de resgate. Não impede publicar: o resgate só é usado numa migração forçada, no futuro.',
+      comoCorrigir: 'Abra o nó que deve receber quem ficar sem lugar (em geral o de boas-vindas ou o de encerramento) e ligue «usar este nó como resgate».',
+    });
   }
 
   return { ok: erros.length === 0, erros, avisos, noInicialId, noResgateId, temEstaciona, perfilLimite };
@@ -573,11 +651,18 @@ export async function publicar(fluxoId, { userId = null, modoMigracao = 'fixar',
     if (!rascunho) throw Object.assign(new Error('Este fluxo não tem rascunho para publicar.'), { codigo: 'SEM_RASCUNHO' });
     const documento = rascunho.documento;
 
-    const validacao = validarDocumento(documento, { tenantId: fluxo.tenantId, fluxoId: fluxo.id });
+    // `modoMigracao` viaja para o validador porque UMA regra muda de severidade com ele
+    // (`SEM_NO_RESGATE`): é aviso numa publicação normal e erro num retrofit forçado.
+    const validacao = validarDocumento(documento, { tenantId: fluxo.tenantId, fluxoId: fluxo.id, modoMigracao });
     if (!validacao.ok) {
-      throw Object.assign(new Error(`O fluxo tem ${validacao.erros.length} erro(s) e não pode ser publicado.`), {
-        codigo: 'VALIDACAO', validacao,
-      });
+      // A mensagem NOMEIA o primeiro erro. «O fluxo tem 2 erro(s)» sem dizer quais é o que fez o
+      // dono passar um dia sem saber onde mexer — e a lista inteira vai em `validacao.erros`, que
+      // o router devolve no corpo do 400 para a tela desdobrar.
+      const primeiro = validacao.erros[0];
+      const resumo = validacao.erros.length === 1
+        ? `Não dá para publicar: ${primeiro.mensagem}`
+        : `Não dá para publicar — ${validacao.erros.length} erros. O primeiro: ${primeiro.mensagem}`;
+      throw Object.assign(new Error(resumo), { codigo: 'VALIDACAO', validacao });
     }
 
     // ⛔ LAÇO DE SUB-FLUXO — recusado AQUI, e não descoberto em produção (contrato S3, §F3.4).

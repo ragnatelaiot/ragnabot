@@ -981,7 +981,15 @@ router.post('/fluxos/:id/validar', async (req, res) => {
     const perfilLimite = String(req.query.perfilLimite || req.body?.perfilLimite || 'whatsapp_cloud@2026-08');
     // `fluxoId` viaja para o validador reprovar sub-fluxo apontando para o PRÓPRIO fluxo — o
     // editor precisa ver esse erro enquanto desenha, e não só quando tenta publicar.
-    const r = await pub.validarDocumento(documento, { tenantId: f.tenantId, perfilLimite, fluxoId: f.id });
+    // ⭐ `modoMigracao` (contrato S-PUBLICAR, 03/09): a barra do editor precisa fazer ao servidor a
+    // MESMA pergunta que a publicação vai fazer, senão os dois contadores voltam a divergir — que é
+    // exatamente o defeito que este contrato fechou. Uma regra muda de severidade com o modo
+    // (`SEM_NO_RESGATE`), e por isso o modo tem de viajar junto.
+    const modoMigracao = String(req.query.modoMigracao || req.body?.modoMigracao || 'fixar');
+    if (!['fixar', 'retrofit', 'retrofit_forcado'].includes(modoMigracao)) {
+      return res.status(400).json({ error: 'modoMigracao precisa ser fixar, retrofit ou retrofit_forcado.' });
+    }
+    const r = await pub.validarDocumento(documento, { tenantId: f.tenantId, perfilLimite, fluxoId: f.id, modoMigracao });
     res.json(semBigInt(r));
   } catch (e) { erro(res, e, 500); }
 });

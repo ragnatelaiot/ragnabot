@@ -185,9 +185,18 @@ medir('os dois nós do dono aparecem, com os conectores de cada um', () => {
   assert.ok(pinoDe('segue'), 'faltou o conector "segue" do nó de início');
   assert.ok(pinoDe('sim'), 'faltou o conector do botão "sim"');
 });
-medir('o diagnóstico é o mesmo que o dono viu: 3 erros de desenho e 5 avisos', () => {
-  assert.match(texto(), /3 erro\(s\) de desenho/);
+// ⭐ 03/09/2026 (S-PUBLICAR): a barra deixou de dizer «erro(s) de desenho» — porque o número já não
+// é da tela. Ele passou a ser o do SERVIDOR (`POST /validar`), o mesmo que a publicação usa. Este
+// dublê de rede NÃO responde `/validar` de propósito, então aqui medimos o caminho de recuo: a
+// tela mostra a conferência local E DIZ que é local. Número sem procedência foi exatamente como a
+// barra ficou verde mentindo enquanto a publicação recusava.
+medir('o diagnóstico é o mesmo que o dono viu: 3 erros e 5 avisos', () => {
+  assert.match(texto(), /3 erro\(s\)/);
   assert.match(texto(), /5 aviso\(s\)/);
+});
+medir('⭐ sem resposta do servidor, a barra DECLARA que a conferência é local', () => {
+  assert.match(texto(), /local|conferindo/);
+  assert.equal(/do servidor/.test(texto()), false, 'não pode alegar procedência que não tem');
 });
 
 console.log('\n2) O CAMINHO DE DOIS TOQUES');

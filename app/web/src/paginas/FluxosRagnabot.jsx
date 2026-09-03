@@ -397,12 +397,40 @@ function indexarArestas(doc) {
   return { mapa, duplicadas };
 }
 
-/**
- * Conferências que a TELA pode fazer sozinha - e SÓ estas: são propriedades do desenho, que ela tem
- * na mão. Limite da Meta, tamanho de texto, unidade de contagem e janela de 24 horas, jamais.
- * As três primeiras já são cobradas pelo banco (@@unique) e pelo modo de teste; aqui elas só chegam
- * antes, com a mesma redação.
- */
+// ── A CATEGORIA DA MÍDIA, no vocabulário da Meta ────────────────────────────────────────────────
+// Espelha `categoriaMidiaCanonica()` do motor (`ragnabot-fluxo-nos.service.js`) e existe por um
+// motivo só: desenhar o seletor já marcado quando o rascunho foi salvo com o valor antigo em
+// português. Quem DECIDE se a categoria vale continua sendo o servidor.
+const CATEGORIA_MIDIA_CANONICA = {
+  imagem: 'image', foto: 'image', image: 'image',
+  documento: 'document', arquivo: 'document', document: 'document',
+  audio: 'audio', áudio: 'audio',
+  video: 'video', vídeo: 'video',
+  figurinha: 'sticker', adesivo: 'sticker', sticker: 'sticker',
+};
+function categoriaMidiaCanonica(bruto) {
+  const v = String(bruto ?? '').trim().toLowerCase();
+  return v ? (CATEGORIA_MIDIA_CANONICA[v] || '') : '';
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// ⭐ QUEM DIZ SE O FLUXO ESTÁ VÁLIDO — contrato S-PUBLICAR, 03/09/2026
+//
+// ── O DEFEITO QUE ISTO FECHA ────────────────────────────────────────────────────────────────────
+// Havia DOIS validadores: este `conferirDesenho()`, da tela, e o `validarDocumento()` do serviço de
+// publicação. Eles cobriam conjuntos diferentes de regras e discordavam: a barra dizia «desenho
+// fechado» em VERDE enquanto a publicação recusava com «o fluxo tem 2 erro(s) e não pode ser
+// publicado» — sem dizer quais. O operador não tinha como saber qual dos dois mentia.
+//
+// ── A DECISÃO ───────────────────────────────────────────────────────────────────────────────────
+// O SERVIDOR é o único dono da regra. Esta função continua existindo, mas foi rebaixada a uma
+// coisa só: **resposta instantânea enquanto o servidor não responde**. Assim que a resposta de
+// `POST /fluxos/:id/validar` chega, ela SUBSTITUI este resultado inteiro — na barra, no painel do
+// nó e na caixa de publicar. Um número só, com um dono só.
+//
+// ⚠️ Se você acrescentar regra aqui, acrescente antes no servidor. Regra que só existe na tela é
+// exatamente o que fabricou o «desenho fechado» mentiroso.
+// ════════════════════════════════════════════════════════════════════════════════════════════════
 function conferirDesenho(doc, catalogo) {
   const problemas = [];
   const nos = doc?.nos || [];
@@ -651,15 +679,17 @@ function Rotulo({ children, dica }) {
   );
 }
 
-function Interruptor({ marcado, aoMudar, children }) {
+function Interruptor({ marcado, aoMudar, children, desabilitado = false }) {
   return (
     <label style={{
-      display: 'flex', alignItems: 'center', gap: 8, minHeight: 40, cursor: 'pointer',
+      display: 'flex', alignItems: 'center', gap: 8, minHeight: 40,
+      cursor: desabilitado ? 'not-allowed' : 'pointer', opacity: desabilitado ? 0.55 : 1,
       fontSize: '0.84rem', color: T.ink,
     }}>
       <input
         type="checkbox"
         checked={!!marcado}
+        disabled={!!desabilitado}
         onChange={(ev) => aoMudar(ev.target.checked)}
         style={{ width: 18, height: 18, accentColor: 'var(--primary)' }}
       />
@@ -2324,11 +2354,17 @@ function FormularioDeNo({ no, config, aoMudarConfig, fluxosDaEmpresa, variaveisD
         <>
           <CampoTexto rotulo="Endereço do arquivo" dica="https obrigatório" valor={c.url} aoMudar={(v) => p('url', v)} />
           <CampoTexto rotulo="Legenda" linhas={2} valor={c.legenda} aoMudar={(v) => p('legenda', v)} />
+          {/* ⚠️ O VALOR É O DA META, o rótulo é o nosso. Até 03/09/2026 este seletor gravava
+              `imagem` e `documento` em português, e o validador do motor só aceitava `image` e
+              `document`: DUAS das quatro opções produziam um fluxo que nunca publicava, com a
+              mensagem «Categoria desconhecida» apontando para uma lista que este seletor não
+              oferecia. Rascunho já salvo em português continua valendo — o motor normaliza. */}
           <CampoSelecao
-            rotulo="Categoria" valor={c.categoria} aoMudar={(v) => p('categoria', v || undefined)}
+            rotulo="Categoria" valor={categoriaMidiaCanonica(c.categoria)} aoMudar={(v) => p('categoria', v || undefined)}
             opcoes={[
-              { valor: 'imagem', rotulo: 'Imagem' }, { valor: 'documento', rotulo: 'Documento' },
+              { valor: 'image', rotulo: 'Imagem' }, { valor: 'document', rotulo: 'Documento' },
               { valor: 'audio', rotulo: 'Áudio' }, { valor: 'video', rotulo: 'Vídeo' },
+              { valor: 'sticker', rotulo: 'Figurinha' },
             ]}
           />
         </>
@@ -3027,6 +3063,24 @@ function PainelDeInspecao({
 
         {aba === 'avancado' ? (
           <>
+            {/* ── NÓ DE RESGATE ────────────────────────────────────────────────────────────────
+                Até 03/09/2026 o servidor EXIGIA `config.resgate=true` em algum nó sempre que o
+                fluxo tivesse bloco que espera resposta — e esta tela não oferecia o interruptor
+                em lugar nenhum. Resultado medido: todo fluxo útil ficava impossível de publicar,
+                com a instrução «marque um nó com config.resgate=true» que ninguém tinha como
+                cumprir. O servidor rebaixou a regra a aviso; o interruptor existe aqui para quem
+                quiser cumpri-la de fato. */}
+            <Interruptor
+              marcado={no.config?.resgate === true}
+              aoMudar={(v) => aoTrocarConfig(no.id, { ...(no.config || {}), resgate: v || undefined })}
+              desabilitado={somenteLeitura}
+            >
+              <span style={{ fontSize: '0.8rem' }}>Usar este nó como <b>resgate</b></span>
+            </Interruptor>
+            <div style={{ fontSize: '0.74rem', color: T.mut, margin: '4px 0 12px' }}>
+              É para onde vai quem estiver no meio da conversa quando uma publicação futura apagar o
+              bloco em que a pessoa parou (só numa migração forçada). Um nó por fluxo.
+            </div>
             <Faixa tom="aviso" titulo="Trocar o identificador quebra a correlação">
               O `id` aparece nas arestas, na telemetria e nos incidentes. Renomear cria órfãos na
               publicação e apaga o histórico de medição deste nó. Só faça isso antes da primeira
@@ -3611,6 +3665,99 @@ function PainelDeTelemetria({ fluxoId, telemetria, erro, carregando, aoRecarrega
   );
 }
 
+/**
+ * ⭐ LISTA DE PROBLEMAS — contrato S-PUBLICAR, 03/09/2026.
+ *
+ * O componente que faltava. Enquanto ele não existia, a recusa de publicar dizia «o fluxo tem 2
+ * erro(s) e não pode ser publicado» e PARAVA ali: o servidor sabia exatamente o que estava errado,
+ * em qual nó e como corrigir — e não contava. Um dia inteiro do dono foi gasto nessa lacuna.
+ *
+ * Cada linha traz: o que é, EM QUAL NÓ (com nome legível, não só o id), o que fazer, e um botão que
+ * leva a vista até o bloco. Quando o problema é uma ligação fantasma — que não tem linha no desenho
+ * nem pino para tocar — a linha traz o botão que a apaga, porque «arrume no desenho» seria uma
+ * instrução impossível de cumprir.
+ */
+function ListaDeProblemas({ problemas, nos, catalogo, aoIrParaNo, aoApagarAresta, compacta = false }) {
+  if (!problemas?.length) return null;
+  const nomeDoNo = (id) => {
+    const no = (nos || []).find((n) => n.id === id);
+    if (!no) return id;
+    return no.titulo || `${metaDoTipo(no.tipo, catalogo).rotulo} · ${no.id}`;
+  };
+  return (
+    <div style={{ display: 'grid', gap: 8 }}>
+      {problemas.map((pr, i) => {
+        const noId = noIdDoProblema(pr);
+        const existe = noId && (nos || []).some((n) => n.id === noId);
+        const ehErro = pr.nivel === 'erro';
+        return (
+          <div
+            key={`${pr.codigo}-${pr.campo}-${i}`}
+            style={{
+              border: `1px solid ${ehErro ? T.perigo : T.aviso}`, borderRadius: 10,
+              padding: compacta ? 8 : 10, background: T.sup,
+            }}
+          >
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 4 }}>
+              <Etiqueta tom={ehErro ? 'erro' : 'aviso'}>{ehErro ? 'erro' : 'aviso'}</Etiqueta>
+              {existe ? <Etiqueta tom="neutro">{nomeDoNo(noId)}</Etiqueta> : null}
+              <span style={{ fontSize: '0.68rem', color: T.mut, marginLeft: 'auto', fontFamily: 'ui-monospace, monospace' }}>{pr.codigo}</span>
+            </div>
+            <div style={{ fontSize: '0.82rem' }}>{pr.mensagem}</div>
+            {pr.comoCorrigir ? <div style={{ fontSize: '0.75rem', color: T.mut, marginTop: 4 }}>{pr.comoCorrigir}</div> : null}
+            <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+              {existe && aoIrParaNo ? (
+                <button className="btn btn-secondary" style={{ minHeight: 34 }} onClick={() => aoIrParaNo(noId)}>
+                  <Crosshair size={13} /> Ir para o nó
+                </button>
+              ) : null}
+              {pr.acao?.tipo === 'apagarAresta' && aoApagarAresta ? (
+                <button
+                  className="btn btn-secondary" style={{ minHeight: 34, color: T.perigo, borderColor: T.perigo }}
+                  onClick={() => aoApagarAresta(pr.acao.de, pr.acao.saida)}
+                >
+                  <Trash2 size={13} /> {pr.acao.rotulo || 'Apagar esta ligação'}
+                </button>
+              ) : null}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** A gaveta lateral com TODOS os problemas do fluxo — a mesma lista que a caixa de publicar mostra. */
+function PainelDeProblemas({ veredito, nos, catalogo, aoIrParaNo, aoApagarAresta, aoFechar }) {
+  const nenhum = !veredito.problemas.length;
+  return (
+    <div className="rgfx-lateral" style={{ ...cartao, padding: 0, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', borderBottom: `1px solid ${T.borda}` }}>
+        <AlertTriangle size={16} style={{ color: veredito.erros.length ? T.perigo : T.aviso }} />
+        <div style={{ flex: 1, fontWeight: 800, fontSize: '0.86rem' }}>O que impede publicar</div>
+        <button className="btn btn-secondary" style={{ minHeight: 36 }} onClick={() => aoFechar()} aria-label="Fechar problemas"><X size={15} /></button>
+      </div>
+      <div style={{ padding: 12, overflow: 'auto', flex: 1, display: 'grid', gap: 10, alignContent: 'start' }}>
+        <div style={{ fontSize: '0.72rem', color: T.mut }}>
+          {veredito.doServidor
+            ? 'Conferido pelo servidor. Esta é exatamente a lista que a publicação usa — se aqui não há erro, o fluxo publica.'
+            : veredito.falhou
+              ? `Não consegui perguntar ao servidor (${veredito.falhou.message}). O que está abaixo é a conferência desta tela, que cobre menos: a publicação pode achar mais.`
+              : 'Conferindo com o servidor…'}
+        </div>
+        {nenhum ? <Vazio>Nenhum problema. O desenho está pronto para publicar.</Vazio> : null}
+        <ListaDeProblemas
+          problemas={veredito.problemas}
+          nos={nos}
+          catalogo={catalogo}
+          aoIrParaNo={aoIrParaNo}
+          aoApagarAresta={aoApagarAresta}
+        />
+      </div>
+    </div>
+  );
+}
+
 function PainelDeIncidentes({ incidentes, carregando, erro, aoReconhecer, aoRecarregar, aoSelecionarNo, aoFechar }) {
   return (
     <div className="rgfx-lateral" style={{ ...cartao, padding: 0, display: 'flex', flexDirection: 'column' }}>
@@ -3934,7 +4081,7 @@ function ModalDe2FA({ aberta, canais, dicaDeEmail, ocupada, aoConfirmar, aoFecha
  * vivas, quantas ficariam órfãs e o modo sugerido. Em 503 (o serviço de publicação ainda não
  * existe) mostra `detalhe` e `procurado` — é diagnóstico do sistema, não erro do operador.
  */
-function ModalDePublicacao({ aberta, fluxoId, aoFechar, aoPublicado }) {
+function ModalDePublicacao({ aberta, fluxoId, documento, catalogo, aoFechar, aoPublicado, aoIrParaNo, aoApagarAresta }) {
   const [mudanca, setMudanca] = useState(null);
   const [erroMudanca, setErroMudanca] = useState(null);
   const [carregando, setCarregando] = useState(false);
@@ -3943,6 +4090,10 @@ function ModalDePublicacao({ aberta, fluxoId, aoFechar, aoPublicado }) {
   const [publicando, setPublicando] = useState(false);
   const [erroPublicar, setErroPublicar] = useState(null);
   const [pedido2fa, setPedido2fa] = useState(null);
+  // ⭐ A CAIXA CONFERE ANTES DE DEIXAR CLICAR (contrato S-PUBLICAR, 03/09/2026). Antes ela só
+  // descobria os erros DEPOIS do clique, e ainda por cima só o número deles.
+  const [validacao, setValidacao] = useState(null);
+  const [erroValidar, setErroValidar] = useState(null);
 
   useEffect(() => {
     if (!aberta || !fluxoId) return;
@@ -3954,6 +4105,19 @@ function ModalDePublicacao({ aberta, fluxoId, aoFechar, aoPublicado }) {
       .finally(() => { if (vivo) setCarregando(false); });
     return () => { vivo = false; };
   }, [aberta, fluxoId]);
+
+  // A validação é refeita a cada troca de MODO porque uma regra muda de severidade com ele
+  // (`SEM_NO_RESGATE` é aviso em `fixar` e erro em `retrofit_forcado`). Sem isto, a caixa diria
+  // «pode publicar» e o servidor recusaria — que é, de novo, dois validadores discordando.
+  useEffect(() => {
+    if (!aberta || !fluxoId || !modo) return undefined;
+    let vivo = true;
+    setValidacao(null); setErroValidar(null);
+    chamarFluxo(`/fluxos/${encodeURIComponent(fluxoId)}/validar`, { metodo: 'POST', corpo: { modoMigracao: modo } })
+      .then((r) => { if (vivo) setValidacao(r); })
+      .catch((e) => { if (vivo) setErroValidar(e); });
+    return () => { vivo = false; };
+  }, [aberta, fluxoId, modo]);
 
   const publicar = async (extra2fa) => {
     setPublicando(true); setErroPublicar(null);
@@ -3975,6 +4139,13 @@ function ModalDePublicacao({ aberta, fluxoId, aoFechar, aoPublicado }) {
   };
 
   const indisp = textoDeIndisponibilidade(erroMudanca) || textoDeIndisponibilidade(erroPublicar);
+  // A lista mostrada é a da RECUSA quando houve recusa (é a resposta mais recente do servidor) e a
+  // da conferência prévia no resto do tempo. Nunca as duas somadas: um problema, uma linha.
+  const validacaoDaRecusa = erroPublicar?.code === 'VALIDACAO' ? erroPublicar?.dados?.validacao : null;
+  const veredicto = validacaoDaRecusa || validacao;
+  const errosAgora = veredicto?.erros || [];
+  const avisosAgora = veredicto?.avisos || [];
+  const barrado = errosAgora.length > 0;
 
   return (
     <>
@@ -3983,8 +4154,13 @@ function ModalDePublicacao({ aberta, fluxoId, aoFechar, aoPublicado }) {
         rodape={
           <>
             <button className="btn btn-secondary" onClick={() => aoFechar()}>Cancelar</button>
-            <button className="btn btn-primary" disabled={!modo || publicando} onClick={() => publicar(null)}>
-              {publicando ? 'Publicando…' : 'Publicar'}
+            <button
+              className="btn btn-primary"
+              disabled={!modo || publicando || barrado}
+              title={barrado ? 'Corrija os erros listados acima — o servidor recusaria a publicação.' : undefined}
+              onClick={() => publicar(null)}
+            >
+              {publicando ? 'Publicando…' : barrado ? `Corrija ${errosAgora.length} erro(s) primeiro` : 'Publicar'}
             </button>
           </>
         }
@@ -4043,8 +4219,57 @@ function ModalDePublicacao({ aberta, fluxoId, aoFechar, aoPublicado }) {
         />
         <CampoTexto rotulo="Nota da publicação" dica="até 1000 caracteres" linhas={3} valor={nota} aoMudar={setNota} />
 
-        {erroPublicar && !indisp ? (
+        {/* ⭐ A LISTA. «Não consegui publicar — o fluxo tem 2 erro(s)» sem dizer QUAIS foi o defeito
+            que custou um dia inteiro ao dono em 03/09/2026. O servidor sempre soube o que era, em
+            qual nó e como corrigir; a caixa é que jogava fora a resposta e imprimia só a frase. */}
+        {erroPublicar && !indisp && !validacaoDaRecusa ? (
           <Faixa tom="erro" titulo="Não consegui publicar">{erroPublicar.message}</Faixa>
+        ) : null}
+
+        {erroValidar && !veredicto && !indisp ? (
+          <Faixa tom="aviso" titulo="Não consegui conferir o fluxo antes de publicar">
+            {erroValidar.message} O botão continua disponível: quem decide é o servidor, no clique.
+          </Faixa>
+        ) : null}
+
+        {barrado ? (
+          <div style={{ marginTop: 12 }}>
+            <Faixa tom="erro" titulo={errosAgora.length === 1 ? 'Um erro impede a publicação' : `${errosAgora.length} erros impedem a publicação`}>
+              Corrija os itens abaixo. O botão «Ir para o nó» fecha esta caixa e leva a vista até o
+              bloco.
+            </Faixa>
+            <div style={{ height: 8 }} />
+            <ListaDeProblemas
+              problemas={errosAgora}
+              nos={documento?.nos || []}
+              catalogo={catalogo}
+              aoIrParaNo={aoIrParaNo}
+              aoApagarAresta={aoApagarAresta}
+              compacta
+            />
+          </div>
+        ) : null}
+
+        {!barrado && avisosAgora.length ? (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: '0.74rem', color: T.mut, marginBottom: 6 }}>
+              {avisosAgora.length} aviso(s) — não impedem publicar, mas vale ler:
+            </div>
+            <ListaDeProblemas
+              problemas={avisosAgora}
+              nos={documento?.nos || []}
+              catalogo={catalogo}
+              aoIrParaNo={aoIrParaNo}
+              aoApagarAresta={aoApagarAresta}
+              compacta
+            />
+          </div>
+        ) : null}
+
+        {!barrado && veredicto && !avisosAgora.length ? (
+          <div style={{ marginTop: 12, fontSize: '0.76rem', color: T.ok || T.mut }}>
+            Conferido pelo servidor: nenhum erro e nenhum aviso neste desenho.
+          </div>
         ) : null}
       </Modal>
 
@@ -4212,9 +4437,83 @@ function BarraDoEditor({
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 // 12. O EDITOR — junta canvas, paleta, inspeção, teste e telemetria
 // ════════════════════════════════════════════════════════════════════════════════════════════════
+/**
+ * A qual NÓ pertence um problema. Serve para agrupar no painel e para o botão «ir para o nó».
+ * Aceita as duas redações de `campo` que existem: a do servidor (`nos.<id>.<campo>`) e a da
+ * conferência local (`<id>.<saida>`). Quando o servidor manda `noId`, ele manda.
+ */
+function noIdDoProblema(p) {
+  if (p?.noId) return String(p.noId);
+  const campo = String(p?.campo || '');
+  if (campo.startsWith('nos.')) return campo.split('.')[1] || null;
+  const primeiro = campo.split('.')[0];
+  return primeiro && primeiro !== 'arestas' && primeiro !== 'documento' ? primeiro : null;
+}
+
+/**
+ * ⭐ O VEREDITO — contrato S-PUBLICAR, 03/09/2026.
+ *
+ * Pergunta ao SERVIDOR se o documento que está na tela é publicável, com um recuo de 500 ms, e
+ * devolve a MESMA lista que a publicação usaria. É isto que faz o número da barra e o número da
+ * caixa de publicar serem o mesmo número: não existem mais duas contas, existe uma resposta.
+ *
+ * ⚠️ `modoMigracao: 'fixar'` de propósito — é o modo padrão da caixa de publicar. Se o operador
+ * escolher retrofit forçado, a caixa refaz a pergunta com o modo dele (uma regra muda de
+ * severidade com o modo), e é a resposta da caixa que vale ali.
+ *
+ * Enquanto a primeira resposta não chega — e quando o servidor não responde — a tela mostra a
+ * conferência local, mas DIZ que é local. Número sem procedência é como a barra ficou verde
+ * mentindo por um dia inteiro.
+ */
+function useVeredito(fluxoId, documento, catalogo) {
+  const [estado, setEstado] = useState({ doc: null, r: null, erro: null });
+  const [conferindo, setConferindo] = useState(false);
+
+  useEffect(() => {
+    if (!fluxoId || !documento) return undefined;
+    let vivo = true;
+    setConferindo(true);
+    const t = setTimeout(() => {
+      chamarFluxo(`/fluxos/${encodeURIComponent(fluxoId)}/validar`, {
+        metodo: 'POST', corpo: { documento, modoMigracao: 'fixar' },
+      })
+        .then((r) => { if (vivo) setEstado({ doc: documento, r, erro: null }); })
+        .catch((e) => { if (vivo) setEstado({ doc: documento, r: null, erro: e }); })
+        .finally(() => { if (vivo) setConferindo(false); });
+    }, 500);
+    return () => { vivo = false; clearTimeout(t); setConferindo(false); };
+  }, [fluxoId, documento]);
+
+  const local = useMemo(() => conferirDesenho(documento, catalogo), [documento, catalogo]);
+  // Identidade por REFERÊNCIA: o rascunho é substituído inteiro a cada alteração, então
+  // `estado.doc === documento` responde exatamente «esta resposta é sobre o que está na tela?».
+  const fresco = estado.doc === documento && !!estado.r;
+
+  return useMemo(() => {
+    if (fresco) {
+      return {
+        doServidor: true,
+        conferindo,
+        falhou: null,
+        erros: estado.r.erros || [],
+        avisos: estado.r.avisos || [],
+        problemas: [...(estado.r.erros || []), ...(estado.r.avisos || [])],
+      };
+    }
+    return {
+      doServidor: false,
+      conferindo,
+      falhou: estado.doc === documento ? estado.erro : null,
+      erros: local.filter((p) => p.nivel === 'erro'),
+      avisos: local.filter((p) => p.nivel !== 'erro'),
+      problemas: local,
+    };
+  }, [fresco, conferindo, estado, documento, local]);
+}
+
 function Editor({
   fluxoId, catalogo, catalogoVeioDoServidor, saude, fluxosDaEmpresa, chaveDeAtualizacao,
-  aoVoltar, aoAbrirPublicacao, aoAbrirVersoes, pedirConfirmacao, aoMudarFluxo,
+  aoVoltar, aoAbrirPublicacao, aoAbrirVersoes, pedirConfirmacao, aoMudarFluxo, canalDoEditor,
 }) {
   const r = useRascunhoDeFluxo(fluxoId, catalogo);
   const [selecionadoId, setSelecionadoId] = useState(null);
@@ -4311,17 +4610,26 @@ function Editor({
     return m;
   }, [documento, catalogo]);
 
-  const problemasDoDesenho = useMemo(() => conferirDesenho(documento, catalogo), [documento, catalogo]);
+  // ⭐ UM VEREDITO SÓ. `problemasDoDesenho` já não é a conta da tela: é a resposta do servidor
+  // (a mesma que a publicação usa), com a conferência local só enquanto ela não chega.
+  const veredito = useVeredito(fluxoId, documento, catalogo);
+  const problemasDoDesenho = veredito.problemas;
   const problemasPorNo = useMemo(() => {
     const m = new Map();
     for (const p of problemasDoDesenho) {
-      const noId = String(p.campo || '').split('.')[0];
+      const noId = noIdDoProblema(p);
       if (!noId) continue;
       if (!m.has(noId)) m.set(noId, []);
       m.get(noId).push(p);
     }
     return m;
   }, [problemasDoDesenho]);
+  // Problemas que não pertencem a nó nenhum (documento inteiro) — não podem sumir só porque não
+  // têm onde encostar no desenho.
+  const problemasSemNo = useMemo(
+    () => problemasDoDesenho.filter((p) => !noIdDoProblema(p) || !(documento.nos || []).some((n) => n.id === noIdDoProblema(p))),
+    [problemasDoDesenho, documento],
+  );
 
   const metricasPorNo = useMemo(() => {
     if (!mostrarNumeros || !telemetria?.itens) return null;
@@ -4483,6 +4791,18 @@ function Editor({
     if (!no) return;
     setVista((v) => ({ escala: v.escala, deslocamento: { x: 260 - (no.ui?.x ?? 0) * v.escala, y: 180 - (no.ui?.y ?? 0) * v.escala } }));
   }, [documento]);
+
+  // ⭐ CANAL PARA A CAIXA DE PUBLICAR (contrato S-PUBLICAR). A modal é montada na RAIZ da página
+  // (de propósito — ver o comentário «MODAIS NA RAIZ»), então ela não enxerga o estado do editor.
+  // Sem este canal, o botão «Ir para o nó» da lista de erros não teria para onde ir.
+  if (canalDoEditor) {
+    canalDoEditor.current = {
+      documento,
+      irParaNo,
+      desligar: (de, saida) => { r.desligar(de, saida); setArestaSelecionada(null); },
+      somenteLeitura,
+    };
+  }
 
   // ── prévia por nó ─────────────────────────────────────────────────────────────────────────────
   useEffect(() => { setPrevia(null); }, [selecionadoId]);
@@ -4648,8 +4968,8 @@ function Editor({
   }
 
   const bytes = bytesDoDocumento(documento);
-  const erros = problemasDoDesenho.filter((p) => p.nivel === 'erro').length;
-  const avisos = problemasDoDesenho.length - erros;
+  const erros = veredito.erros.length;
+  const avisos = veredito.avisos.length;
 
   return (
     <div>
@@ -4790,13 +5110,29 @@ function Editor({
 
         <div style={{ flex: 1 }} />
 
-        <Etiqueta tom={erros ? 'erro' : 'ok'} titulo="Conferências que a tela faz sozinha, só sobre o desenho">
-          {erros ? `${erros} erro(s) de desenho` : 'desenho fechado'}
-        </Etiqueta>
-        {avisos ? <Etiqueta tom="aviso">{avisos} aviso(s)</Etiqueta> : null}
+        {/* ⭐ ESTE NÚMERO É O DA PUBLICAÇÃO. Vem de `POST /validar`, o mesmo validador que a
+            publicação chama — nunca mais «desenho fechado» em verde com a publicação recusando. */}
+        <button
+          type="button"
+          className="btn btn-secondary"
+          style={{ minHeight: 40, padding: '0 10px', borderColor: erros ? T.perigo : undefined }}
+          title={veredito.doServidor
+            ? 'Conferido pelo servidor — é exatamente o mesmo número que a publicação usa. Clique para ver a lista.'
+            : 'Conferência local, feita nesta tela enquanto o servidor não responde. Pode ser menor que a da publicação.'}
+          onClick={() => setAbaLateral(abaLateral === 'problemas' ? null : 'problemas')}
+        >
+          <Etiqueta tom={erros ? 'erro' : 'ok'}>
+            {erros ? `${erros} erro(s)` : 'pronto para publicar'}
+          </Etiqueta>
+          {avisos ? <Etiqueta tom="aviso">{avisos} aviso(s)</Etiqueta> : null}
+          <span style={{ fontSize: '0.68rem', color: T.mut, marginLeft: 6 }}>
+            {veredito.conferindo ? 'conferindo…' : veredito.doServidor ? 'do servidor' : veredito.falhou ? 'só local' : 'local'}
+          </span>
+        </button>
 
         <div style={{ width: 1, height: 24, background: T.borda }} />
         {[
+          { id: 'problemas', rotulo: 'Problemas', Icone: AlertTriangle },
           { id: 'telemetria', rotulo: 'Telemetria', Icone: Activity },
           { id: 'incidentes', rotulo: 'Incidentes', Icone: AlertTriangle },
           { id: 'execucoes', rotulo: 'Conversas', Icone: Layers },
@@ -4856,6 +5192,16 @@ function Editor({
             aoDestacarTrilha={setTrilhaDestacada}
             aoSelecionarNo={(id) => irParaNo(id)}
             aoFechar={() => { setAbaLateral(null); setTrilhaDestacada(null); }}
+          />
+        ) : null}
+        {abaLateral === 'problemas' ? (
+          <PainelDeProblemas
+            veredito={veredito}
+            nos={documento.nos || []}
+            catalogo={catalogo}
+            aoIrParaNo={(id) => irParaNo(id)}
+            aoApagarAresta={somenteLeitura ? null : (de, saida) => { r.desligar(de, saida); setArestaSelecionada(null); }}
+            aoFechar={() => setAbaLateral(null)}
           />
         ) : null}
         {abaLateral === 'telemetria' ? (
@@ -5097,6 +5443,8 @@ export default function FluxosRagnabot() {
   // ── modais: TODAS aqui na raiz, fora de qualquer bloco condicional de aba ou de tela ──────────
   const [modalCriar, setModalCriar] = useState(false);
   const [modalPublicar, setModalPublicar] = useState(false);
+  // Ponte entre o Editor e a caixa de publicar (que é montada na raiz da página, fora dele).
+  const canalDoEditor = useRef(null);
   const [modalVersoes, setModalVersoes] = useState(false);
   const [confirmacao, setConfirmacao] = useState(null);
   const [confirmacaoOcupada, setConfirmacaoOcupada] = useState(false);
@@ -5371,6 +5719,7 @@ export default function FluxosRagnabot() {
             aoAbrirVersoes={() => setModalVersoes(true)}
             pedirConfirmacao={(c) => setConfirmacao(c)}
             aoMudarFluxo={setFluxoAberto}
+            canalDoEditor={canalDoEditor}
           />
         ) : (
           <>
@@ -5473,6 +5822,12 @@ export default function FluxosRagnabot() {
       <ModalDePublicacao
         aberta={modalPublicar}
         fluxoId={abertoId}
+        documento={canalDoEditor.current?.documento}
+        catalogo={catalogo}
+        aoIrParaNo={(id) => { setModalPublicar(false); canalDoEditor.current?.irParaNo?.(id); }}
+        aoApagarAresta={canalDoEditor.current?.somenteLeitura
+          ? null
+          : (de, saida) => { setModalPublicar(false); canalDoEditor.current?.desligar?.(de, saida); }}
         aoFechar={() => setModalPublicar(false)}
         aoPublicado={(resultado) => {
           setModalPublicar(false);

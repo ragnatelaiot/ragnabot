@@ -1098,6 +1098,65 @@ cliente real tocando num botão real. A primeira conexão que existir é que fec
 
 ---
 
+## 5-L. ⭐ Por que o fluxo não publica — e onde mexer (v1.16.00)
+
+**O que faz.** Diz, em português e apontando o bloco, tudo o que impede o seu fluxo de ir ao ar. Um
+número só, no editor e na caixa de publicar.
+
+### O defeito que isto conserta
+
+Até a v1.15.00 havia **duas conferências diferentes** dizendo se o fluxo estava válido: uma na tela
+(a etiqueta verde «desenho fechado») e outra na publicação. Elas cobriam regras diferentes e
+discordavam. O resultado, medido no fluxo do dono em 03/09/2026: barra **verde** e publicação
+recusando com **«o fluxo tem 2 erro(s) e não pode ser publicado»** — sem dizer quais eram.
+
+Agora a conferência é uma só, **do servidor**, e a tela mostra a resposta dele.
+
+### Onde você vê
+
+| Onde | O que aparece |
+|---|---|
+| **Barra de vista do editor** | `N erro(s)` / `pronto para publicar`, com a procedência escrita ao lado: `do servidor`, `conferindo…` ou `local`. **Clique nele** para abrir a lista. |
+| **Botão «Problemas»** | Gaveta lateral com a lista completa (erros e avisos), a mesma da caixa de publicar. |
+| **Painel do bloco** | Os problemas daquele bloco, no topo do painel. |
+| **Caixa de publicar** | A lista dos erros **antes** de clicar. Enquanto houver erro, o botão fica desabilitado e diz quantos são. |
+
+### O que cada linha traz
+
+- **O que é** — em português, não em código.
+- **Em qual bloco** — pelo nome que você deu, não pelo identificador interno.
+- **O que fazer** — a correção concreta.
+- **Botão «Ir para o nó»** — fecha a caixa e leva a vista até o bloco.
+- **Botão «Apagar esta ligação»** — só quando o problema é uma ligação que **não aparece no
+  desenho** (a saída de onde ela partia deixou de existir). Sem esse botão, não haveria como
+  removê-la.
+
+### Erro × aviso
+
+- **Erro** impede publicar.
+- **Aviso** não impede — mas vale ler. O mais comum: *saída de exceção sem destino*. Sem destino
+  ali, quem escrever fora da janela de 24 horas recebe **silêncio absoluto**.
+
+### Duas regras que mudaram nesta versão
+
+**Categoria da mídia.** O seletor do bloco de mídia gravava «imagem» e «documento» em português, e o
+motor só aceitava o vocabulário da Meta (`image`, `document`). **Duas das quatro opções do seletor
+produziam um fluxo impossível de publicar.** Agora o seletor grava o valor certo (e ganhou
+«Figurinha»), e fluxo já salvo com o valor antigo **continua valendo**.
+
+**Nó de resgate.** Era erro bloqueante em qualquer fluxo com bloco que espera resposta — ou seja,
+em qualquer fluxo útil — e a instrução pedia um campo que a tela nem oferecia. Agora:
+
+- é **aviso** na publicação normal;
+- é **erro** só no *retrofit forçado*, que é o único caminho onde ele é de fato usado;
+- e existe o interruptor **«Usar este nó como resgate»**, na aba **Avançado** do bloco.
+
+**O que é o nó de resgate.** É para onde vai quem estiver no meio da conversa quando uma publicação
+futura apagar o bloco em que a pessoa parou. Um por fluxo. Numa **primeira** publicação, com zero
+conversa dentro, ele não é usado por nada.
+
+---
+
 ## 6. Multiempresa, planos e cobrança
 
 **O que faz.** Cada empresa cliente é isolada, com seu plano e sua cobrança.

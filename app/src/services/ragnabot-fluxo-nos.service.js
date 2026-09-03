@@ -1468,6 +1468,34 @@ const noTexto = {
 // ── 3. midia ────────────────────────────────────────────────────────────────────────────────────
 const TIPOS_MIDIA = new Set(['image', 'video', 'audio', 'document', 'sticker']);
 
+// ── A CATEGORIA DA MÍDIA FALA DUAS LÍNGUAS, e a culpa é nossa ────────────────────────────────────
+// Medido em 03/09/2026, no fluxo do dono: o seletor da tela oferecia `imagem` e `documento` (em
+// português) e este validador só aceitava `image` e `document` (em inglês, que é o vocabulário da
+// Meta). Resultado: DUAS das quatro opções do seletor produziam um fluxo que NUNCA publicava, com
+// a mensagem «Categoria desconhecida» apontando para uma lista que a tela nem oferece.
+//
+// A tela foi corrigida para gravar o valor canônico. Este mapa existe para os rascunhos que já
+// foram salvos com o valor em português: recusá-los agora puniria o operador por um defeito nosso,
+// e a categoria nem sequer é usada no envio (`preparar()` só carrega `url`, `mime` e `legenda`).
+const SINONIMOS_CATEGORIA_MIDIA = new Map([
+  ['imagem', 'image'], ['foto', 'image'],
+  ['documento', 'document'], ['arquivo', 'document'],
+  ['audio', 'audio'], ['áudio', 'audio'],
+  ['video', 'video'], ['vídeo', 'video'],
+  ['figurinha', 'sticker'], ['adesivo', 'sticker'],
+]);
+
+/**
+ * Devolve a categoria de mídia no vocabulário canônico (o da Meta), ou `null` quando o valor não é
+ * reconhecível nem como canônico nem como sinônimo em português.
+ */
+export function categoriaMidiaCanonica(bruto) {
+  const v = String(bruto ?? '').trim().toLowerCase();
+  if (!v) return null;
+  if (TIPOS_MIDIA.has(v)) return v;
+  return SINONIMOS_CATEGORIA_MIDIA.get(v) ?? null;
+}
+
 const noMidia = {
   tipo: 'midia',
   efeito: 'irrepetivel',
@@ -1490,8 +1518,8 @@ const noMidia = {
     if (c.mime && !/^[\w.+-]+\/[\w.+-]+$/.test(String(c.mime))) {
       problemas.push(erro('LIMITE_EXCEDIDO', 'config.mime', 'Tipo de mídia em formato inválido.', 'Use algo como image/jpeg ou application/pdf.'));
     }
-    if (c.categoria && !TIPOS_MIDIA.has(c.categoria)) {
-      problemas.push(erro('LIMITE_EXCEDIDO', 'config.categoria', `Categoria desconhecida. Aceitas: ${[...TIPOS_MIDIA].join(', ')}.`, 'Escolha uma categoria válida.'));
+    if (c.categoria && !categoriaMidiaCanonica(c.categoria)) {
+      problemas.push(erro('LIMITE_EXCEDIDO', 'config.categoria', `Categoria "${c.categoria}" desconhecida. Aceitas: ${[...TIPOS_MIDIA].join(', ')} (ou os nomes em português: imagem, vídeo, áudio, documento, figurinha).`, 'Escolha uma das categorias da lista, no painel do nó.'));
     }
     if (Number.isFinite(Number(c.bytes)) && Number(c.bytes) > lim.valores.midia_bytes_max) {
       problemas.push(erro('LIMITE_EXCEDIDO', 'config.bytes', `O arquivo tem ${Number(c.bytes)} bytes e o teto do perfil é ${lim.valores.midia_bytes_max}. A Meta recusa o envio inteiro.`, 'Comprima o arquivo ou envie um link no corpo de um nó de texto.'));
