@@ -49,6 +49,11 @@ import { fileURLToPath } from 'node:url';
 const VERBOSE = process.env.VERBOSE === '1';
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
 const ARQUIVO_SQL = path.join(AQUI, '..', 'prisma', 'sql', 'caixa-atendimento', '01-rb_caixa_atendimento.sql');
+// ⚠️ O contrato S6 acrescentou DUAS colunas a `RagnabotConversa` (`origemCwInboxId`/`transferidaEm`)
+// em OUTRO arquivo de migração. O cliente do Prisma conhece o schema INTEIRO e as pede em todo
+// `findUnique` — então, sem elas, este teste quebrava com «a coluna não existe» e a rede de
+// segurança do S2 ficava caída em silêncio. Medido em 03/09/2026 (contrato S-ATENDER).
+const ARQUIVO_SQL_S6 = path.join(AQUI, '..', 'prisma', 'sql', 'conexoes', '01-rb_conexoes_provedor_api.sql');
 
 let passou = 0; let reprovou = 0; let naoExecutou = 0;
 const ok = (t, d = '') => { passou += 1; console.log(`  ✅ ${t}${d ? ` — ${d}` : ''}`); };
@@ -187,6 +192,10 @@ async function parteDois() {
     await cliente.query(`CREATE SCHEMA "${esquema}"`);
     await cliente.query(`SET search_path TO "${esquema}"`);
     await cliente.query(sql);
+    await cliente.query(fs.readFileSync(ARQUIVO_SQL_S6, 'utf8')
+      .split('\n')
+      .filter((l) => l.startsWith('ALTER TABLE "RagnabotConversa" ADD COLUMN'))
+      .join('\n'));
     const r = await cliente.query(
       'SELECT table_name FROM information_schema.tables WHERE table_schema=$1 ORDER BY 1', [esquema],
     );

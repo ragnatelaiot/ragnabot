@@ -33,6 +33,10 @@ import {
   modeloPronto, podeAdministrar,
 } from '../services/ragnabot-caixa.service.js';
 import { retrocarregar } from '../services/ragnabot-caixa-retrocarga.service.js';
+import {
+  aceitar, assumir, abrirConversa, anexoDaConversa, enviarMensagem,
+  transferir, destinosDeTransferencia,
+} from '../services/ragnabot-mesa.service.js';
 import { escopoDe } from '../services/ragnabot-auditoria.service.js';
 import prisma from '../base/db.js';
 
@@ -272,6 +276,133 @@ router.post('/retrocarga', async (req, res) => {
     return res.json({ ok: true, setores, membros, retrocarga: resumo });
   } catch (e) {
     return erro(res, e, 500);
+  }
+});
+
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// ⭐ A MESA DE ATENDIMENTO — contrato S-ATENDER (03/09/2026)
+//
+// O dono abriu esta tela e disse: «não consigo aceitar, transferir e ver nada da conversa». Até
+// aqui, tudo acima é LEITURA de fila. Daqui para baixo é o trabalho: abrir, aceitar, responder e
+// passar adiante.
+//
+// ⛔ TODA a regra de quem pode o quê está em `ragnabot-mesa.service.js`. Este arquivo só traduz
+// erro em código HTTP. Se um dia aparecer um `if` de permissão AQUI, ele é o segundo dono da regra
+// — e o dia em que os dois discordarem é o dia do vazamento.
+//
+// A escada de recusa, e ela é deliberada:
+//   404 — a conversa não é visível para você (nem confirmo que o número existe)
+//   403 — você a vê, mas não pode AGIR nela (e a mensagem explica, porque senão vira chamado)
+//   409 — você podia, mas o mundo mudou (alguém aceitou antes, a conversa encerrou)
+//   422 — o destino que você escolheu não existe
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+/** Traduz `ErroDaMesa` (que já carrega `status` e `code`) e deixa o resto virar 500 honesto. */
+function erroDaMesa(res, e) {
+  const status = Number(e?.status) || 500;
+  const corpo = { error: (e && e.message) || String(e) };
+  if (e?.code) corpo.code = e.code;
+  // Campos de apoio da recusa: é o que deixa a tela oferecer a saída certa ("Aceitar") em vez de
+  // apenas dizer não.
+  for (const extra of ['podeAceitar', 'cwAssigneeId', 'atendenteNome']) {
+    if (e?.[extra] !== undefined) corpo[extra] = e[extra];
+  }
+  return res.status(status).json(corpo);
+}
+
+// ── ABRIR A CONVERSA — a ficha, o histórico e a resposta a «posso escrever aqui?» ───────────────
+// É a mesma rota para ler a MINHA conversa e para ESPIAR a da fila. A diferença não está no
+// endereço: está em `escrita.pode`, decidido no servidor. Uma rota só significa um lugar só onde a
+// permissão é resolvida — e a espiada (abrir o que não é seu) é a que fica registrada.
+router.get('/conversas/:cwConversationId/abrir', async (req, res) => {
+  try {
+    const r = await abrirConversa(req.user, req.params.cwConversationId, {
+      antesDe: req.query.antesDe || null,
+      comMensagens: req.query.semMensagens !== '1',
+    });
+    return res.json(r);
+  } catch (e) {
+    return erroDaMesa(res, e);
+  }
+});
+
+// ── O ANEXO — o painel ENTREGA o arquivo; o endereço da plataforma nunca chega ao navegador ─────
+router.get('/conversas/:cwConversationId/anexos/:cwMessageId/:indice', async (req, res) => {
+  try {
+    const r = await anexoDaConversa(req.user, req.params.cwConversationId, {
+      cwMessageId: req.params.cwMessageId,
+      indice: Number(req.params.indice) || 0,
+    });
+    res.setHeader('Content-Type', r.tipo || 'application/octet-stream');
+    // `inline` para a foto e o áudio abrirem na própria tela; o nome só importa ao salvar.
+    res.setHeader('Content-Disposition', `inline; filename="${String(r.nome).replace(/["\\]/gu, '')}"`);
+    // ⛔ `private`: é mídia de conversa de cliente. Cache compartilhado guardaria o anexo de uma
+    // empresa numa camada que outra empresa alcança.
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    return res.end(r.bytes);
+  } catch (e) {
+    return erroDaMesa(res, e);
+  }
+});
+
+// ── ⭐ ACEITAR — a corrida. Dois cliques simultâneos, um vencedor, e o perdedor sabe de quem foi ──
+router.post('/conversas/:cwConversationId/aceitar', async (req, res) => {
+  try {
+    const r = await aceitar(req.user, req.params.cwConversationId, { cwTeamId: req.body?.cwTeamId });
+    return res.json(r);
+  } catch (e) {
+    return erroDaMesa(res, e);
+  }
+});
+
+// ── ASSUMIR — o administrador toma para si conversa que já tem dono. É transferência, e registra ─
+router.post('/conversas/:cwConversationId/assumir', async (req, res) => {
+  try {
+    return res.json(await assumir(req.user, req.params.cwConversationId));
+  } catch (e) {
+    return erroDaMesa(res, e);
+  }
+});
+
+// ── ⭐ ESCREVER — a recusa é DAQUI, não da tela ─────────────────────────────────────────────────
+// Um agente com a sessão dele mandando POST numa conversa de outro recebe 403. Esconder o campo de
+// texto no navegador não teria impedido nada; isto impede.
+router.post('/conversas/:cwConversationId/mensagens', async (req, res) => {
+  try {
+    const r = await enviarMensagem(req.user, req.params.cwConversationId, {
+      texto: req.body?.texto,
+      privada: req.body?.privada === true,
+    });
+    return res.json(r);
+  } catch (e) {
+    return erroDaMesa(res, e);
+  }
+});
+
+// ── ⭐ TRANSFERIR — para outro atendente e/ou outro setor ───────────────────────────────────────
+router.post('/conversas/:cwConversationId/transferir', async (req, res) => {
+  try {
+    const r = await transferir(req.user, req.params.cwConversationId, {
+      paraCwUserId: req.body?.paraCwUserId ?? null,
+      paraCwTeamId: req.body?.paraCwTeamId ?? null,
+      motivo: req.body?.motivo ?? null,
+      notaInterna: req.body?.notaInterna ?? null,
+      avisarCliente: req.body?.avisarCliente === true,
+      mensagemAoCliente: req.body?.mensagemAoCliente ?? null,
+    });
+    return res.json(r);
+  } catch (e) {
+    return erroDaMesa(res, e);
+  }
+});
+
+// ── PARA ONDE POSSO TRANSFERIR — atendentes e setores, já filtrados pelo que este usuário pode ──
+router.get('/destinos', async (req, res) => {
+  try {
+    return res.json(await destinosDeTransferencia(req.user));
+  } catch (e) {
+    return erroDaMesa(res, e);
   }
 });
 

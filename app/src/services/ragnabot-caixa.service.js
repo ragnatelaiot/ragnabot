@@ -424,6 +424,22 @@ export async function contar(user, filtros = {}) {
  * cláusula de visibilidade, porque a consulta é UMA só e ela já a carrega.
  */
 export async function obter(user, cwConversationId) {
+  const linha = await obterLinha(user, cwConversationId);
+  return linha ? paraTela(linha) : null;
+}
+
+/**
+ * A MESMA consulta de `obter()`, devolvendo a LINHA CRUA do banco.
+ *
+ * Existe porque a mesa de atendimento (`ragnabot-mesa.service.js`) precisa de campos que a tela não
+ * recebe — `id`, `tenantId`, `estadoPlataforma` — para agir sobre a conversa (aceitar, transferir,
+ * escrever). Separar em duas funções seria criar um SEGUNDO lugar onde a cláusula de visibilidade
+ * é montada, e o dia em que os dois divergissem seria o dia do vazamento. Aqui a consulta é uma
+ * só; `obter()` é ela mais a projeção da tela.
+ *
+ * ⚠️ O que sai daqui NÃO vai para a tela sem passar por `paraTela()`.
+ */
+export async function obterLinha(user, cwConversationId) {
   const empresa = clausulaDeEmpresa(user);
   if (!empresa) return null;
   const id = inteiroOuNulo(cwConversationId);
@@ -437,8 +453,7 @@ export async function obter(user, cwConversationId) {
   if (Object.keys(empresa).length) e.push(empresa);
   if (Object.keys(visao).length) e.push(visao);
 
-  const linha = await db().ragnabotConversa.findFirst({ where: { AND: e } });
-  return linha ? paraTela(linha) : null;
+  return db().ragnabotConversa.findFirst({ where: { AND: e } });
 }
 
 /**
@@ -693,7 +708,7 @@ export default {
   ESTADOS, ABAS, SUBABAS, ESTADOS_ABERTOS,
   classificarEstado, etiquetasDaConversa, paraTela,
   clausulaDeEmpresa, clausulaDeVisibilidade, podeAdministrar, agenteDaSessao, setoresDoAgente,
-  montarOnde, ordenacaoDaAba, listar, contar, obter, historicoDoContato, listarSetores,
+  montarOnde, ordenacaoDaAba, listar, contar, obter, obterLinha, historicoDoContato, listarSetores,
   projetarConversa, sincronizarSetores, sincronizarMembrosDosSetores,
   modeloPronto, configurarCaixa, portasDaCaixa,
 };

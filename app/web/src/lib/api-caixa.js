@@ -133,8 +133,61 @@ export function retrocarregarConversas({ simular = false } = {}) {
   return chamarCaixa(caminho, { metodo: 'POST', corpo: {}, tempoLimiteMs: 180000 });
 }
 
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// ⭐ A MESA — aceitar · abrir/espiar · escrever · transferir (contrato S-ATENDER, 03/09/2026)
+//
+// ⛔ NENHUMA destas funções decide permissão. Todas perguntam ao servidor e desenham a resposta:
+// `escrita.pode` vem de lá, `escrita.explicacao` vem de lá, a recusa vem de lá. Se um dia alguém
+// precisar de um `if (usuario.role === …)` NESTE arquivo, a regra está no lugar errado.
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Abre a conversa: a ficha, o histórico e a resposta a «posso escrever aqui?».
+ *
+ * É a MESMA chamada para ler a sua conversa e para espiar a da fila — quem separa os dois casos é o
+ * servidor, e é ele quem registra a espiada. Uma rota só = um lugar só onde a permissão é resolvida.
+ */
+export function abrirConversa(cwConversationId, { antesDe, semMensagens } = {}) {
+  return chamarCaixa(`/conversas/${encodeURIComponent(cwConversationId)}/abrir${consulta({ antesDe, semMensagens: semMensagens ? 1 : '' })}`, { tempoLimiteMs: 45000 });
+}
+
+/**
+ * O endereço do anexo — do NOSSO painel, nunca o da plataforma.
+ *
+ * ⚠️ É uma URL, não um `fetch`: quem busca é a própria tag `<img>`/`<audio>`, com o cookie de
+ * sessão de mesma origem. O endereço interno da plataforma não chega ao navegador em momento nenhum.
+ */
+export function enderecoDoAnexo(cwConversationId, cwMessageId, indice = 0) {
+  return `${BASE_CAIXA}/conversas/${encodeURIComponent(cwConversationId)}/anexos/${encodeURIComponent(cwMessageId)}/${Number(indice) || 0}`;
+}
+
+/** ⭐ ACEITAR: a conversa passa a ser minha. Dois cliques ao mesmo tempo, um só vencedor (409 ao outro). */
+export function aceitarConversa(cwConversationId, { cwTeamId } = {}) {
+  return chamarCaixa(`/conversas/${encodeURIComponent(cwConversationId)}/aceitar`, { metodo: 'POST', corpo: { cwTeamId } });
+}
+
+/** ASSUMIR: só quem administra, e só para conversa que já tem dono. Registra como transferência. */
+export function assumirConversa(cwConversationId) {
+  return chamarCaixa(`/conversas/${encodeURIComponent(cwConversationId)}/assumir`, { metodo: 'POST', corpo: {} });
+}
+
+/** Escreve na conversa. `privada: true` = nota interna (fica para a equipe, não vai ao cliente). */
+export function enviarMensagem(cwConversationId, { texto, privada = false } = {}) {
+  return chamarCaixa(`/conversas/${encodeURIComponent(cwConversationId)}/mensagens`, { metodo: 'POST', corpo: { texto, privada } });
+}
+
+/** ⭐ TRANSFERIR para outro atendente e/ou outro setor. */
+export function transferirConversa(cwConversationId, dados = {}) {
+  return chamarCaixa(`/conversas/${encodeURIComponent(cwConversationId)}/transferir`, { metodo: 'POST', corpo: dados });
+}
+
+/** Os destinos possíveis — já filtrados pelo servidor conforme quem está pedindo. */
+export function destinosDeTransferencia() { return chamarCaixa('/destinos'); }
+
 export default {
   ABAS, SUBABAS, BASE_CAIXA, chamarCaixa,
   opcoesDaCaixa, listarConversas, contadores, obterConversa, historicoDoContato,
   listarSetores, sincronizarSetores, retrocarregarConversas,
+  abrirConversa, enderecoDoAnexo, aceitarConversa, assumirConversa,
+  enviarMensagem, transferirConversa, destinosDeTransferencia,
 };

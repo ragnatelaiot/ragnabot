@@ -19,6 +19,129 @@
 
 ---
 
+## v1.13.00 — A caixa virou mesa de trabalho: aceitar, ver, responder e transferir (03/09/2026)
+
+A frase que resume: **a nossa tela de Atendimentos era uma lista que não abria nada. Agora o
+atendente abre a conversa, lê o que o cliente escreveu, aceita o atendimento em seu nome, responde —
+e passa adiante quando o assunto é de outro.**
+
+### O que o dono viu
+
+Ele abriu a tela e disse: *«quando chega uma mensagem eu não consigo aceitar ela, para ficar
+associada a mim como agente. Eu não deveria ter condição de escrever ou interagir com o chat senão
+aceitar como agente. Pode haver, como o outro chat que está em uso hoje, apenas um botão com símbolo
+de olhos para ver o que tem dentro da conversa — mas para escrever, apenas se tiver atribuída a mim
+como agente. E também ainda não tem o botão de transferência para outro analista e/ou setor.»*
+
+E, no mesmo dia: *«não consigo aceitar, transferir e ver nada da conversa»*. Ele tinha razão nas
+três: clicar num cartão não abria coisa nenhuma.
+
+### 1. Abrir a conversa — e ela abre de verdade
+
+Clicando no cartão, o atendimento se abre inteiro: o histórico na ordem em que aconteceu, com **quem
+falou escrito por extenso** em cada mensagem (Cliente · Atendente · Robô · Nota interna), separador
+de dia com «Hoje» e «Ontem», e as **fotos, áudios e documentos** que o cliente mandou aparecendo ali
+mesmo.
+
+**O horário é sempre o de quem atende (UTC−3)** — nunca o do relógio do navegador. Duas pessoas
+olhando a mesma conversa de máquinas diferentes leem a mesma hora. Sem isso, uma delas responderia
+«acabei de ver» a uma mensagem de três horas atrás.
+
+**A mídia é entregue pelo painel.** O endereço do arquivo na plataforma **não chega ao navegador**:
+quem busca o arquivo é o nosso servidor, e ele o entrega. É o que impede endereço interno de vazar
+na tela — e o que faz a foto abrir mesmo quando a rota pública não serve de dentro do cluster.
+
+**O conteúdo continua morando na plataforma.** Nada do que se lê aqui é copiado para as nossas
+tabelas. Texto de cliente tem dono, e uma segunda cópia é uma segunda verdade para vazar.
+
+### 2. ⭐ Aceitar — e a briga de dois cliques ao mesmo tempo
+
+Conversa na fila ganhou o botão **«Aceitar»**: um clique e ela passa a ser de quem clicou, aqui e
+**também na plataforma** — senão a tela dela e a nossa contariam histórias diferentes.
+
+**O caso difícil é dois atendentes clicando no mesmo instante.** Isso não se resolve escondendo
+botão: quando duas pessoas olham a mesma fila no horário de pico, elas clicam juntas. A decisão é
+tomada **no banco**, numa única sentença que só grava se a conversa ainda não tiver dono. Quem
+chega primeiro leva; quem chega meio segundo depois **recebe o nome de quem levou** — «Esta conversa
+já foi aceita por Ana» —, não um «erro ao aceitar» que o mandaria recarregar a tela para descobrir
+sozinho o que o servidor já sabia.
+
+Medido: 2 cliques simultâneos → 1 vencedor. **20 cliques simultâneos → 1 vencedor.**
+
+### 3. 👁 Espiar — ver sem assumir, e ficar registrado
+
+Como no chat que a empresa usa hoje, há o **botão do olho**: abre a conversa **em leitura**, sem
+tomá-la para si. Vale para a **fila dos setores de que a pessoa participa** — e **não** para conversa
+que já está com um colega: essa continua invisível, como sempre foi.
+
+**Toda espiada fica na auditoria**: quem espiou, qual conversa, quando. Ver conversa de cliente é
+ato que se registra. Abrir a *própria* conversa não gera registro — isso é o trabalho, já registrado
+no aceite, e carimbar cada abertura encheria a auditoria de ruído até ninguém mais a ler.
+
+### 4. ⛔ Escrever só se for sua — e quem recusa é o servidor
+
+Sem atribuição, **o campo de escrita não existe**. No lugar dele aparece a frase que explica o
+porquê e o botão que resolve.
+
+**E a trava não é a tela.** Um atendente que mandar a mensagem direto pela API, com a sessão dele,
+numa conversa que não é dele, **é recusado pelo servidor**. Esconder o campo no navegador não teria
+impedido nada; isto impede.
+
+**O administrador também precisa aceitar para escrever** — e essa foi uma decisão, não um esquecimento.
+Mensagem sem dono é responsabilidade que se perde: seis meses depois, «quem respondeu isso?» fica sem
+resposta. O que o administrador tem a mais é **«Assumir para mim»**: toma a conversa de quem estiver
+com ela, num clique — e o clique **fica registrado como transferência**, com o nome dele.
+
+Há também a **nota interna**: fica na conversa para a equipe, e o cliente não recebe.
+
+### 5. ⭐ Transferir — para outro atendente e/ou outro setor
+
+O botão que faltava. Escolhe-se a pessoa, o setor, ou os dois; escreve-se o motivo (que vira
+relatório) e uma observação para quem receber. Dá para avisar o cliente, se quiser.
+
+**A conversa muda de dono na hora — e com ela muda quem a enxerga.** Quem recebeu já a vê e já pode
+responder; quem mandou deixa de vê-la no mesmo instante. Não há espera nem atualização de tela: a
+regra de visibilidade é uma condição de consulta, então mudou a linha, mudou a resposta.
+
+**Transferir para um setor sem escolher atendente devolve a conversa à fila daquele setor** — quem
+for membro dele já a encontra na aba «Aguardando».
+
+Tudo fica registrado: de quem, para quem, quando, por quê, e quem mandou.
+
+### 6. O histórico da conversa transferida — a decisão, escrita
+
+A conversa **vai inteira** para o setor novo: quem recebe lê tudo o que já foi dito dentro dela.
+O que **não** vai junto é o histórico das **outras** conversas daquele cliente no setor de origem —
+essas continuam invisíveis para quem recebeu.
+
+É deliberado. Se o histórico seguisse a transferência, uma única transferência abriria o histórico
+inteiro de outro setor — exatamente o que o dono proibiu ao dizer *«os históricos devem ficar a cada
+setor e não global»*. A ponte entre os dois lados é a **nota interna da transferência**, que quem
+recebe lê dentro da própria conversa.
+
+### O que foi provado, e por observação
+
+**54 medições** contra PostgreSQL de verdade e a API de verdade
+(`app/tests/ragnabot-mesa-atender.test.mjs`), entre elas: a corrida com vencedor único; a recusa de
+escrita pela API; a espiada que não atribui e fica auditada; a transferência que muda quem vê na
+hora; o histórico que **não** atravessa a fronteira de setor. Mais **33 medições** da tela
+(`app/web/tests/caixa.smoke.mjs`), incluindo que o campo de escrita **não é renderizado** sem
+atribuição e que o endereço da mídia é o do nosso painel.
+
+De passagem, a rede de segurança irmã (o teste de isolamento do S2) **estava quebrada em silêncio**
+desde uma migração anterior e voltou a rodar: 63 medições verdes.
+
+### O que ficou de fora, e é bom dizer
+
+- **Respostas rápidas pelo atalho `/`** dentro da conversa: **não entrou**. O recurso existe e tem
+  tela própria; ligá-lo ao campo de escrita é trabalho separado, e fazer pela metade seria pior.
+- **Atualização automática** da conversa aberta: hoje o histórico recarrega quando você age. Nova
+  mensagem do cliente aparece ao reabrir ou ao responder.
+- **Enviar anexo** pela nossa tela: só recebemos mídia; mandar arquivo ainda é pela tela do
+  fornecedor.
+
+---
+
 ## v1.12.01 — Dá para ligar as caixas do fluxo (03/09/2026)
 
 A frase que resume: **tocar o conector abria, por cima do nó de destino, o painel que mandava tocar

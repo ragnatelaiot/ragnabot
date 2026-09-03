@@ -1036,6 +1036,57 @@ export async function comoAdminDaEmpresaMultipart(tenantId, caminhoOuFabrica, fo
   return requisitar(cliente, 'post', caminho, formulario);
 }
 
+/**
+ * A MESMA chamada de `comoAdminDaEmpresa`, mas devolvendo BYTES — para mídia.
+ *
+ * POR QUE EXISTE (contrato S-ATENDER, 03/09/2026): a conversa aberta na nossa tela precisa mostrar
+ * a foto, o áudio e o documento que o cliente mandou. A plataforma devolve, em cada anexo, um
+ * `data_url` — e esse endereço **não pode chegar ao navegador**: ele aponta para o host da
+ * plataforma, que de dentro do cluster é alcançado por outra rota (ver `plataforma-alvo.js`), e
+ * entregá-lo cru seria publicar endereço interno na tela. Então o painel BAIXA o arquivo e o
+ * entrega ele mesmo.
+ *
+ * ⚠️ SÓ O CAMINHO do `data_url` é usado; o host é descartado e substituído pelo alvo interno. É o
+ * que faz a mídia funcionar de dentro do Kubernetes (a rota pública sofre hairpin NAT, defeito já
+ * medido e registrado no cabeçalho de `montarCliente`).
+ *
+ * ⚠️ `maxRedirects` aqui é 3, e não 0 como no resto do arquivo: o Active Storage do Rails serve
+ * anexo por REDIRECIONAMENTO (`/rails/active_storage/blobs/redirect/…`). Com 0 a resposta seria um
+ * 302 tratado como erro, e nenhuma mídia jamais abriria.
+ *
+ * @returns {Promise<{bytes:Buffer, tipo:string, tamanho:number}>}
+ */
+export async function comoAdminDaEmpresaBinario(tenantId, caminhoOuFabrica) {
+  const t = await exigirTenant(tenantId);
+  const token = await tokenDeAdminDoTenant(t.cwAdminUserId);
+  const caminho = typeof caminhoOuFabrica === 'function' ? caminhoOuFabrica(t.cwAccountId) : caminhoOuFabrica;
+  const alvo = alvoDaPlataforma(URL_PUBLICA);
+  const cliente = axios.create({
+    baseURL: alvo.baseURL,
+    timeout: TEMPO_LIMITE_MS,
+    responseType: 'arraybuffer',
+    ...(alvo.hostname ? { httpsAgent: new https.Agent({ servername: alvo.hostname, keepAlive: false }) } : {}),
+    headers: { ...(alvo.hostname ? { Host: alvo.hostname } : {}), api_access_token: token },
+    maxRedirects: 3,
+    validateStatus: () => true,
+  });
+  let resp;
+  try {
+    resp = await cliente.request({ method: 'get', url: caminho });
+  } catch (e) {
+    throw new ErroPlataforma(`Falha de rede ao buscar a mídia na plataforma (${caminho}): ${redigir(e.message)}`, { caminho });
+  }
+  if (resp.status < 200 || resp.status >= 300) {
+    throw new ErroPlataforma(`A plataforma respondeu ${resp.status} ao buscar a mídia.`, { status: resp.status, caminho });
+  }
+  const bytes = Buffer.from(resp.data);
+  return {
+    bytes,
+    tipo: String(resp.headers?.['content-type'] || 'application/octet-stream').split(';')[0].trim(),
+    tamanho: bytes.length,
+  };
+}
+
 /** Lista as caixas de entrada AO VIVO na plataforma (fonte da verdade). */
 export async function listarCaixas(tenantId, { db = prisma } = {}) {
   // `db` é a MESMA costura de `sincronizarCaixas`: permite medir a leitura da plataforma DE VERDADE
@@ -1763,4 +1814,5 @@ export default {
   conferirCaixaRegistrada, exigirCaixaRegistrada, identificadorDaCaixa,
   sincronizarCaixasDeTodasAsEmpresas, iniciarSincronizacaoDeCaixas, estadoDaSincronizacaoDeCaixas,
   listarAgentes, convidarAgente,
+  comoAdminDaEmpresaBinario,
 };
